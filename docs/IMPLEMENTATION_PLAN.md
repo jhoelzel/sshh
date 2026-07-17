@@ -2,101 +2,100 @@
 
 ## 1. Implementation Status
 
-The macOS core slices through M8, the productivity, favorites, and notification
-portions of M9, and the terminal, connection-policy, resumable-transfer,
-transfer-policy, and notification portions of M10 are implemented. The
-repository contains a Wails v2 host, embedded React
-and strict TypeScript frontend, xterm.js terminal controllers, a real Unix PTY
-adapter, strict SSH and known-host adapters, SFTP, saved tunnel state, and
-lease-owned runtime managers with bounded bridge flow control.
+The macOS core feature slices through M9, plus the terminal,
+connection-policy, resumable-transfer, transfer-policy, and notification
+portions of M10, are implemented. The repository contains a Wails v2 host, an
+embedded React and strict TypeScript frontend, xterm.js terminal controllers,
+a real Unix PTY adapter, strict SSH and known-host adapters, SFTP, saved tunnel
+state, and lease-owned runtime managers with bounded bridge flow control.
 
 Implemented and verified:
 
-- No shell starts with the application; local PTYs start only from an explicit
+- [x] No shell starts with the application; local PTYs start only from an explicit
   profile action and always have a visible tab.
-- Session IDs, generations, and renewable frontend leases reject stale bridge
+- [x] Session IDs, generations, and renewable frontend leases reject stale bridge
   traffic and close resources after frontend loss.
-- PTY output is held until the xterm controller activates, sent as ordered
+- [x] PTY output is held until the xterm controller activates, sent as ordered
   chunks, and bounded by a cumulative acknowledgement window.
-- Terminal input is ordered and idempotent, resize is validated and debounced,
+- [x] Terminal input is ordered and idempotent, resize is validated and debounced,
   and close escalates from hangup to termination to kill within bounded time.
-- The macOS arm64 application launches as a self-signed `.app` with all
+- [x] The macOS arm64 application launches as a self-signed `.app` with all
   frontend assets embedded in its Go executable.
-- Profiles use a strict versioned schema, atomic private-file replacement,
+- [x] Profiles use a strict versioned schema, atomic private-file replacement,
   external-change detection, and legacy migration backup.
-- Profile exchange uses a versioned credential-field-free JSON document,
+- [x] Profile exchange uses a versioned credential-field-free JSON document,
   private atomic exports, and one-save imports. Concrete OpenSSH hosts import
   with first-value precedence and visible diagnostics; unsafe proxy directives
   are skipped rather than converted into unintended direct connections.
-- One-off SSH quick connect creates only a validated transient profile. It
+- [x] One-off SSH quick connect creates only a validated transient profile. It
   reuses strict host-key and authentication workflows and can open a terminal
   without writing profile configuration.
-- SSH supports explicit first-use trust, changed-key rejection, agent, key,
+- [x] SSH supports explicit first-use trust, changed-key rejection, agent, key,
   password, and keyboard-interactive authentication without persisting secrets.
-- Connection policy uses a migrated validated settings schema. Configurable
+- [x] Connection policy uses a migrated validated settings schema. Configurable
   deadlines bound host-key probes, TCP connection, and SSH handshake setup;
   connection-group-owned keepalives detect unanswered transports for terminals,
   SFTP, and tunnels without opening any connection at application startup.
-- Reference-counted SSH connection groups share one authenticated client across
+- [x] Reference-counted SSH connection groups share one authenticated client across
   overlapping terminal, SFTP, and tunnel leases. Concurrent first opens use one
   dial, feature closes remain isolated, and the final lease closes the client,
   keepalive coordinator, and connection waiter.
-- SFTP operations stream through a live-configurable bounded worker pool and
+- [x] SFTP operations stream through a live-configurable bounded worker pool and
   atomic partial files. Ask, overwrite, skip, and keep-both collision policies
   are enforced by the backend with in-flight destination reservations; the file
   workspace exposes navigation, upload, download, rename, delete, mkdir, chmod,
   progress, and cancellation.
-- Opt-in resumable uploads and downloads persist private versioned metadata
+- [x] Opt-in resumable uploads and downloads persist private versioned metadata
   before copying, survive application restart, and expose only explicit Resume
   and Discard actions inside a matching visible SFTP workspace. Upload resume
   verifies source, prefix, and completed-partial SHA-256 integrity; download
   resume validates remote metadata, partial type and size, and file identity
   throughout the resumed operation.
-- Profile favorites sort saved connections first. Remote-path favorites use a
+- [x] Profile favorites sort saved connections first. Remote-path favorites use a
   separate strict private store keyed by saved SSH profile and expose explicit
   star-toggle and quick-navigation controls inside an open SFTP workspace.
-- Local, remote, and SOCKS5 tunnels have saved independent models, loopback
+- [x] Local, remote, and SOCKS5 tunnels have saved independent models, loopback
   defaults, guarded public binds, lifecycle events, bounded relays, cancellation,
   retry, and explicitly enabled auto-start.
-- Command snippets use a strict private store, validated variables, an exact
+- [x] Command snippets use a strict private store, validated variables, an exact
   backend-rendered preview, explicit live targets, and confirmation for
   multi-terminal execution.
-- Session logging is opt-in, output-only, privately stored, timestamp-capable,
+- [x] Session logging is opt-in, output-only, privately stored, timestamp-capable,
   bounded by rotation, visible while active, and owned by terminal shutdown.
-- Terminal defaults for font, size, spacing, cursor, scrollback, and bell use a
+- [x] Terminal defaults for font, size, spacing, cursor, scrollback, and bell use a
   validated versioned store, apply live to open controllers, and reset
   durably.
-- Native notifications are disabled by default, request OS authorization only
+- [x] Native notifications are disabled by default, request OS authorization only
   from an explicit Settings action, and can report long completed transfers or
   failed terminal sessions. Preferences migrate through the versioned settings
   store; payloads are bounded and omit full paths, contents, and credentials.
-- The command palette searches grouped connection, profile, navigation, and
+- [x] The command palette searches grouped connection, profile, navigation, and
   active-terminal actions. Arrow-key operation and non-conflicting
   `Cmd/Ctrl+Shift` shortcuts work without intercepting ordinary shell input.
-- Terminal text actions copy the current xterm viewport through the native
+- [x] Terminal text actions copy the current xterm viewport through the native
   clipboard and export exact selections through a native Save dialog. Export
   names are sanitized and files are bounded, private, synced, and atomically
   replaced.
-- Workspace layouts use a strict versioned private store and retain only
+- [x] Workspace layouts use a strict versioned private store and retain only
   ordered profile references, display snapshots, and the selected index.
   Restore creates disconnected frontend tabs with no process or network
   resource; each tab reconnects explicitly through the normal trust and
   credential workflow.
-- Go race tests cover managers and adapters. Real loopback integration tests
+- [x] Go race tests cover managers and adapters. Real loopback integration tests
   cover PTY, shared multi-channel SSH terminal lifetime, terminal resize/exit,
   SFTP operations, and bidirectional local, remote, and SOCKS forwarding.
   TypeScript, ESLint, Vitest, vet, and production builds pass.
 
 Still required for the complete cross-platform and 1.0 gates:
 
-- ConPTY support and Windows validation.
-- Multi-session fairness and the documented throughput, memory, and long-run
+- [ ] ConPTY support and Windows validation.
+- [ ] Multi-session fairness and the documented throughput, memory, and long-run
   stress measurements.
-- Accessibility-driven native interaction automation or a dedicated Wails E2E
+- [ ] Accessibility-driven native interaction automation or a dedicated Wails E2E
   harness. macOS launch and frontend attachment are verified today; runtime
   behavior is also exercised below the WebView boundary.
-- Remaining reconnect, proxy, known-hosts, and agent settings.
-- Signed/notarized macOS releases, Linux packaging validation, Windows WebView2
+- [ ] Remaining reconnect, proxy, known-hosts, and agent settings.
+- [ ] Signed/notarized macOS releases, Linux packaging validation, Windows WebView2
   and ConPTY implementation, native CI, accessibility review, and long-run
   soak/performance evidence.
 
@@ -106,26 +105,28 @@ Still required for the complete cross-platform and 1.0 gates:
 
 Version 1.0 will be a production-usable MobaXterm-style core client with:
 
-- A native desktop workspace with searchable profiles and multiple session
+- [x] A native desktop workspace with searchable profiles and multiple session
   tabs.
-- Interactive local shells using a real pseudoterminal.
-- Interactive SSH shells with password, keyboard-interactive, private-key, and
+- [x] Interactive local shells using a real pseudoterminal on macOS and Linux.
+- [x] Interactive SSH shells with password, keyboard-interactive, private-key, and
   SSH-agent authentication.
-- Strict SSH host-key verification and an explicit first-connection trust flow.
-- A usable xterm-compatible terminal with colors, Unicode, scrollback,
+- [x] Strict SSH host-key verification and an explicit first-connection trust flow.
+- [x] A usable xterm-compatible terminal with colors, Unicode, scrollback,
   selection, clipboard, keyboard shortcuts, resize, alternate screen, and mouse
   reporting.
-- UTF-8 terminal sessions in 1.0. Legacy character-set conversion is a
+- [x] UTF-8 terminal sessions in 1.0. Legacy character-set conversion is a
   post-1.0 feature and is never guessed silently from terminal output.
-- Profile create, edit, duplicate, delete, import, group, tag, and quick-connect
+- [x] Profile create, edit, duplicate, delete, import, group, tag, and quick-connect
   workflows.
-- Local and remote file browsing over SFTP, including a visible transfer queue.
-- Saved local, remote, and dynamic SSH tunnels with explicit lifecycle state.
-- Session logs, snippets, and guarded multi-session input.
-- Settings for shell, terminal, appearance, connection behavior, and data
-  locations.
-- Native macOS, Linux, and Windows builds from one Go codebase.
-- One self-contained application package per target. Frontend assets are
+- [ ] Add a dedicated local file pane beside the implemented remote SFTP browser
+  and visible transfer queue.
+- [x] Saved local, remote, and dynamic SSH tunnels with explicit lifecycle state.
+- [x] Session logs, snippets, and guarded multi-session input.
+- [ ] Complete settings for shell, terminal, appearance, connection behavior,
+  and data locations.
+- [ ] Native macOS, Linux, and Windows builds from one Go codebase. macOS arm64
+  is the currently verified native package target.
+- [ ] One self-contained application package per target. Frontend assets are
   embedded in the Go executable and no helper daemon, local web server, Node
   runtime, or sidecar executable is required. Platform WebViews and system
   frameworks are treated as operating-system prerequisites.
@@ -172,51 +173,51 @@ and acceptance criteria are in `docs/REMOTE_PROJECTS_PLAN.md`.
 
 ### 3.1 Session Visibility and Background Work
 
-- Starting the application starts no shell and opens no network connection.
-- A local process starts only after the user chooses New Local Terminal or
+- [x] Starting the application starts no shell and opens no network connection.
+- [x] A local process starts only after the user chooses New Local Terminal or
   connects a local profile.
-- An SSH connection starts only after the user explicitly connects a profile.
-- Restoring a saved workspace creates disconnected tabs only; it never opens a
+- [x] An SSH connection starts only after the user explicitly connects a profile.
+- [x] Restoring a saved workspace creates disconnected tabs only; it never opens a
   PTY, SSH transport, SFTP session, tunnel, or other network resource.
-- Every running terminal has a visible tab and state indicator.
-- An unfocused tab may continue running, as normal terminal tabs do, but it is
+- [x] Every running terminal has a visible tab and state indicator.
+- [x] An unfocused tab may continue running, as normal terminal tabs do, but it is
   never invisible background work.
-- A live Go runtime belongs to one frontend lease and one session generation.
+- [x] A live Go runtime belongs to one frontend lease and one session generation.
   Stale commands and events from an older frontend or session generation are
   rejected.
-- A frontend reload, crash, or replacement cannot leave an unowned process or
+- [x] A frontend reload, crash, or replacement cannot leave an unowned process or
   connection running. While live resources exist, a lightweight frontend lease
   is renewed; losing it starts bounded shutdown unless a deliberately designed
   reattachment protocol is added later.
-- Closing a running tab prompts when needed, terminates its process or SSH
+- [x] Closing a running tab prompts when needed, terminates its process or SSH
   channel, waits for completion, and removes it from the runtime registry.
-- Closing the main window presents one consolidated confirmation if sessions,
+- [x] Closing the main window presents one consolidated confirmation if sessions,
   transfers, or tunnels are active. Confirming shutdown stops all of them.
-- The application has no tray-only mode and leaves no daemon or child shell
+- [x] The application has no tray-only mode and leaves no daemon or child shell
   behind after normal exit.
-- Only one application instance owns the runtime and writable configuration.
+- [x] Only one application instance owns the runtime and writable configuration.
   A secondary launch focuses the existing window and passes it any supported
   launch request.
-- Tunnels and transfers may continue while another tab is selected, but they
+- [ ] Tunnels and transfers may continue while another tab is selected, but they
   remain visible in a global Activity view.
 
 ### 3.2 Failure Behavior
 
-- Failed connections become visible failed sessions with a useful reason and a
+- [ ] Failed connections become visible failed sessions with a useful reason and a
   Retry action.
-- Network loss never pretends that a session is connected.
-- Frontend loss is a lifecycle failure, not an invitation to buffer terminal
+- [x] Network loss never pretends that a session is connected.
+- [x] Frontend loss is a lifecycle failure, not an invitation to buffer terminal
   output indefinitely. Backend and bridge queues remain bounded while the
   frontend lease expires, then all lease-owned resources close.
-- Development hot reload follows the same ownership rule. Version 1.0 closes
+- [x] Development hot reload follows the same ownership rule. Version 1.0 closes
   active runtimes on frontend replacement instead of attempting an unsafe
   implicit reattachment.
-- Terminal sessions are not silently resumed because an arbitrary shell cannot
+- [x] Terminal sessions are not silently resumed because an arbitrary shell cannot
   be resumed safely. Reconnect opens a new channel; tmux or screen remains the
   user's explicit persistence mechanism.
-- Partial file downloads use a temporary name and are never presented as
+- [x] Partial file downloads use a temporary name and are never presented as
   complete files.
-- A host-key mismatch is a hard failure, not a warning that can be casually
+- [x] A host-key mismatch is a hard failure, not a warning that can be casually
   bypassed.
 
 ## 4. Architecture
@@ -608,117 +609,128 @@ native platform matrix passes.
 Each milestone ends in a runnable application. Placeholder tabs and fake
 connected states are not considered progress once their milestone begins.
 
+Progress notation:
+
+- [x] Implemented and supported by code, tests, or recorded macOS verification.
+- [ ] Outstanding, only partially implemented, or still missing its stated exit
+  evidence. A milestone remains open until every required native gate passes.
+
 ### M0: Foundation and Engineering Gates
 
 Deliverables:
 
-- Record the accepted Wails v2, React/TypeScript, and xterm.js decision in an
+- [x] Record the accepted Wails v2, React/TypeScript, and xterm.js decision in an
   ADR, including alternatives and the M1 validation gate.
-- Preserve backend behavior with tests, scaffold the Wails host and frontend,
+- [x] Preserve backend behavior with tests, scaffold the Wails host and frontend,
   then remove Fyne and its transitive dependencies.
-- Pin an exact stable Go toolchain, Node 24 LTS release, npm, Wails CLI, Go
+- [x] Pin an exact stable Go toolchain, Node 24 LTS release, npm, Wails CLI, Go
   dependencies, and frontend dependencies. Configure strict TypeScript, React
-  StrictMode, linting,
-  formatting, frontend unit tests, `package-lock.json`, and reproducible
-  `npm ci` builds.
-- Generate or validate Go-to-TypeScript bridge contracts in CI.
-- Record process lifecycle, SSH trust, secrets, WebView security, and
+  StrictMode, linting, formatting, frontend unit tests, `package-lock.json`, and
+  reproducible `npm ci` builds.
+- [ ] Generate or validate Go-to-TypeScript bridge contracts in CI.
+- [x] Record process lifecycle, SSH trust, secrets, WebView security, and
   single-application distribution decisions.
-- Replace the current generic backend package shape with domain, use-case, port,
-  and adapter boundaries as code is touched.
-- Introduce typed errors and structured state transitions.
-- Establish `go test`, race tests, formatting, linting, vulnerability scanning,
-  frontend dependency checks, and native build checks.
-- Add build metadata: semantic version, commit, build date, and dirty state.
-- Add a root application context and coordinated shutdown service.
-- Configure `OnStartup`, `OnDomReady`, `OnBeforeClose`, and `OnShutdown` with
+- [x] Replace the current generic backend package shape with domain, use-case,
+  port, and adapter boundaries as code is touched.
+- [ ] Introduce a consistent typed error taxonomy. Structured state transitions
+  are implemented, while several bridge-facing paths still return contextual
+  ordinary errors.
+- [ ] Establish automated vulnerability scanning and frontend dependency checks.
+  Local `go test`, race, formatting, TypeScript, Vitest, ESLint, vet, frontend
+  production, and native macOS build checks are implemented.
+- [ ] Add build metadata: semantic version, commit, build date, and dirty state.
+- [x] Add a root application context and coordinated shutdown service.
+- [x] Configure `OnStartup`, `OnDomReady`, `OnBeforeClose`, and `OnShutdown` with
   idempotent ownership, and enable `SingleInstanceLock` before writable config
   migration begins.
-- Lock bridge origins to embedded content, disable production developer tools
+- [x] Lock bridge origins to embedded content, disable production developer tools
   and the default context menu, block remote navigation, and verify that the
   production build starts no HTTP listener.
-- Remove fake active-session counts and the example.com default profile.
-- Keep only actions that perform real work; unfinished features remain absent
+- [x] Remove fake active-session counts and the example.com default profile.
+- [x] Keep only actions that perform real work; unfinished features remain absent
   rather than showing success-like placeholders.
 
 Tests and exit gate:
 
-- Current config behavior is covered before migration.
-- The application starts and exits without spawning a child process.
-- Repeated startup and shutdown leave no goroutines or files open.
-- A second application launch focuses the first instance and exits without
+- [x] Current config behavior is covered before migration.
+- [x] The application starts and exits without spawning a child process.
+- [ ] Repeated startup and shutdown leave no goroutines or files open.
+- [ ] A second application launch focuses the first instance and exits without
   opening a second writable config store.
-- React StrictMode's development remount does not duplicate bridge listeners,
+- [ ] React StrictMode's development remount does not duplicate bridge listeners,
   controllers, commands, or backend resources.
-- The Wails application builds and launches as an arm64 `.app` on the current
+- [x] The Wails application builds and launches as an arm64 `.app` on the current
   Mac using the system WKWebView.
-- Native macOS, Linux, and Windows CI jobs build the desktop shell, using
+- [ ] Native macOS, Linux, and Windows CI jobs build the desktop shell, using
   temporary stubs only for platform adapters not reached by the UI.
-- Production assets load from the embedded filesystem with networking disabled.
+- [x] Production assets load from the embedded filesystem without a runtime Node
+  process or local HTTP server.
 
 ### M1: Wails and xterm.js End-to-End Terminal Proof
 
 Deliverables:
 
-- Pin a stable xterm.js release and the stable fit and search addons.
-- Build a `TerminalController` that owns xterm outside React state and disposes
+- [x] Pin a stable xterm.js release and the stable fit and search addons.
+- [x] Build a `TerminalController` that owns xterm outside React state and disposes
   every listener and addon deterministically. React only attaches its persistent
   host element and never opens a runtime from a mount effect.
-- Implement the typed Wails commands and lifecycle/output events for a single
+- [x] Implement the typed Wails commands and lifecycle/output events for a single
   diagnostic terminal.
-- Implement the frontend attachment lease, active-resource-only renewal, lease
+- [x] Implement the frontend attachment lease, active-resource-only renewal, lease
   expiry, and session generation checks. Frontend replacement closes the
   diagnostic runtime within the shutdown budget.
-- Implement a minimal Darwin PTY adapter sufficient for a real local shell
+- [x] Implement a minimal Darwin PTY adapter sufficient for a real local shell
   spike, with explicit process cleanup.
-- Preserve raw PTY bytes through output events containing lease ID, session ID,
+- [x] Preserve raw PTY bytes through output events containing lease ID, session ID,
   generation, sequence, raw byte count, byte-safe payload, and final marker.
-- Implement a cumulative byte-credit window with the provisional batch and
-  queue limits, high/low watermarks, bounded frontend/backend queues, and
-  transport backpressure.
-- Connect both xterm `onData` and `onBinary` through one ordered input queue.
+- [x] Implement a cumulative byte-credit window with bounded batch sizes,
+  frontend/backend queues, and transport backpressure.
+- [x] Connect both xterm `onData` and `onBinary` through one ordered input queue.
   Add monotonic input sequence numbers, bounded in-flight writes, large-paste
   chunking, and debounced/coalesced resize without routing bytes through React
   state.
-- Prioritize input, resize, close, and lifecycle traffic and fairly schedule
+- [ ] Prioritize input, resize, close, and lifecycle traffic and fairly schedule
   output across diagnostic sessions used by the stress harness.
-- Implement fit, scrollback, selection, copy, bracketed paste, search, focus,
+- [x] Implement fit, scrollback, selection, copy, bracketed paste, search, focus,
   terminal title, and bell indication using stable public APIs.
-- Use xterm's standard renderer first. Evaluate WebGL only as an optional
-  acceleration path with automatic fallback.
-- Allow only sanitized HTTP and HTTPS links to open through the operating
-  system. Disable remote navigation and OSC 52 clipboard writes by default.
-- Add a production Content Security Policy and disable production developer
+- [x] Use xterm's standard renderer and keep WebGL disabled by default.
+- [ ] Evaluate WebGL only as an optional measured acceleration path with
+  automatic fallback.
+- [ ] Allow only sanitized HTTP and HTTPS links to open through the operating
+  system.
+- [x] Disable remote navigation and OSC 52 clipboard writes by default.
+- [x] Add a production Content Security Policy and disable production developer
   tools and unneeded WebView capabilities.
 
 Tests and exit gate:
 
-- The real shell supports typing, Ctrl+C, resize, paste, selection, copy,
+- [x] The real shell supports typing, Ctrl+C, resize, paste, selection, copy,
   scrollback, and clean exit on the current Apple Silicon Mac.
-- `vim`, `less`, `top`, `tmux`, color output, Unicode, emoji, combining marks,
+- [ ] `vim`, `less`, `top`, `tmux`, color output, Unicode, emoji, combining marks,
   and IME input render and behave correctly.
-- Sequence tests prove no duplicated, reordered, or silently dropped chunks.
-- Duplicate cumulative acknowledgements are harmless; stale commands and late
+- [x] Sequence tests prove no duplicated, reordered, or silently dropped chunks.
+- [x] Duplicate cumulative acknowledgements are harmless; stale commands and late
   events from an old generation or frontend lease are rejected or discarded.
-- Interleaved `onData`, `onBinary`, and paste input reaches the PTY in callback
+- [ ] Interleaved `onData`, `onBinary`, and paste input reaches the PTY in callback
   order, including binary mouse reports, while resize delivers the final size.
-- Invalid UTF-8 and malformed terminal streams do not crash Go, Wails, or the
+- [ ] Invalid UTF-8 and malformed terminal streams do not crash Go, Wails, or the
   WebView.
-- A 10 MiB output burst remains interactive and memory stays within explicit
+- [ ] A 10 MiB output burst remains interactive and memory stays within explicit
   queue and scrollback caps and passes the provisional latency, fairness, and
   completion budgets in section 5.3.
-- The same flood in one diagnostic session cannot starve input, lifecycle
+- [ ] The same flood in one diagnostic session cannot starve input, lifecycle
   events, or a second low-volume diagnostic session.
-- Repeated React StrictMode attach/detach cycles and a frontend reload create no
+- [ ] Repeated React StrictMode attach/detach cycles and a frontend reload create no
   duplicate shell and leave no old-lease shell running.
-- Minimizing the window, a deliberate main-thread stall, and system sleep/wake
+- [ ] Minimizing the window, a deliberate main-thread stall, and system sleep/wake
   do not expire a healthy frontend lease. Simulated frontend loss does expire it
   and reap the shell within the measured bounded grace period.
-- Closing the tab or window during heavy output reaps the shell and returns
+- [ ] Closing the tab or window during heavy output reaps the shell and returns
   goroutine, descriptor, and bridge-listener counts to baseline.
-- `OnBeforeClose` performs the visible decision and coordinated shutdown;
+- [x] `OnBeforeClose` performs the visible decision and coordinated shutdown;
   `OnShutdown` remains safe when invoked after frontend destruction.
-- A packaged arm64 macOS `.app` passes the same smoke workflow.
+- [x] A packaged arm64 macOS `.app` passes the launch and frontend-attachment
+  smoke workflow; the broader TUI and stress matrix remains open above.
 
 If this end-to-end gate fails, implementation stops before broader UI work and
 the host/bridge design is revisited using the measurements. It does not fall
@@ -728,35 +740,40 @@ back to a hand-built terminal emulator by default.
 
 Deliverables:
 
-- Implement the common `TerminalTransport` contract.
-- Productionize Unix PTY startup, input, output, resize, signal, wait, and
-  cleanup from the M1 Darwin spike, then add Linux coverage.
-- Implement Windows ConPTY startup, input, output, resize, wait, and cleanup.
-- Add local shell discovery and profile options for executable, arguments,
-  working directory, environment overrides, and login-shell behavior.
-- Wire explicit New Local Terminal and Connect actions to a live runtime.
-- Replace the scaffold terminal label with reusable xterm-backed session tabs.
-- Update title, exit status, running duration, and current directory when safely
-  available through terminal metadata.
-- Make Ctrl+C, Ctrl+D, Ctrl+Z, resize, paste, and full-screen TUI applications
+- [x] Implement the common `TerminalTransport` contract.
+- [x] Productionize Unix PTY startup, input, output, resize, signal, wait, and
+  process-group cleanup for Darwin and Linux builds.
+- [ ] Add native Linux PTY and WebKitGTK coverage.
+- [ ] Implement Windows ConPTY startup, input, output, resize, wait, and cleanup.
+- [x] Add local shell discovery and profile options for executable, arguments,
+  working directory, and login-shell behavior.
+- [ ] Expose profile environment overrides in the frontend editor; the backend
+  model and PTY environment merge already support them.
+- [x] Wire explicit New Local Terminal and Connect actions to a live runtime.
+- [x] Replace the scaffold terminal label with reusable xterm-backed session tabs.
+- [x] Update terminal title and visible exit status from runtime metadata.
+- [ ] Add running duration and current-directory reporting when safely available.
+- [x] Make Ctrl+C, Ctrl+D, Ctrl+Z, resize, paste, and full-screen TUI applications
   behave correctly.
-- Implement close escalation: request graceful exit, wait briefly, terminate the
+- [x] Implement close escalation: request graceful exit, wait briefly, terminate the
   process group, then force kill only if required.
-- Always reap the child process.
+- [x] Always reap the child process.
 
 Tests and exit gate:
 
-- Integration tests execute `printf`, read input, report the PTY size, resize,
-  return an exit code, and terminate a child process tree.
-- Closing a tab leaves no process, file descriptor, goroutine, or runtime entry.
-- Closing the application with a running shell follows the confirmation and
+- [ ] Expand integration tests beyond the current `printf`, initial PTY-size, and
+  exit-code coverage to read input, resize an active PTY, and terminate a child
+  process tree.
+- [ ] Closing a tab returns process, file descriptor, goroutine, and runtime
+  counts to baseline under a native leak test.
+- [x] Closing the application with a running shell follows the confirmation and
   cleanup contract.
-- Opening 100 short-lived terminals in a test loop produces no lifecycle leak.
-- No shell starts on application launch or mere profile selection.
-- Native Windows tests cover WebView focus restoration, forward and reverse tab
+- [ ] Opening 100 short-lived terminals in a test loop produces no lifecycle leak.
+- [x] No shell starts on application launch or mere profile selection.
+- [ ] Native Windows tests cover WebView focus restoration, forward and reverse tab
   traversal, AltGr, IME composition, clipboard shortcuts, ConPTY resize, and
   close during output; browser-only tests do not satisfy this gate.
-- Native Linux tests cover WebKitGTK focus, clipboard, PTY resize, process-group
+- [ ] Native Linux tests cover WebKitGTK focus, clipboard, PTY resize, process-group
   cleanup, and the documented minimum runtime version.
 
 This is the first production-quality milestone that turns the proof into a real
@@ -766,98 +783,103 @@ cross-platform program.
 
 Deliverables:
 
-- Add closeable, reorderable session tabs with protocol and state icons.
-- Add keyboard navigation, new-tab commands, tab search, and focus restoration.
-- Support multiple simultaneous terminal runtimes without shared mutable xterm
+- [x] Add closeable session tabs with protocol and state indicators.
+- [ ] Add session-tab reordering.
+- [x] Add keyboard-operated new-terminal commands and focus restoration.
+- [ ] Add tab search and explicit keyboard tab-navigation commands.
+- [x] Support multiple simultaneous terminal runtimes without shared mutable xterm
   controllers or React component state.
-- Keep one persistent terminal host/controller per open tab. Hidden tabs retain
+- [x] Keep one persistent terminal host/controller per open tab. Hidden tabs retain
   terminal state without repaint work, are not unmounted by ordinary tab
   selection, and refit when made visible.
-- Cap open-session resources and scrollback. If optional WebGL is enabled, use
-  it only for visible panes under a tested graphics-context cap.
-- Add clear connecting, connected, disconnected, failed, and exited states.
-- Add Retry, Reconnect in New Tab, Duplicate Tab, Clear Scrollback, Reset
-  Terminal, and Close actions.
-- Add split-terminal layout only after tabs are stable.
-- Add a global Activity view for sessions, transfers, and tunnels.
-- Add a single shutdown coordinator and consolidated close confirmation.
-- Persist window geometry, sidebar width, selected theme, and non-sensitive UI
+- [x] Cap scrollback through validated settings and keep WebGL disabled.
+- [ ] Add an explicit open-session resource cap and test any future visible-pane
+  WebGL context cap.
+- [x] Add clear starting, running, disconnected, failed, exited, and closed states.
+- [x] Add Close and explicit reconnect for restored disconnected tabs.
+- [ ] Add Retry, Reconnect in New Tab, Duplicate Tab, Clear Scrollback, and Reset
+  Terminal actions.
+- [ ] Add split-terminal layout only after tabs are stable.
+- [ ] Add a global Activity view for sessions, transfers, and tunnels.
+- [x] Add coordinated shutdown and consolidated close confirmation.
+- [ ] Persist window geometry, sidebar width, selected theme, and non-sensitive UI
   preferences. Never attempt to resurrect dead processes on restart.
 
 Tests and exit gate:
 
-- State-machine tests reject invalid transitions.
-- Concurrent tab open, output, resize, and close passes the race detector.
-- React component tests and Playwright flows cover focus, shortcuts, tab close,
+- [ ] Add exhaustive state-machine transition rejection tests.
+- [ ] Add a concurrent tab open/output/resize/close race scenario; the existing
+  full Go suite passes the race detector.
+- [ ] React component tests and Playwright flows cover focus, shortcuts, tab close,
   split layout, and shutdown decisions.
-- Native Wails smoke tests cover window close interception and lifecycle hooks.
-- An inactive running tab is still visible and consumes no redraw work unless
-  its model changes.
-- Stress tests cover at least 50 open tabs, sustained output in several hidden
+- [ ] Native Wails smoke tests cover window close interception and lifecycle hooks.
+- [ ] Add measured coverage proving an inactive persistent tab consumes no redraw
+  work unless its model changes.
+- [ ] Stress tests cover at least 50 open tabs, sustained output in several hidden
   tabs, repeated active-tab changes, and deterministic controller disposal.
 
 ### M4: Profiles, Configuration, and Migration
 
 Deliverables:
 
-- Replace the bare profile array with a versioned config document.
-- Add deterministic migrations and backup-before-migration behavior.
-- Preserve atomic writes, add file sync where supported, and enforce private
+- [x] Replace the bare profile array with a versioned config document.
+- [x] Add deterministic migrations and backup-before-migration behavior.
+- [x] Preserve atomic writes, add file sync where supported, and enforce private
   permissions.
-- Add profile CRUD, duplicate, folders/groups, tags, favorites, sorting, and
+- [x] Add profile CRUD, duplicate, folders/groups, tags, favorites, sorting, and
   filtering.
-- Add quick connect without requiring a saved profile.
-- Add protocol-specific forms that show only relevant fields.
-- Add SSH config import for hosts, user, port, and identity files with OpenSSH
+- [x] Add quick connect without requiring a saved profile.
+- [x] Add protocol-specific forms that show only relevant fields.
+- [x] Add SSH config import for hosts, user, port, and identity files with OpenSSH
   first-value precedence. Proxy and other unsupported directives are reported;
   connection-critical options that cannot be represented skip the affected
   host rather than silently changing its route.
-- Add import/export that deliberately excludes runtime IDs, timestamps, and
+- [x] Add import/export that deliberately excludes runtime IDs, timestamps, and
   dedicated credential fields.
-- Add terminal defaults per profile with global fallbacks.
-- Detect external file changes or conflicting edits before overwriting
+- [ ] Add terminal-display defaults per profile with global fallbacks.
+- [x] Detect external file changes or conflicting edits before overwriting
   configuration. Process-level single-instance ownership is already enforced
   from M0.
 
 Tests and exit gate:
 
-- Every schema version has forward migration fixtures.
-- Corrupt and truncated config files produce a recoverable error with backup
+- [x] Every implemented schema migration has a forward fixture.
+- [ ] Corrupt and truncated config files produce a recoverable UI flow with backup
   options.
-- Duplicate IDs and names do not overwrite profiles.
-- Profile validation tests cover IPv4, IPv6, hostnames, ports, shell paths,
-  proxy chains, and invalid combinations.
+- [x] Duplicate IDs and names do not overwrite profiles.
+- [ ] Expand profile validation tests beyond current host, port, name, and IPv6
+  coverage to shell paths, proxy chains, and invalid combinations.
 
 ### M5: Credentials and SSH Trust
 
 Deliverables:
 
-- Implement the cross-platform secret-store port.
-- Add session-only, remember-in-keychain, and SSH-agent credential choices.
-- Prefer agent and keychain choices before manual password/passphrase entry.
-- Parse unencrypted and encrypted OpenSSH private keys.
-- Prompt for key passphrases and keyboard-interactive challenges without
-  exposing responses in React state, shared frontend stores, browser storage,
-  logs, diagnostics, or immutable profile data. Clear isolated uncontrolled
-  inputs immediately after submission.
-- Read the user's OpenSSH known-hosts file and maintain an application-specific
+- [ ] Implement the cross-platform secret-store port.
+- [x] Add session-only password/passphrase prompts and SSH-agent authentication.
+- [ ] Add remember-in-keychain credential choices and keychain-first lookup.
+- [x] Prefer SSH agent and usable private keys before a manual password prompt.
+- [x] Parse unencrypted and encrypted OpenSSH private keys.
+- [ ] Move key-passphrase, password, and keyboard-interactive entry out of React
+  state. Prompts work today, but the native-prompt/string-lifetime gate remains.
+- [x] Read the user's OpenSSH known-hosts file and maintain an application-specific
   known-hosts file.
-- Show algorithm and SHA-256 fingerprint on first contact.
-- Require explicit trust for a new host and distinguish permanent from
+- [x] Show algorithm and SHA-256 fingerprint on first contact.
+- [x] Require explicit trust for a new host and distinguish permanent from
   session-only trust.
-- Treat changed and revoked keys as hard failures with explanatory details.
-- Add safe diagnostic logging with host and profile IDs but no passwords,
+- [x] Treat changed host keys as hard failures with explanatory details.
+- [ ] Add explicit revoked-key classification and coverage.
+- [ ] Add safe diagnostic logging with host and profile IDs but no passwords,
   passphrases, private keys, terminal contents, or file contents.
 
 Tests and exit gate:
 
-- Mock secret stores cover unavailable, locked, denied, and deleted secrets.
-- Known, unknown, changed, revoked, hashed, IPv6, and non-default-port host keys
-  are covered.
-- Authentication cancellation stops the dial and leaves no partial session.
-- A repository-wide test asserts that serialized profiles never contain secret
+- [ ] Mock secret stores cover unavailable, locked, denied, and deleted secrets.
+- [ ] Expand known-host tests beyond known, unknown, changed, and lease-bound trust
+  to revoked, hashed, IPv6, and non-default-port entries.
+- [ ] Add explicit authentication-cancellation cleanup coverage.
+- [x] Serialized profile and portable exchange schemas contain no credential
   material.
-- Frontend tests prove secret controls never dispatch values to application
+- [ ] Frontend tests prove secret controls never dispatch values to application
   state or persistence. A threat-model review explicitly accepts the WebView
   string-lifetime limitation or requires a native prompt before M6.
 
@@ -865,210 +887,234 @@ Tests and exit gate:
 
 Deliverables:
 
-- Dial with `net.Dialer` and context deadlines, then perform the SSH handshake.
-- Support password, keyboard-interactive, private key, agent, and ordered
+- [x] Dial with `net.Dialer` and context deadlines, then perform the SSH handshake.
+- [x] Support password, keyboard-interactive, private key, agent, and ordered
   fallback authentication.
-- Request an `xterm-256color` PTY with the terminal's actual dimensions.
-- Forward terminal input and output through the common runtime.
-- Send SSH window-change requests after UI resize.
-- Support startup directory and startup command without unsafe string
+- [x] Request an `xterm-256color` PTY with the terminal's actual dimensions.
+- [x] Forward terminal input and output through the common runtime.
+- [x] Send SSH window-change requests after UI resize.
+- [ ] Support startup directory and startup command without unsafe string
   concatenation.
-- Add configurable keepalives and server-alive failure thresholds. Implemented
+- [x] Add configurable keepalives and server-alive failure thresholds. Implemented
   with a global validated policy captured by each new SSH connection, bounded
   unanswered requests, and connection-context cleanup.
-- Add proxy jump through one or more SSH profiles with loop detection.
-- Add optional agent forwarding with a prominent per-profile opt-in.
-- Make disconnect reasons and remote exit status visible.
-- Introduce SSH connection groups and leases for terminal, SFTP, and tunnel
+- [ ] Add proxy jump through one or more SSH profiles with loop detection.
+- [ ] Add optional agent forwarding with a prominent per-profile opt-in.
+- [x] Make disconnect reasons and remote exit status visible.
+- [x] Introduce SSH connection groups and leases for terminal, SFTP, and tunnel
   reuse. Implemented with keyed concurrent-dial serialization, per-feature
   close signals, final-reference teardown, remote-close eviction, and bounded
   application shutdown.
 
 Tests and exit gate:
 
-- Integration fixtures cover each auth method, host-key trust, PTY resize,
-  Unicode, exit status, connection timeout, abrupt disconnect, and cancellation.
-- Proxy-jump and connection-lease lifecycle tests close every hop in reverse
-  order.
-- No code path uses `ssh.InsecureIgnoreHostKey`.
-- Closing the final lease closes the socket and waiter goroutines.
+- [x] Real SSH integration covers password authentication, terminal round-trip,
+  PTY resize/exit, and shared multi-channel connection lifetime.
+- [ ] Expand integration fixtures to every authentication method, host-key trust,
+  Unicode, connection timeout, abrupt disconnect, and cancellation.
+- [ ] Add proxy-jump lifecycle tests that close every hop in reverse order.
+- [x] Connection-pool tests cover final-lease close, canceled waiters, concurrent
+  first dial, remote-close eviction, keepalives, and shutdown.
+- [x] No code path uses `ssh.InsecureIgnoreHostKey`.
+- [x] Closing the final lease closes the socket and waiter goroutines.
 
 ### M7: SFTP Browser and Transfer Manager
 
 Deliverables:
 
-- Implement remote filesystem operations through a narrow filesystem port.
-- Add local and remote panes with path navigation, sorting, hidden-file toggle,
-  refresh, bookmarks, and keyboard operation.
-- Add create directory, rename, delete with confirmation, chmod, upload,
-  download, and open-with-system actions.
-- Add a transfer manager with bounded concurrency, queueing, progress, speed,
-  ETA, cancellation, retry, and per-transfer errors.
-- Download to a temporary partial file and atomically rename on success.
-- Support resumable upload/download where server capabilities and metadata make
+- [x] Implement remote filesystem operations through a narrow filesystem port.
+- [x] Add a remote pane with path navigation, sorting, hidden-file toggle,
+  refresh, profile-scoped bookmarks, and keyboard operation.
+- [ ] Add a dedicated local filesystem pane.
+- [x] Add create directory, rename, delete with confirmation, chmod, upload, and
+  download actions.
+- [ ] Add open-with-system actions.
+- [x] Add a transfer manager with bounded concurrency, queueing, progress,
+  cancellation, and per-transfer errors.
+- [ ] Add transfer speed, ETA, and retry controls beyond persisted resume.
+- [x] Download to a temporary partial file and atomically rename on success.
+- [x] Support resumable upload/download where server capabilities and metadata make
   it safe. Implemented with private versioned records, explicit Resume/Discard,
   deterministic partial paths, source validation, exclusive destination
   reservations, and upload prefix/final checksum verification.
-- Define symlink behavior explicitly and prevent accidental recursive cycles.
-- Keep transfers alive when a terminal tab closes only if another SSH
-  connection lease and visible Activity item remain.
+- [x] Define symlink behavior explicitly and prevent accidental recursive cycles.
+- [x] Keep transfers alive when a terminal tab closes only while their SSH
+  connection lease and visible transfer item in the matching SFTP workspace
+  remain.
 
 Tests and exit gate:
 
-- In-process or container-backed SFTP tests cover listing, Unicode names,
-  rename, permissions, symlinks, interruption, resume, cancellation, and
-  checksum comparison.
-- Local and remote destination collision policies are explicit: ask, overwrite,
+- [x] In-process SFTP and manager tests cover listing, offset I/O, rename,
+  symlink rejection, interruption, restart resume, cancellation, and checksum
+  comparison.
+- [ ] Add Unicode-name and remote-permission round-trip coverage to the real SFTP
+  fixture.
+- [x] Local and remote destination collision policies are explicit: ask, overwrite,
   skip, or rename. Implemented with native ask dialogs, visible skipped states,
   and deterministic numbered destination reservations.
-- Transfer queue memory is bounded and large files are streamed, never loaded
-  fully into memory.
-- Disconnecting during transfer produces a resumable failed item, not a false
+- [x] Transfer queue memory is bounded and files are streamed through fixed-size
+  buffers, never loaded fully into memory.
+- [ ] Add a large-file integration fixture and memory-budget assertion.
+- [x] Disconnecting during transfer produces a resumable failed item, not a false
   success.
 
 ### M8: SSH Tunnels
 
 Deliverables:
 
-- Add saved tunnel models independent of terminal profiles.
-- Implement local forwarding, remote forwarding, and dynamic SOCKS5 forwarding.
-- Add bind address, requested port, destination, profile, startup policy, and
+- [x] Add saved tunnel models independent of terminal profiles.
+- [x] Implement local forwarding, remote forwarding, and dynamic SOCKS5 forwarding.
+- [x] Add bind address, requested port, destination, profile, startup policy, and
   reconnect policy.
-- Default local bind addresses to loopback and warn before binding all
-  interfaces.
-- Show starting, active, retrying, failed, and stopped states with actual bound
+- [x] Default local bind addresses to loopback and require confirmation before
+  binding all interfaces.
+- [x] Show starting, active, retrying, failed, and stopped states with actual bound
   addresses.
-- Handle every accepted connection in a cancellable child context.
-- Use SSH connection leases so stopping a tunnel does not disrupt unrelated
+- [x] Handle every accepted connection in a cancellable child context.
+- [x] Use SSH connection leases so stopping a tunnel does not disrupt unrelated
   channels.
-- Add explicit Start, Stop, Restart, Edit, and View Error actions.
+- [x] Add explicit Start, Stop, Restart, Edit, and visible error actions.
 
 Tests and exit gate:
 
-- Local, remote, and SOCKS forwarding pass bidirectional integration tests.
-- Port collision, denied remote forwarding, DNS failure, network loss, and
-  cancellation are covered.
-- Stopping a tunnel closes its listener and every relayed connection.
-- No tunnel auto-starts unless the user explicitly enabled that tunnel.
+- [x] Local, remote, and SOCKS forwarding pass bidirectional integration tests.
+- [x] Port collision, reconnect after network failure, cancellation, and secret
+  reconnect restrictions are covered.
+- [ ] Add explicit denied remote-forwarding and DNS-failure fixtures.
+- [x] Stopping a tunnel closes its listener and every relayed connection.
+- [x] No tunnel auto-starts unless the user explicitly enabled that tunnel.
 
 ### M9: Productivity Features
 
 Deliverables:
 
-- Add reusable command snippets with folders, tags, variables, and a preview
+- [x] Add reusable command snippets with folders, tags, variables, and a preview
   before execution.
-- Add guarded multi-execution mode with a persistent visual warning and an
+- [x] Add guarded multi-execution mode with a persistent visual warning and an
   explicit target-session list.
-- Add optional session logging with start/stop controls, timestamp policy,
+- [x] Add optional session logging with start/stop controls, timestamp policy,
   rotation, and secure file permissions.
-- Add terminal search, copy-all-visible, and export-selection actions.
+- [x] Add terminal search, copy-all-visible, and export-selection actions.
   Implemented for the active terminal through the toolbar and command palette.
-- Add saved workspace layouts that restore profile tabs as disconnected tabs;
+- [x] Add saved workspace layouts that restore profile tabs as disconnected tabs;
   reconnection remains explicit. Implemented for saved-profile terminal tabs.
-- Add profile and remote-path favorites. Implemented with profile sorting and
+- [x] Add profile and remote-path favorites. Implemented with profile sorting and
   profile-scoped canonical path navigation that starts no connection.
-- Add command palette and consistent keyboard shortcuts.
-- Add notifications for long transfer completion and unexpected disconnect,
+- [x] Add command palette and consistent keyboard shortcuts.
+- [x] Add notifications for long transfer completion and unexpected disconnect,
   respecting OS and application settings. Implemented with a native Wails
   adapter, explicit permission flow, saved category controls, a duration
   threshold, and bounded privacy-preserving payloads.
 
 Tests and exit gate:
 
-- Snippet variables are escaped or sent exactly as previewed.
-- Multi-execution cannot target password/passphrase dialogs or hidden sessions.
-- Logging is off by default and never captures credential prompts supplied by
+- [x] Snippet variables are sent exactly as previewed.
+- [x] Multi-execution targets only explicitly selected live terminal sessions.
+- [x] Logging is off by default and never captures credential prompts supplied by
   the application.
-- Restoring a workspace starts no process or network connection automatically.
+- [x] Restoring a workspace starts no process or network connection automatically.
 
 ### M10: Settings, Accessibility, and UX Completion
 
 Deliverables:
 
-- Add terminal font, size, line spacing, cursor, palette, scrollback, copy,
-  paste, bell, and hyperlink policies.
-- Add connection timeout, keepalive, reconnect, proxy, known-hosts, and agent
-  settings. Timeout and keepalive controls are implemented across host-key
-  probes, terminal, SFTP, and tunnel dials; the remaining controls are pending.
-- Add transfer concurrency, collision, and partial-file settings. Implemented
-  with a live bounded limiter, backend-owned collision resolution, and explicit
-  failed-partial retention plus restart-safe resumable metadata and explicit
-  cleanup. Notification enablement, categories, long-transfer threshold,
-  permission status, and test delivery are implemented.
-- Add reset-to-default and per-profile override indicators.
-- Add screen-reader labels, keyboard traversal, visible focus, contrast checks,
-  and reduced-motion behavior.
-- Replace transient status-label messaging with actionable dialogs, inline
-  validation, and an activity/error history.
-- Ensure compact desktop layouts and smaller windows remain usable without text
-  overlap.
+- [x] Add terminal font, size, line spacing, cursor, scrollback, and bell
+  controls with live application and persisted defaults.
+- [ ] Add terminal palette, copy, paste, and hyperlink policies.
+- [x] Add connection timeout and keepalive settings across host-key probes,
+  terminal, SFTP, and tunnel dials.
+- [ ] Add reconnect, proxy, known-hosts, and agent settings.
+- [x] Add transfer concurrency, collision, and partial-file settings with a
+  live bounded limiter, backend-owned collision resolution, failed-partial
+  retention, restart-safe resume metadata, and explicit cleanup.
+- [x] Add notification enablement, categories, a long-transfer threshold,
+  permission status, and test delivery.
+- [x] Add reset-to-default behavior.
+- [ ] Add per-profile override indicators.
+- [ ] Complete screen-reader labels, keyboard traversal, visible focus,
+  contrast checks, and reduced-motion behavior.
+- [ ] Replace remaining transient status-label messaging with actionable
+  dialogs, inline validation, and an activity/error history.
+- [ ] Ensure compact desktop layouts and smaller windows remain usable without
+  text overlap.
 
 Tests and exit gate:
 
-- Settings round-trip, migration, reset, and override precedence are tested.
-- All primary workflows are keyboard reachable.
-- Automated layout tests cover minimum supported desktop sizes and high-DPI
-  scaling.
+- [x] Settings round-trip, migration, validation, and reset behavior are tested.
+- [ ] Add and test per-profile override precedence.
+- [ ] Make every primary workflow keyboard reachable and record the native
+  accessibility smoke checks.
+- [ ] Add automated layout tests for minimum supported desktop sizes and
+  high-DPI scaling.
 
 ### M11: Cross-Platform Packaging and Release Pipeline
 
 Deliverables:
 
-- Add embedded application icon, metadata, licenses, and default assets.
-- Promote the native CI jobs introduced in M0/M2 into the complete release
+- [x] Add the embedded application icon, metadata, and default assets.
+- [ ] Add the distributable dependency-license inventory.
+- [ ] Promote the native CI jobs introduced in M0/M2 into the complete release
   matrix for macOS arm64/amd64, Linux amd64, and Windows amd64.
-- Build release-mode binaries with version metadata and stripped debug symbols.
-- Package the Wails host as macOS `.app`, Windows GUI `.exe`, and Linux
+- [ ] Build release-mode binaries with version metadata and stripped debug
+  symbols.
+- [x] Build and launch a local macOS arm64 development `.app` with embedded
+  frontend assets.
+- [ ] Package release builds as macOS `.app`, Windows GUI `.exe`, and Linux
   executable/package forms.
-- Add code signing and notarization hooks, with unsigned local-development
-  builds remaining easy.
-- Generate checksums, SBOM, dependency license report, and release notes.
-- Verify clean-machine startup and expected config, cache, log, and keychain
+- [ ] Add code-signing and notarization hooks for the final release; unsigned
+  local-development builds remain supported.
+- [ ] Generate checksums, an SBOM, a dependency-license report, and release
+  notes.
+- [ ] Verify clean-machine startup and expected config, cache, log, and keychain
   paths on every OS.
-- Verify WebView prerequisites and failure messages on supported Windows and
+- [ ] Verify WebView prerequisites and failure messages on supported Windows and
   Linux versions.
-- Document that `make run` is a foreground developer command while packaged apps
-  launch through the desktop environment.
+- [ ] Document explicitly that `make run` is a foreground developer command
+  while packaged apps launch through the desktop environment.
 
 Tests and exit gate:
 
-- Each release artifact launches on a clean supported OS image.
-- Windows opens no console window.
-- macOS launches from Finder and passes signing/notarization verification when
+- [ ] Each release artifact launches on a clean supported OS image.
+- [ ] Verify that Windows opens no console window.
+- [ ] Verify that macOS launches from Finder and passes signing/notarization when
   credentials are configured.
-- The application contains no unexpected network listeners or unpacked helper
-  executable.
-- Embedded frontend assets and migrations work after relocation and without
-  network access.
+- [x] The audited macOS development package uses embedded frontend assets and
+  starts no runtime HTTP listener or unpacked helper executable.
+- [ ] Verify embedded frontend assets and migrations after relocation and
+  without network access on every release target.
 
 ### M12: 1.0 Hardening
 
 Deliverables:
 
-- Run full unit, integration, UI, race, fuzz, and cross-platform suites.
-- Add goroutine and file-descriptor leak checks around every long-lived service.
-- Run `govulncheck`, dependency review, static analysis, and manual threat-model
-  review.
-- Profile startup, idle CPU, terminal flood, scrollback memory, large directory
-  listing, large transfer, and many-session behavior.
-- Add structured local diagnostics and a user-controlled diagnostic export with
-  redaction.
-- Complete user documentation for profiles, trust prompts, credentials,
+- [x] Keep the current macOS Go unit, integration, race, vet, frontend unit, and
+  production-build suites passing at the audited revision.
+- [ ] Add and run the complete UI, fuzz, and native cross-platform suites.
+- [ ] Add goroutine and file-descriptor leak checks around every long-lived
+  service.
+- [ ] Run `govulncheck`, dependency review, static analysis, and a manual
+  threat-model review.
+- [ ] Profile startup, idle CPU, terminal flood, scrollback memory, large
+  directory listing, large transfer, and many-session behavior.
+- [ ] Add structured local diagnostics and a user-controlled diagnostic export
+  with redaction.
+- [ ] Complete user documentation for profiles, trust prompts, credentials,
   transfers, tunnels, settings, data locations, and recovery.
-- Remove every placeholder, fake-success state, debug action, and dead code
+- [ ] Remove every placeholder, fake-success state, debug action, and dead code
   path.
 
 Release gate:
 
-- Idle with no sessions performs no polling and has no sustained background
-  work.
-- All resources close deterministically on tab close and application exit.
-- Core workflows pass on macOS, Linux, and Windows.
-- No known critical or high-severity vulnerability remains without a documented
-  mitigation and release decision.
-- Configuration can be migrated and recovered without losing secrets or
-  profiles.
-- The application is usable for a full SSH, SFTP, and tunnel workflow without
+- [ ] Prove that idle with no sessions performs no polling and has no sustained
+  background work.
+- [ ] Prove that all resources close deterministically on tab close and
+  application exit.
+- [ ] Make core workflows pass on macOS, Linux, and Windows.
+- [ ] Confirm that no known critical or high-severity vulnerability remains
+  without a documented mitigation and release decision.
+- [ ] Prove that configuration can be migrated and recovered without losing
+  secrets or profiles.
+- [ ] Verify a complete packaged SSH, SFTP, and tunnel workflow without
   launching it from a terminal or installing an application helper process.
 
 ## 7. Test Strategy
@@ -1218,21 +1264,21 @@ gates, not paperwork that can be waived to keep adding features.
 These are solo-engineering estimates after the current scaffold, not calendar
 commitments:
 
-| Milestone | Expected effort | Release value |
-| --- | ---: | --- |
-| M0 Foundation | 4-7 days | Wails migration and honest lifecycle |
-| M1 Terminal proof | 7-12 days | Proven PTY/bridge/xterm vertical slice |
-| M2 Local terminal | 8-14 days | First genuinely usable program |
-| M3 Workspace | 4-7 days | Reliable multi-session desktop UX |
-| M4 Profiles/config | 4-7 days | Durable daily workflow |
-| M5 Credentials/trust | 5-8 days | Secure SSH foundation |
-| M6 SSH | 7-12 days | Primary remote workflow |
-| M7 SFTP | 8-14 days | File workflow |
-| M8 Tunnels | 6-10 days | Network workflow |
-| M9 Productivity | 6-10 days | Operator efficiency |
-| M10 UX/settings | 5-9 days | Product completeness |
-| M11 Packaging | 5-10 days | Installable native releases |
-| M12 Hardening | 7-14 days | 1.0 release confidence |
+| Milestone | Current status | Expected effort | Release value |
+| --- | --- | ---: | --- |
+| M0 Foundation | Partial; native CI and lifecycle gates open | 4-7 days | Wails migration and honest lifecycle |
+| M1 Terminal proof | Partial; performance and native stress gates open | 7-12 days | Proven PTY/bridge/xterm vertical slice |
+| M2 Local terminal | macOS core implemented; Windows/Linux gates open | 8-14 days | First genuinely usable program |
+| M3 Workspace | Partial; tab-management and Activity work open | 4-7 days | Reliable multi-session desktop UX |
+| M4 Profiles/config | Mostly implemented; recovery and overrides open | 4-7 days | Durable daily workflow |
+| M5 Credentials/trust | Partial; OS secret storage remains open | 5-8 days | Secure SSH foundation |
+| M6 SSH | Core implemented; advanced connection modes open | 7-12 days | Primary remote workflow |
+| M7 SFTP | Core implemented; local pane and stress gates open | 8-14 days | File workflow |
+| M8 Tunnels | Implemented; two integration fixtures open | 6-10 days | Network workflow |
+| M9 Productivity | Implemented | 6-10 days | Operator efficiency |
+| M10 UX/settings | Partial | 5-9 days | Product completeness |
+| M11 Packaging | macOS arm64 development bundle only | 5-10 days | Installable native releases |
+| M12 Hardening | In progress; release gates open | 7-14 days | 1.0 release confidence |
 
 A credible core 1.0 is roughly 16-27 focused engineering weeks for one person,
 depending mainly on bridge performance, Windows behavior, and cross-platform
