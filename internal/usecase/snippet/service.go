@@ -3,13 +3,13 @@ package snippet
 import (
 	"crypto/rand"
 	"encoding/hex"
-	"errors"
 	"fmt"
 	"sort"
 	"strings"
 	"sync"
 	"time"
 
+	"shh-h/internal/apperror"
 	snippetdomain "shh-h/internal/domain/snippet"
 )
 
@@ -60,7 +60,9 @@ func (s *Service) Create(candidate snippetdomain.Snippet) (snippetdomain.Snippet
 	candidate.UpdatedAt = now
 	candidate = candidate.WithDefaults(now)
 	if err := candidate.Validate(); err != nil {
-		return snippetdomain.Snippet{}, err
+		return snippetdomain.Snippet{}, apperror.Wrap(
+			apperror.CodeInvalidArgument, "create snippet", err.Error(), err,
+		)
 	}
 	if err := ensureUniqueName(s.snippets, candidate.Name, ""); err != nil {
 		return snippetdomain.Snippet{}, err
@@ -78,7 +80,7 @@ func (s *Service) Update(candidate snippetdomain.Snippet) (snippetdomain.Snippet
 	defer s.mu.Unlock()
 	index := indexByID(s.snippets, strings.TrimSpace(candidate.ID))
 	if index < 0 {
-		return snippetdomain.Snippet{}, errors.New("snippet not found")
+		return snippetdomain.Snippet{}, apperror.New(apperror.CodeNotFound, "Snippet was not found.")
 	}
 	now := time.Now().UTC()
 	candidate.ID = s.snippets[index].ID
@@ -86,7 +88,9 @@ func (s *Service) Update(candidate snippetdomain.Snippet) (snippetdomain.Snippet
 	candidate.UpdatedAt = now
 	candidate = candidate.WithDefaults(now)
 	if err := candidate.Validate(); err != nil {
-		return snippetdomain.Snippet{}, err
+		return snippetdomain.Snippet{}, apperror.Wrap(
+			apperror.CodeInvalidArgument, "update snippet", err.Error(), err,
+		)
 	}
 	if err := ensureUniqueName(s.snippets, candidate.Name, candidate.ID); err != nil {
 		return snippetdomain.Snippet{}, err
@@ -105,7 +109,7 @@ func (s *Service) Delete(id string) error {
 	defer s.mu.Unlock()
 	index := indexByID(s.snippets, strings.TrimSpace(id))
 	if index < 0 {
-		return errors.New("snippet not found")
+		return apperror.New(apperror.CodeNotFound, "Snippet was not found.")
 	}
 	next := append(clone(s.snippets[:index]), clone(s.snippets[index+1:])...)
 	if err := s.repo.SaveSnippets(next); err != nil {
@@ -120,17 +124,17 @@ func (s *Service) Render(id string, values map[string]string) (string, []string,
 	index := indexByID(s.snippets, strings.TrimSpace(id))
 	if index < 0 {
 		s.mu.RUnlock()
-		return "", nil, errors.New("snippet not found")
+		return "", nil, apperror.New(apperror.CodeNotFound, "Snippet was not found.")
 	}
 	body := s.snippets[index].Body
 	s.mu.RUnlock()
 	variables, err := snippetdomain.Variables(body)
 	if err != nil {
-		return "", nil, err
+		return "", nil, apperror.Wrap(apperror.CodeInvalidArgument, "parse snippet", err.Error(), err)
 	}
 	rendered, err := snippetdomain.Render(body, values)
 	if err != nil {
-		return "", variables, err
+		return "", variables, apperror.Wrap(apperror.CodeInvalidArgument, "render snippet", err.Error(), err)
 	}
 	return rendered, variables, nil
 }
@@ -139,7 +143,9 @@ func ensureUniqueName(items []snippetdomain.Snippet, name, excludingID string) e
 	key := strings.ToLower(strings.TrimSpace(name))
 	for _, item := range items {
 		if item.ID != excludingID && strings.ToLower(item.Name) == key {
-			return fmt.Errorf("a snippet named %q already exists", strings.TrimSpace(name))
+			return apperror.New(
+				apperror.CodeConflict, fmt.Sprintf("A snippet named %q already exists.", strings.TrimSpace(name)),
+			)
 		}
 	}
 	return nil

@@ -17,6 +17,7 @@ import (
 	"golang.org/x/crypto/ssh/agent"
 
 	"shh-h/internal/adapter/sshclient"
+	"shh-h/internal/apperror"
 	"shh-h/internal/domain/profile"
 	settingsdomain "shh-h/internal/domain/settings"
 	"shh-h/internal/domain/sshconnection"
@@ -29,9 +30,9 @@ const (
 )
 
 var (
-	ErrCredentialsRequired = errors.New("ssh credentials are required")
-	ErrPassphraseRequired  = errors.New("private key passphrase is required")
-	ErrAgentUnavailable    = errors.New("ssh agent is unavailable")
+	ErrCredentialsRequired = apperror.New(apperror.CodeAuthenticationRequired, "SSH credentials are required.")
+	ErrPassphraseRequired  = apperror.New(apperror.CodeAuthenticationRequired, "Private key passphrase is required.")
+	ErrAgentUnavailable    = apperror.New(apperror.CodeUnavailable, "SSH agent is unavailable.")
 )
 
 type hostKeyVerifier interface {

@@ -53,6 +53,15 @@ cmd/shhh -> internal/app wires the complete application
 - React StrictMode remains enabled in development. Component mount effects may
   attach terminal hosts and listeners but never create backend resources.
 
+## Error Contract
+
+Use cases and bridge commands classify rejected operations through
+`internal/apperror`. Wails formats every backend rejection into a stable JSON
+envelope, and the frontend bridge client converts it into `BackendError` before
+feature code observes it. Wrapped causes remain available to Go diagnostics but
+are not serialized to the WebView. The code list, retry rules, and authoring
+guidance are documented in `docs/ERROR_HANDLING.md`.
+
 ## Package Boundaries
 
 ### `cmd/shhh`

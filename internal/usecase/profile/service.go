@@ -3,12 +3,12 @@ package profile
 import (
 	"crypto/rand"
 	"encoding/hex"
-	"errors"
 	"fmt"
 	"strings"
 	"sync"
 	"time"
 
+	"shh-h/internal/apperror"
 	profiledomain "shh-h/internal/domain/profile"
 )
 
@@ -62,7 +62,9 @@ func (s *Service) Create(candidate profiledomain.Profile) (profiledomain.Profile
 	candidate.UpdatedAt = now
 	candidate = candidate.WithDefaults(now)
 	if err := candidate.Validate(); err != nil {
-		return profiledomain.Profile{}, err
+		return profiledomain.Profile{}, apperror.Wrap(
+			apperror.CodeInvalidArgument, "create profile", err.Error(), err,
+		)
 	}
 	if err := ensureUniqueName(s.profiles, candidate.Name, ""); err != nil {
 		return profiledomain.Profile{}, err
@@ -82,7 +84,7 @@ func (s *Service) Update(candidate profiledomain.Profile) (profiledomain.Profile
 
 	index := indexByID(s.profiles, strings.TrimSpace(candidate.ID))
 	if index < 0 {
-		return profiledomain.Profile{}, errors.New("profile not found")
+		return profiledomain.Profile{}, apperror.New(apperror.CodeNotFound, "Profile was not found.")
 	}
 	now := time.Now().UTC()
 	candidate.ID = s.profiles[index].ID
@@ -90,7 +92,9 @@ func (s *Service) Update(candidate profiledomain.Profile) (profiledomain.Profile
 	candidate.UpdatedAt = now
 	candidate = candidate.WithDefaults(now)
 	if err := candidate.Validate(); err != nil {
-		return profiledomain.Profile{}, err
+		return profiledomain.Profile{}, apperror.Wrap(
+			apperror.CodeInvalidArgument, "update profile", err.Error(), err,
+		)
 	}
 	if err := ensureUniqueName(s.profiles, candidate.Name, candidate.ID); err != nil {
 		return profiledomain.Profile{}, err
@@ -110,7 +114,7 @@ func (s *Service) Duplicate(id string) (profiledomain.Profile, error) {
 	index := indexByID(s.profiles, id)
 	if index < 0 {
 		s.mu.RUnlock()
-		return profiledomain.Profile{}, errors.New("profile not found")
+		return profiledomain.Profile{}, apperror.New(apperror.CodeNotFound, "Profile was not found.")
 	}
 	candidate := cloneProfile(s.profiles[index])
 	existing := cloneProfiles(s.profiles)
@@ -129,7 +133,7 @@ func (s *Service) Delete(id string) error {
 
 	index := indexByID(s.profiles, id)
 	if index < 0 {
-		return errors.New("profile not found")
+		return apperror.New(apperror.CodeNotFound, "Profile was not found.")
 	}
 	next := append(cloneProfiles(s.profiles[:index]), cloneProfiles(s.profiles[index+1:])...)
 	if err := s.repo.SaveProfiles(next); err != nil {
@@ -165,7 +169,12 @@ func (s *Service) Import(candidates []profiledomain.Profile) ([]profiledomain.Pr
 		candidate = candidate.WithDefaults(now)
 		candidate.Name = availableImportName(next, candidate.Name)
 		if err := candidate.Validate(); err != nil {
-			return nil, fmt.Errorf("import profile %d (%q): %w", index+1, candidate.Name, err)
+			return nil, apperror.Wrap(
+				apperror.CodeInvalidArgument,
+				"import profile",
+				fmt.Sprintf("Profile %d (%q) is invalid: %s", index+1, candidate.Name, err),
+				err,
+			)
 		}
 
 		next = append(next, cloneProfile(candidate))
@@ -183,7 +192,9 @@ func ensureUniqueName(profiles []profiledomain.Profile, name, excludingID string
 	key := strings.ToLower(strings.TrimSpace(name))
 	for _, item := range profiles {
 		if item.ID != excludingID && strings.ToLower(item.Name) == key {
-			return fmt.Errorf("a profile named %q already exists", strings.TrimSpace(name))
+			return apperror.New(
+				apperror.CodeConflict, fmt.Sprintf("A profile named %q already exists.", strings.TrimSpace(name)),
+			)
 		}
 	}
 	return nil

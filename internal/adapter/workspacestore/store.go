@@ -13,6 +13,7 @@ import (
 	"sync"
 	"time"
 
+	"shh-h/internal/apperror"
 	"shh-h/internal/domain/workspace"
 )
 
@@ -23,7 +24,7 @@ const (
 	fileMode      = 0o600
 )
 
-var ErrConflict = errors.New("workspace layouts changed outside shh-h; reload before saving")
+var ErrConflict = apperror.New(apperror.CodeConflict, "Workspace layouts changed outside shh-h; reload before saving.")
 
 type document struct {
 	Version  int                `json:"version"`

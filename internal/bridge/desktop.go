@@ -21,6 +21,7 @@ import (
 
 	"shh-h/internal/adapter/profileexchange"
 	"shh-h/internal/adapter/textfile"
+	"shh-h/internal/apperror"
 	"shh-h/internal/buildinfo"
 	filedomain "shh-h/internal/domain/filetransfer"
 	"shh-h/internal/domain/profile"
@@ -285,6 +286,11 @@ type frontendLease struct {
 	expiresAt time.Time
 }
 
+type desktopLifecycle struct {
+	cancel context.CancelFunc
+	done   chan struct{}
+}
+
 type Desktop struct {
 	manager       *sessionusecase.Manager
 	profiles      *profileusecase.Service
@@ -299,6 +305,9 @@ type Desktop struct {
 
 	ctxMu sync.RWMutex
 	ctx   context.Context
+
+	lifecycleMu sync.Mutex
+	lifecycle   *desktopLifecycle
 
 	leaseMu   sync.Mutex
 	lease     *frontendLease
@@ -330,13 +339,24 @@ func NewDesktop(manager *sessionusecase.Manager, profiles *profileusecase.Servic
 }
 
 func (d *Desktop) Startup(ctx context.Context) {
-	d.ctxMu.Lock()
-	d.ctx = ctx
-	d.ctxMu.Unlock()
-	if d.notifications != nil {
-		d.notifications.Startup(ctx)
+	if ctx == nil {
+		ctx = context.Background()
 	}
-	go d.monitorLease(ctx)
+	lifecycleCtx, cancel := context.WithCancel(ctx)
+	current := &desktopLifecycle{cancel: cancel, done: make(chan struct{})}
+
+	d.lifecycleMu.Lock()
+	d.stopLifecycleLocked()
+	d.setContext(lifecycleCtx)
+	if d.notifications != nil {
+		d.notifications.Startup(lifecycleCtx)
+	}
+	d.lifecycle = current
+	go func() {
+		defer close(current.done)
+		d.monitorLease(lifecycleCtx)
+	}()
+	d.lifecycleMu.Unlock()
 }
 
 func (d *Desktop) DomReady(context.Context) {}
@@ -364,9 +384,10 @@ func (d *Desktop) Shutdown(context.Context) {
 	if d.tunnels != nil {
 		d.tunnels.Shutdown()
 	}
-	if d.notifications != nil {
-		d.notifications.Shutdown()
-	}
+	d.lifecycleMu.Lock()
+	d.stopLifecycleLocked()
+	d.setContext(nil)
+	d.lifecycleMu.Unlock()
 }
 
 func SecondInstanceHandler(desktop *Desktop) func(options.SecondInstanceData) {
@@ -422,7 +443,7 @@ func (d *Desktop) DeleteProfile(profileID string) error {
 	if d.tunnels != nil {
 		for _, config := range d.tunnels.List() {
 			if config.ProfileID == profileID {
-				return fmt.Errorf("profile is used by tunnel %q", config.Name)
+				return apperror.New(apperror.CodeConflict, fmt.Sprintf("Profile is used by tunnel %q.", config.Name))
 			}
 		}
 	}
@@ -431,7 +452,7 @@ func (d *Desktop) DeleteProfile(profileID string) error {
 
 func (d *Desktop) ImportProfiles() (ProfileImportDTO, error) {
 	if d.profiles == nil {
-		return ProfileImportDTO{}, errors.New("profile service is unavailable")
+		return ProfileImportDTO{}, apperror.New(apperror.CodeUnavailable, "Profile import is unavailable.")
 	}
 	filename, err := wailsruntime.OpenFileDialog(d.context(), wailsruntime.OpenDialogOptions{
 		Title:           "Import profiles",
@@ -443,7 +464,9 @@ func (d *Desktop) ImportProfiles() (ProfileImportDTO, error) {
 		},
 	})
 	if err != nil {
-		return ProfileImportDTO{}, fmt.Errorf("select profile file: %w", err)
+		return ProfileImportDTO{}, apperror.Wrap(
+			apperror.CodeUnavailable, "select profile import", "Could not open the profile file chooser.", err,
+		)
 	}
 	if filename == "" {
 		return ProfileImportDTO{Cancelled: true, Imported: []ProfileDTO{}, Warnings: []string{}}, nil
@@ -473,7 +496,7 @@ func (d *Desktop) ImportProfiles() (ProfileImportDTO, error) {
 
 func (d *Desktop) ExportProfiles() (ProfileExportDTO, error) {
 	if d.profiles == nil {
-		return ProfileExportDTO{}, errors.New("profile service is unavailable")
+		return ProfileExportDTO{}, apperror.New(apperror.CodeUnavailable, "Profile export is unavailable.")
 	}
 	filename, err := wailsruntime.SaveFileDialog(d.context(), wailsruntime.SaveDialogOptions{
 		Title: "Export profiles", DefaultFilename: "shh-h-profiles.json",
@@ -483,7 +506,9 @@ func (d *Desktop) ExportProfiles() (ProfileExportDTO, error) {
 		},
 	})
 	if err != nil {
-		return ProfileExportDTO{}, fmt.Errorf("select profile export: %w", err)
+		return ProfileExportDTO{}, apperror.Wrap(
+			apperror.CodeUnavailable, "select profile export", "Could not open the profile export chooser.", err,
+		)
 	}
 	if filename == "" {
 		return ProfileExportDTO{Cancelled: true}, nil
@@ -502,11 +527,14 @@ func (d *Desktop) ExportProfiles() (ProfileExportDTO, error) {
 
 func (d *Desktop) ExportTerminalText(title, text string) (TerminalTextExportDTO, error) {
 	if text == "" {
-		return TerminalTextExportDTO{}, errors.New("terminal selection is empty")
+		return TerminalTextExportDTO{}, apperror.New(apperror.CodeInvalidArgument, "Terminal selection is empty.")
 	}
 	data := []byte(text)
 	if len(data) > textfile.MaxBytes {
-		return TerminalTextExportDTO{}, fmt.Errorf("terminal selection exceeds the %d MiB limit", textfile.MaxBytes/(1<<20))
+		return TerminalTextExportDTO{}, apperror.New(
+			apperror.CodeInvalidArgument,
+			fmt.Sprintf("Terminal selection exceeds the %d MiB limit.", textfile.MaxBytes/(1<<20)),
+		)
 	}
 	filename, err := wailsruntime.SaveFileDialog(d.context(), wailsruntime.SaveDialogOptions{
 		Title: "Export terminal selection", DefaultFilename: terminalTextFilename(title),
@@ -514,7 +542,9 @@ func (d *Desktop) ExportTerminalText(title, text string) (TerminalTextExportDTO,
 		Filters: []wailsruntime.FileFilter{{DisplayName: "Text files", Pattern: "*.txt;*.log"}},
 	})
 	if err != nil {
-		return TerminalTextExportDTO{}, fmt.Errorf("select terminal export: %w", err)
+		return TerminalTextExportDTO{}, apperror.Wrap(
+			apperror.CodeUnavailable, "select terminal export", "Could not open the terminal export chooser.", err,
+		)
 	}
 	if filename == "" {
 		return TerminalTextExportDTO{Cancelled: true}, nil
@@ -539,14 +569,14 @@ func (d *Desktop) ListRemotePathFavorites() []RemotePathFavoriteDTO {
 
 func (d *Desktop) CreateRemotePathFavorite(profileID, remotePath string) (RemotePathFavoriteDTO, error) {
 	if d.remotePaths == nil || d.profiles == nil {
-		return RemotePathFavoriteDTO{}, errors.New("remote path favorites are unavailable")
+		return RemotePathFavoriteDTO{}, apperror.New(apperror.CodeUnavailable, "Remote path favorites are unavailable.")
 	}
 	selected, exists := d.profiles.Find(strings.TrimSpace(profileID))
 	if !exists {
-		return RemotePathFavoriteDTO{}, errors.New("profile not found")
+		return RemotePathFavoriteDTO{}, apperror.New(apperror.CodeNotFound, "Profile not found.")
 	}
 	if selected.Protocol != profile.ProtocolSSH {
-		return RemotePathFavoriteDTO{}, errors.New("remote path favorites require an SSH profile")
+		return RemotePathFavoriteDTO{}, apperror.New(apperror.CodeInvalidArgument, "Remote path favorites require an SSH profile.")
 	}
 	created, err := d.remotePaths.Create(selected.ID, remotePath)
 	if err != nil {
@@ -557,7 +587,7 @@ func (d *Desktop) CreateRemotePathFavorite(profileID, remotePath string) (Remote
 
 func (d *Desktop) DeleteRemotePathFavorite(favoriteID string) error {
 	if d.remotePaths == nil {
-		return errors.New("remote path favorites are unavailable")
+		return apperror.New(apperror.CodeUnavailable, "Remote path favorites are unavailable.")
 	}
 	return d.remotePaths.Delete(favoriteID)
 }
@@ -571,21 +601,21 @@ func (d *Desktop) ListTunnels() []tunneldomain.Config {
 
 func (d *Desktop) CreateTunnel(input TunnelInputDTO) (tunneldomain.Config, error) {
 	if d.tunnels == nil {
-		return tunneldomain.Config{}, errors.New("SSH tunnel support is unavailable")
+		return tunneldomain.Config{}, apperror.New(apperror.CodeUnavailable, "SSH tunnel support is unavailable.")
 	}
 	return d.tunnels.Create(tunnelFromInput(input))
 }
 
 func (d *Desktop) UpdateTunnel(input TunnelInputDTO) (tunneldomain.Config, error) {
 	if d.tunnels == nil {
-		return tunneldomain.Config{}, errors.New("SSH tunnel support is unavailable")
+		return tunneldomain.Config{}, apperror.New(apperror.CodeUnavailable, "SSH tunnel support is unavailable.")
 	}
 	return d.tunnels.Update(tunnelFromInput(input))
 }
 
 func (d *Desktop) DeleteTunnel(configID string) error {
 	if d.tunnels == nil {
-		return errors.New("SSH tunnel support is unavailable")
+		return apperror.New(apperror.CodeUnavailable, "SSH tunnel support is unavailable.")
 	}
 	return d.tunnels.Delete(configID)
 }
@@ -608,7 +638,7 @@ func (d *Desktop) ListSnippets() ([]SnippetDTO, error) {
 
 func (d *Desktop) CreateSnippet(input SnippetInputDTO) (SnippetDTO, error) {
 	if d.snippets == nil {
-		return SnippetDTO{}, errors.New("snippet support is unavailable")
+		return SnippetDTO{}, apperror.New(apperror.CodeUnavailable, "Snippet support is unavailable.")
 	}
 	created, err := d.snippets.Create(snippetFromInput(input))
 	if err != nil {
@@ -619,7 +649,7 @@ func (d *Desktop) CreateSnippet(input SnippetInputDTO) (SnippetDTO, error) {
 
 func (d *Desktop) UpdateSnippet(input SnippetInputDTO) (SnippetDTO, error) {
 	if d.snippets == nil {
-		return SnippetDTO{}, errors.New("snippet support is unavailable")
+		return SnippetDTO{}, apperror.New(apperror.CodeUnavailable, "Snippet support is unavailable.")
 	}
 	updated, err := d.snippets.Update(snippetFromInput(input))
 	if err != nil {
@@ -630,14 +660,14 @@ func (d *Desktop) UpdateSnippet(input SnippetInputDTO) (SnippetDTO, error) {
 
 func (d *Desktop) DeleteSnippet(snippetID string) error {
 	if d.snippets == nil {
-		return errors.New("snippet support is unavailable")
+		return apperror.New(apperror.CodeUnavailable, "Snippet support is unavailable.")
 	}
 	return d.snippets.Delete(snippetID)
 }
 
 func (d *Desktop) RenderSnippet(snippetID string, values map[string]string) (SnippetPreviewDTO, error) {
 	if d.snippets == nil {
-		return SnippetPreviewDTO{}, errors.New("snippet support is unavailable")
+		return SnippetPreviewDTO{}, apperror.New(apperror.CodeUnavailable, "Snippet support is unavailable.")
 	}
 	text, variables, err := d.snippets.Render(snippetID, values)
 	if err != nil {
@@ -660,7 +690,7 @@ func (d *Desktop) ListWorkspaceLayouts() []WorkspaceLayoutDTO {
 
 func (d *Desktop) CreateWorkspaceLayout(input WorkspaceLayoutInputDTO) (WorkspaceLayoutDTO, error) {
 	if d.workspaces == nil {
-		return WorkspaceLayoutDTO{}, errors.New("workspace layout support is unavailable")
+		return WorkspaceLayoutDTO{}, apperror.New(apperror.CodeUnavailable, "Workspace layout support is unavailable.")
 	}
 	created, err := d.workspaces.Create(workspaceLayoutFromInput(input))
 	if err != nil {
@@ -671,7 +701,7 @@ func (d *Desktop) CreateWorkspaceLayout(input WorkspaceLayoutInputDTO) (Workspac
 
 func (d *Desktop) UpdateWorkspaceLayout(input WorkspaceLayoutInputDTO) (WorkspaceLayoutDTO, error) {
 	if d.workspaces == nil {
-		return WorkspaceLayoutDTO{}, errors.New("workspace layout support is unavailable")
+		return WorkspaceLayoutDTO{}, apperror.New(apperror.CodeUnavailable, "Workspace layout support is unavailable.")
 	}
 	updated, err := d.workspaces.Update(workspaceLayoutFromInput(input))
 	if err != nil {
@@ -682,7 +712,7 @@ func (d *Desktop) UpdateWorkspaceLayout(input WorkspaceLayoutInputDTO) (Workspac
 
 func (d *Desktop) DeleteWorkspaceLayout(layoutID string) error {
 	if d.workspaces == nil {
-		return errors.New("workspace layout support is unavailable")
+		return apperror.New(apperror.CodeUnavailable, "Workspace layout support is unavailable.")
 	}
 	return d.workspaces.Delete(layoutID)
 }
@@ -708,7 +738,7 @@ func (d *Desktop) GetBuildInfo() BuildInfoDTO {
 
 func (d *Desktop) UpdateSettings(input SettingsDTO) (SettingsDTO, error) {
 	if d.settings == nil {
-		return SettingsDTO{}, errors.New("settings support is unavailable")
+		return SettingsDTO{}, apperror.New(apperror.CodeUnavailable, "Settings are unavailable.")
 	}
 	updated, err := d.settings.Update(settingsFromDTO(input))
 	if err != nil {
@@ -724,7 +754,7 @@ func (d *Desktop) UpdateSettings(input SettingsDTO) (SettingsDTO, error) {
 
 func (d *Desktop) ResetSettings() (SettingsDTO, error) {
 	if d.settings == nil {
-		return SettingsDTO{}, errors.New("settings support is unavailable")
+		return SettingsDTO{}, apperror.New(apperror.CodeUnavailable, "Settings are unavailable.")
 	}
 	reset, err := d.settings.Reset()
 	if err != nil {
@@ -747,7 +777,7 @@ func (d *Desktop) GetNotificationStatus() NotificationStatusDTO {
 
 func (d *Desktop) RequestNotificationPermission() (NotificationStatusDTO, error) {
 	if d.notifications == nil {
-		return NotificationStatusDTO{}, errors.New("notifications are unavailable")
+		return NotificationStatusDTO{}, apperror.New(apperror.CodeUnavailable, "Notifications are unavailable.")
 	}
 	status, err := d.notifications.RequestAuthorization()
 	return notificationStatusDTO(status), err
@@ -755,7 +785,7 @@ func (d *Desktop) RequestNotificationPermission() (NotificationStatusDTO, error)
 
 func (d *Desktop) SendTestNotification() error {
 	if d.notifications == nil {
-		return errors.New("notifications are unavailable")
+		return apperror.New(apperror.CodeUnavailable, "Notifications are unavailable.")
 	}
 	return d.notifications.SendTest()
 }
@@ -763,7 +793,7 @@ func (d *Desktop) SendTestNotification() error {
 func (d *Desktop) AttachFrontend(instanceNonce string) (FrontendLeaseDTO, error) {
 	instanceNonce = strings.TrimSpace(instanceNonce)
 	if instanceNonce == "" || len(instanceNonce) > 128 {
-		return FrontendLeaseDTO{}, errors.New("invalid frontend instance nonce")
+		return FrontendLeaseDTO{}, apperror.New(apperror.CodeInvalidArgument, "Invalid frontend instance nonce.")
 	}
 	now := time.Now()
 	d.leaseMu.Lock()
@@ -813,7 +843,7 @@ func (d *Desktop) OpenLocalTerminal(leaseID, profileID string, columns, rows uin
 	}
 	selected, ok := d.findProfile(profileID)
 	if !ok {
-		return sessionusecase.Session{}, fmt.Errorf("profile %q not found", profileID)
+		return sessionusecase.Session{}, apperror.New(apperror.CodeNotFound, fmt.Sprintf("Profile %q was not found.", profileID))
 	}
 	session, err := d.manager.OpenLocal(d.context(), leaseID, selected, columns, rows)
 	notify(d.leaseWake)
@@ -825,7 +855,7 @@ func (d *Desktop) ProbeSSHHostKey(leaseID, profileID string) (SSHHostKeyDTO, err
 		return SSHHostKeyDTO{}, err
 	}
 	if d.remote == nil {
-		return SSHHostKeyDTO{}, errors.New("ssh support is unavailable")
+		return SSHHostKeyDTO{}, apperror.New(apperror.CodeUnavailable, "SSH support is unavailable.")
 	}
 	info, err := d.remote.ProbeHostKey(d.context(), leaseID, profileID)
 	if err != nil {
@@ -839,7 +869,7 @@ func (d *Desktop) ProbeQuickSSHHostKey(leaseID string, input QuickSSHInputDTO) (
 		return QuickSSHProbeDTO{}, err
 	}
 	if d.remote == nil {
-		return QuickSSHProbeDTO{}, errors.New("ssh support is unavailable")
+		return QuickSSHProbeDTO{}, apperror.New(apperror.CodeUnavailable, "SSH support is unavailable.")
 	}
 	selected, info, err := d.remote.ProbeQuickHostKey(d.context(), leaseID, quickSSHProfile(input))
 	if err != nil {
@@ -853,7 +883,7 @@ func (d *Desktop) TrustSSHHostKey(leaseID, challengeID string, permanent bool) e
 		return err
 	}
 	if d.remote == nil {
-		return errors.New("ssh support is unavailable")
+		return apperror.New(apperror.CodeUnavailable, "SSH support is unavailable.")
 	}
 	return d.remote.TrustHostKey(leaseID, challengeID, permanent)
 }
@@ -863,7 +893,7 @@ func (d *Desktop) InspectSSHAuthentication(leaseID, profileID string) (SSHAuthen
 		return SSHAuthenticationDTO{}, err
 	}
 	if d.remote == nil {
-		return SSHAuthenticationDTO{}, errors.New("ssh support is unavailable")
+		return SSHAuthenticationDTO{}, apperror.New(apperror.CodeUnavailable, "SSH support is unavailable.")
 	}
 	info, err := d.remote.InspectAuthentication(profileID)
 	if err != nil {
@@ -877,7 +907,7 @@ func (d *Desktop) InspectQuickSSHAuthentication(leaseID string, input QuickSSHIn
 		return SSHAuthenticationDTO{}, err
 	}
 	if d.remote == nil {
-		return SSHAuthenticationDTO{}, errors.New("ssh support is unavailable")
+		return SSHAuthenticationDTO{}, apperror.New(apperror.CodeUnavailable, "SSH support is unavailable.")
 	}
 	info, err := d.remote.InspectQuickAuthentication(quickSSHProfile(input))
 	if err != nil {
@@ -891,7 +921,7 @@ func (d *Desktop) OpenSSHTerminal(leaseID, profileID string, columns, rows uint1
 		return sessionusecase.Session{}, err
 	}
 	if d.remote == nil {
-		return sessionusecase.Session{}, errors.New("ssh support is unavailable")
+		return sessionusecase.Session{}, apperror.New(apperror.CodeUnavailable, "SSH support is unavailable.")
 	}
 	password := []byte(credentials.Password)
 	passphrase := []byte(credentials.Passphrase)
@@ -911,7 +941,7 @@ func (d *Desktop) OpenQuickSSHTerminal(leaseID string, input QuickSSHInputDTO, c
 		return sessionusecase.Session{}, err
 	}
 	if d.remote == nil {
-		return sessionusecase.Session{}, errors.New("ssh support is unavailable")
+		return sessionusecase.Session{}, apperror.New(apperror.CodeUnavailable, "SSH support is unavailable.")
 	}
 	password := []byte(credentials.Password)
 	passphrase := []byte(credentials.Passphrase)
@@ -931,7 +961,7 @@ func (d *Desktop) OpenSFTP(leaseID, profileID string, credentials SSHCredentials
 		return filedomain.Session{}, err
 	}
 	if d.remote == nil || d.files == nil {
-		return filedomain.Session{}, errors.New("sftp support is unavailable")
+		return filedomain.Session{}, apperror.New(apperror.CodeUnavailable, "SFTP support is unavailable.")
 	}
 	password := []byte(credentials.Password)
 	passphrase := []byte(credentials.Passphrase)
@@ -1088,7 +1118,7 @@ func (d *Desktop) StartTunnel(leaseID, configID string, credentials SSHCredentia
 		return tunneldomain.Snapshot{}, err
 	}
 	if d.tunnels == nil {
-		return tunneldomain.Snapshot{}, errors.New("SSH tunnel support is unavailable")
+		return tunneldomain.Snapshot{}, apperror.New(apperror.CodeUnavailable, "SSH tunnel support is unavailable.")
 	}
 	password := []byte(credentials.Password)
 	passphrase := []byte(credentials.Passphrase)
@@ -1108,7 +1138,7 @@ func (d *Desktop) StopTunnel(leaseID, configID string) error {
 		return err
 	}
 	if d.tunnels == nil {
-		return errors.New("SSH tunnel support is unavailable")
+		return apperror.New(apperror.CodeUnavailable, "SSH tunnel support is unavailable.")
 	}
 	err := d.tunnels.Stop(leaseID, configID)
 	notify(d.leaseWake)
@@ -1138,7 +1168,7 @@ func (d *Desktop) WriteTerminal(leaseID, sessionID string, generation, inputSequ
 	}
 	data, err := base64.StdEncoding.DecodeString(payloadBase64)
 	if err != nil {
-		return errors.New("invalid terminal input payload")
+		return apperror.New(apperror.CodeInvalidArgument, "Invalid terminal input payload.")
 	}
 	return d.manager.Write(leaseID, sessionID, generation, inputSequence, data)
 }
@@ -1439,7 +1469,7 @@ func (d *Desktop) touchLease(id string) (FrontendLeaseDTO, error) {
 	d.leaseMu.Lock()
 	defer d.leaseMu.Unlock()
 	if d.lease == nil || d.lease.id != id {
-		return FrontendLeaseDTO{}, errors.New("frontend lease is missing or stale")
+		return FrontendLeaseDTO{}, apperror.New(apperror.CodeStale, "Frontend lease is missing or stale.")
 	}
 	now := time.Now()
 	d.lease.lastSeen = now
@@ -1497,10 +1527,29 @@ func (d *Desktop) context() context.Context {
 	return d.ctx
 }
 
+func (d *Desktop) setContext(ctx context.Context) {
+	d.ctxMu.Lock()
+	d.ctx = ctx
+	d.ctxMu.Unlock()
+}
+
+func (d *Desktop) stopLifecycleLocked() {
+	if d.lifecycle != nil {
+		d.lifecycle.cancel()
+		<-d.lifecycle.done
+		d.lifecycle = nil
+	}
+	if d.notifications != nil {
+		d.notifications.Shutdown()
+	}
+}
+
 func randomID() (string, error) {
 	buffer := make([]byte, 16)
 	if _, err := rand.Read(buffer); err != nil {
-		return "", fmt.Errorf("generate frontend lease: %w", err)
+		return "", apperror.Wrap(
+			apperror.CodeInternal, "generate frontend lease", "Could not create a secure frontend lease.", err,
+		)
 	}
 	return hex.EncodeToString(buffer), nil
 }

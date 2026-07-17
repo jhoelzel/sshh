@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"errors"
 	"fmt"
 	"net"
 	"strconv"
@@ -12,6 +11,7 @@ import (
 	"time"
 	"unicode"
 
+	"shh-h/internal/apperror"
 	"shh-h/internal/domain/filetransfer"
 	"shh-h/internal/domain/profile"
 	sshconnectiondomain "shh-h/internal/domain/sshconnection"
@@ -48,7 +48,7 @@ func (s *Service) OpenFiles(ctx context.Context, leaseID, profileID string, cred
 		return filetransfer.Session{}, err
 	}
 	if s.files == nil {
-		return filetransfer.Session{}, errors.New("sftp support is unavailable")
+		return filetransfer.Session{}, apperror.New(apperror.CodeUnavailable, "SFTP support is unavailable.")
 	}
 	return s.files.Open(ctx, leaseID, selected, credentials)
 }
@@ -87,7 +87,9 @@ func (s *Service) ProbeQuickHostKey(ctx context.Context, leaseID string, candida
 		return profile.Profile{}, sshconnectiondomain.HostKeyInfo{}, err
 	}
 	if s.trust == nil {
-		return profile.Profile{}, sshconnectiondomain.HostKeyInfo{}, errors.New("ssh host-key support is unavailable")
+		return profile.Profile{}, sshconnectiondomain.HostKeyInfo{}, apperror.New(
+			apperror.CodeUnavailable, "SSH host-key support is unavailable.",
+		)
 	}
 	info, err := s.trust.Probe(ctx, leaseID, selected)
 	if err != nil {
@@ -102,7 +104,9 @@ func (s *Service) InspectQuickAuthentication(candidate profile.Profile) (sshconn
 		return sshconnectiondomain.AuthenticationInfo{}, err
 	}
 	if s.inspector == nil {
-		return sshconnectiondomain.AuthenticationInfo{}, errors.New("ssh authentication support is unavailable")
+		return sshconnectiondomain.AuthenticationInfo{}, apperror.New(
+			apperror.CodeUnavailable, "SSH authentication support is unavailable.",
+		)
 	}
 	return s.inspector.InspectAuthentication(selected)
 }
@@ -113,7 +117,7 @@ func (s *Service) OpenQuick(ctx context.Context, leaseID string, candidate profi
 		return sessionusecase.Session{}, err
 	}
 	if s.sessions == nil {
-		return sessionusecase.Session{}, errors.New("ssh terminal support is unavailable")
+		return sessionusecase.Session{}, apperror.New(apperror.CodeUnavailable, "SSH terminal support is unavailable.")
 	}
 	return s.sessions.OpenSSH(ctx, leaseID, selected, columns, rows, credentials)
 }
@@ -121,10 +125,10 @@ func (s *Service) OpenQuick(ctx context.Context, leaseID string, candidate profi
 func (s *Service) sshProfile(profileID string) (profile.Profile, error) {
 	selected, found := s.profiles.Find(profileID)
 	if !found {
-		return profile.Profile{}, errors.New("profile not found")
+		return profile.Profile{}, apperror.New(apperror.CodeNotFound, "Profile was not found.")
 	}
 	if selected.Protocol != profile.ProtocolSSH {
-		return profile.Profile{}, errors.New("profile is not an ssh connection")
+		return profile.Profile{}, apperror.New(apperror.CodeInvalidArgument, "Profile is not an SSH connection.")
 	}
 	return selected, nil
 }
@@ -156,25 +160,29 @@ func normalizeQuickProfile(candidate profile.Profile) (profile.Profile, error) {
 	}, "\x00")))
 	selected.ID = "quick-ssh-" + hex.EncodeToString(digest[:8])
 	if err := selected.Validate(); err != nil {
-		return profile.Profile{}, fmt.Errorf("invalid quick SSH connection: %w", err)
+		return profile.Profile{}, apperror.Wrap(
+			apperror.CodeInvalidArgument, "validate quick SSH connection", err.Error(), err,
+		)
 	}
 	return selected, nil
 }
 
 func validateQuickHost(host string) error {
 	if host == "" {
-		return errors.New("host is required")
+		return apperror.New(apperror.CodeInvalidArgument, "Host is required.")
 	}
 	if len(host) > 255 {
-		return errors.New("host exceeds 255 characters")
+		return apperror.New(apperror.CodeInvalidArgument, "Host exceeds 255 characters.")
 	}
 	for _, character := range host {
 		if unicode.IsControl(character) || unicode.IsSpace(character) || strings.ContainsRune("/@[]", character) {
-			return errors.New("host must be a hostname or IP address without a scheme, port, or path")
+			return apperror.New(
+				apperror.CodeInvalidArgument, "Host must be a hostname or IP address without a scheme, port, or path.",
+			)
 		}
 	}
 	if strings.Contains(host, ":") && !isIPv6Literal(host) {
-		return errors.New("host must not include a port; use the port field")
+		return apperror.New(apperror.CodeInvalidArgument, "Host must not include a port; use the port field.")
 	}
 	return nil
 }
@@ -192,11 +200,16 @@ func isIPv6Literal(host string) bool {
 
 func validateQuickText(label, value string, limit int, allowSpace bool) error {
 	if len(value) > limit {
-		return fmt.Errorf("%s exceeds %d characters", label, limit)
+		return apperror.New(
+			apperror.CodeInvalidArgument, fmt.Sprintf("%s exceeds %d characters.", label, limit),
+		)
 	}
 	for _, character := range value {
 		if unicode.IsControl(character) || (!allowSpace && unicode.IsSpace(character)) {
-			return fmt.Errorf("%s contains unsupported whitespace or control characters", label)
+			return apperror.New(
+				apperror.CodeInvalidArgument,
+				fmt.Sprintf("%s contains unsupported whitespace or control characters.", label),
+			)
 		}
 	}
 	return nil

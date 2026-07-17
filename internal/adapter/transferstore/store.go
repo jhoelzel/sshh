@@ -17,6 +17,7 @@ import (
 	"time"
 	"unicode"
 
+	"shh-h/internal/apperror"
 	filedomain "shh-h/internal/domain/filetransfer"
 )
 
@@ -30,7 +31,7 @@ const (
 	maxErrorBytes = 4096
 )
 
-var ErrConflict = errors.New("transfer resume metadata changed outside shh-h; reload before saving")
+var ErrConflict = apperror.New(apperror.CodeConflict, "Transfer resume metadata changed outside shh-h; reload before saving.")
 
 type document struct {
 	Version  int                       `json:"version"`

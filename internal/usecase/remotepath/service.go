@@ -3,13 +3,13 @@ package remotepath
 import (
 	"crypto/rand"
 	"encoding/hex"
-	"errors"
 	"fmt"
 	"sort"
 	"strings"
 	"sync"
 	"time"
 
+	"shh-h/internal/apperror"
 	remotepathdomain "shh-h/internal/domain/remotepath"
 )
 
@@ -49,7 +49,10 @@ func (service *Service) Create(profileID, remotePath string) (remotepathdomain.F
 	service.mu.Lock()
 	defer service.mu.Unlock()
 	if len(service.favorites) >= remotepathdomain.MaxFavorites {
-		return remotepathdomain.Favorite{}, fmt.Errorf("cannot save more than %d remote path favorites", remotepathdomain.MaxFavorites)
+		return remotepathdomain.Favorite{}, apperror.New(
+			apperror.CodeConflict,
+			fmt.Sprintf("Cannot save more than %d remote path favorites.", remotepathdomain.MaxFavorites),
+		)
 	}
 	id, err := newID()
 	if err != nil {
@@ -59,11 +62,15 @@ func (service *Service) Create(profileID, remotePath string) (remotepathdomain.F
 		ID: id, ProfileID: profileID, Path: remotePath,
 	}).WithDefaults(time.Now().UTC())
 	if err := candidate.Validate(); err != nil {
-		return remotepathdomain.Favorite{}, err
+		return remotepathdomain.Favorite{}, apperror.Wrap(
+			apperror.CodeInvalidArgument, "create remote path favorite", err.Error(), err,
+		)
 	}
 	for _, favorite := range service.favorites {
 		if favorite.ProfileID == candidate.ProfileID && favorite.Path == candidate.Path {
-			return remotepathdomain.Favorite{}, errors.New("remote path is already a favorite for this profile")
+			return remotepathdomain.Favorite{}, apperror.New(
+				apperror.CodeConflict, "Remote path is already a favorite for this profile.",
+			)
 		}
 	}
 	next := append(clone(service.favorites), candidate)
@@ -86,7 +93,7 @@ func (service *Service) Delete(id string) error {
 		}
 	}
 	if index < 0 {
-		return errors.New("remote path favorite not found")
+		return apperror.New(apperror.CodeNotFound, "Remote path favorite was not found.")
 	}
 	next := append(clone(service.favorites[:index]), clone(service.favorites[index+1:])...)
 	if err := service.repo.SaveFavorites(next); err != nil {

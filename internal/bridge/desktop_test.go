@@ -1,10 +1,12 @@
 package bridge
 
 import (
+	"context"
 	"strings"
 	"testing"
 	"time"
 
+	"shh-h/internal/apperror"
 	profiledomain "shh-h/internal/domain/profile"
 	remotepathdomain "shh-h/internal/domain/remotepath"
 	settingsdomain "shh-h/internal/domain/settings"
@@ -83,9 +85,61 @@ func TestAttachFrontendReplacesPreviousInstance(t *testing.T) {
 func TestAttachFrontendRejectsInvalidNonce(t *testing.T) {
 	desktop := NewDesktop(sessionusecase.NewManager(nil), nil, nil, nil, nil, nil, nil, nil, nil, nil)
 
-	if _, err := desktop.AttachFrontend("  "); err == nil {
-		t.Fatal("expected an empty frontend nonce to be rejected")
+	if _, err := desktop.AttachFrontend("  "); !apperror.IsCode(err, apperror.CodeInvalidArgument) {
+		t.Fatalf("empty frontend nonce error code = %q, want %q", apperror.CodeOf(err), apperror.CodeInvalidArgument)
 	}
+}
+
+func TestDesktopStartupAndShutdownStopEveryLeaseMonitor(t *testing.T) {
+	desktop := NewDesktop(sessionusecase.NewManager(nil), nil, nil, nil, nil, nil, nil, nil, nil, nil)
+
+	for cycle := 0; cycle < 25; cycle++ {
+		desktop.Startup(context.Background())
+		run := currentDesktopLifecycle(t, desktop)
+
+		desktop.Shutdown(context.Background())
+
+		select {
+		case <-run.done:
+		case <-time.After(time.Second):
+			t.Fatalf("lease monitor from cycle %d did not stop", cycle)
+		}
+		desktop.lifecycleMu.Lock()
+		active := desktop.lifecycle
+		desktop.lifecycleMu.Unlock()
+		if active != nil || desktop.context() != nil {
+			t.Fatalf("cycle %d retained lifecycle state", cycle)
+		}
+	}
+}
+
+func TestRepeatedStartupStopsThePreviousLeaseMonitor(t *testing.T) {
+	desktop := NewDesktop(sessionusecase.NewManager(nil), nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	desktop.Startup(context.Background())
+	first := currentDesktopLifecycle(t, desktop)
+
+	desktop.Startup(context.Background())
+	second := currentDesktopLifecycle(t, desktop)
+	t.Cleanup(func() { desktop.Shutdown(context.Background()) })
+
+	if first == second {
+		t.Fatal("repeated startup reused lifecycle state")
+	}
+	select {
+	case <-first.done:
+	case <-time.After(time.Second):
+		t.Fatal("previous lease monitor did not stop")
+	}
+}
+
+func currentDesktopLifecycle(t *testing.T, desktop *Desktop) *desktopLifecycle {
+	t.Helper()
+	desktop.lifecycleMu.Lock()
+	defer desktop.lifecycleMu.Unlock()
+	if desktop.lifecycle == nil {
+		t.Fatal("desktop lifecycle is not running")
+	}
+	return desktop.lifecycle
 }
 
 func TestTerminalTextFilenameSanitizesUntrustedTitles(t *testing.T) {

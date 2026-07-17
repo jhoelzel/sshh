@@ -67,7 +67,8 @@ import {
   WriteTerminal,
 } from '../../../wailsjs/go/bridge/Desktop'
 import { bridge } from '../../../wailsjs/go/models'
-import { ClipboardSetText, EventsOff, EventsOn } from '../../../wailsjs/runtime/runtime'
+import { ClipboardSetText, EventsOn } from '../../../wailsjs/runtime/runtime'
+import { asBackendError } from './errors'
 import type {
   AppSettings,
   BuildInfo,
@@ -111,7 +112,7 @@ export const events = {
   sessionLog: 'shhh:session-log',
 } as const
 
-export const backend = {
+const rawBackend = {
   attachFrontend: (nonce: string) => AttachFrontend(nonce) as Promise<FrontendLease>,
   renewFrontendLease: (leaseId: string) => RenewFrontendLease(leaseId) as Promise<FrontendLease>,
   getBuildInfo: () => GetBuildInfo() as Promise<BuildInfo>,
@@ -248,6 +249,8 @@ export const backend = {
   confirmApplicationClose: (leaseId: string) => ConfirmApplicationClose(leaseId),
 }
 
+export const backend = withBackendErrors(rawBackend)
+
 function normalizeProfiles(value: unknown): Profile[] {
   if (!Array.isArray(value)) {
     return []
@@ -294,31 +297,52 @@ function normalizeWorkspaceLayouts(value: unknown): WorkspaceLayout[] {
 }
 
 export function onTerminalOutput(callback: (event: TerminalOutput) => void): () => void {
-  EventsOn(events.terminalOutput, callback)
-  return () => EventsOff(events.terminalOutput)
+  return EventsOn(events.terminalOutput, callback)
 }
 
 export function onSessionState(callback: (event: SessionStateEvent) => void): () => void {
-  EventsOn(events.sessionState, callback)
-  return () => EventsOff(events.sessionState)
+  return EventsOn(events.sessionState, callback)
 }
 
 export function onCloseRequested(callback: () => void): () => void {
-  EventsOn(events.closeRequested, callback)
-  return () => EventsOff(events.closeRequested)
+  return EventsOn(events.closeRequested, callback)
 }
 
 export function onTransfer(callback: (event: Transfer) => void): () => void {
-  EventsOn(events.transfer, callback)
-  return () => EventsOff(events.transfer)
+  return EventsOn(events.transfer, callback)
 }
 
 export function onTunnel(callback: (event: TunnelSnapshot) => void): () => void {
-  EventsOn(events.tunnel, callback)
-  return () => EventsOff(events.tunnel)
+  return EventsOn(events.tunnel, callback)
 }
 
 export function onSessionLog(callback: (event: SessionLogStatus) => void): () => void {
-  EventsOn(events.sessionLog, callback)
-  return () => EventsOff(events.sessionLog)
+  return EventsOn(events.sessionLog, callback)
+}
+
+function withBackendErrors<T extends object>(client: T): T {
+  const wrappers = new Map<PropertyKey, unknown>()
+  return new Proxy(client, {
+    get(target, property, receiver) {
+      const value = Reflect.get(target, property, receiver)
+      if (typeof value !== 'function') {
+        return value
+      }
+      if (wrappers.has(property)) {
+        return wrappers.get(property)
+      }
+      const wrapper = (...args: unknown[]) => {
+        try {
+          return Promise.resolve(Reflect.apply(value, target, args))
+            .catch((cause: unknown) => {
+              throw asBackendError(cause)
+            })
+        } catch (cause) {
+          return Promise.reject(asBackendError(cause))
+        }
+      }
+      wrappers.set(property, wrapper)
+      return wrapper
+    },
+  })
 }

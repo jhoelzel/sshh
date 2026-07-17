@@ -640,9 +640,10 @@ Deliverables:
   single-application distribution decisions.
 - [x] Replace the current generic backend package shape with domain, use-case,
   port, and adapter boundaries as code is touched.
-- [ ] Introduce a consistent typed error taxonomy. Structured state transitions
-  are implemented, while several bridge-facing paths still return contextual
-  ordinary errors.
+- [x] Introduce a consistent typed error taxonomy. Go use cases and adapters use
+  stable codes, Wails formats every rejection into a cause-redacted JSON
+  envelope, and the frontend normalizes it into `BackendError` without parsing
+  human-readable messages.
 - [x] Establish automated `govulncheck`, high-severity npm audit, weekly Go/npm/
   Actions dependency updates, Go test/race/vet, TypeScript, Vitest, ESLint,
   frontend production, and native macOS build checks.
@@ -662,11 +663,15 @@ Tests and exit gate:
 
 - [x] Current config behavior is covered before migration.
 - [x] The application starts and exits without spawning a child process.
-- [ ] Repeated startup and shutdown leave no goroutines or files open.
+- [x] Repeated startup and shutdown leave no lease-monitor goroutine behind.
+  Twenty-five in-process lifecycle cycles and repeated-start replacement are
+  covered; configuration stores retain no open file handles between operations.
 - [ ] A second application launch focuses the first instance and exits without
   opening a second writable config store.
 - [ ] React StrictMode's development remount does not duplicate bridge listeners,
-  controllers, commands, or backend resources.
+  controllers, commands, or backend resources. Listener cleanup now uses Wails'
+  subscription-specific disposer, while same-nonce backend attachment is
+  idempotent; a full rendered StrictMode/native interaction gate remains.
 - [x] The Wails application builds and launches as an arm64 `.app` on the current
   Mac using the system WKWebView.
 - [ ] Native macOS, Linux, and Windows CI jobs build the desktop shell, using

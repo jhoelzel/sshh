@@ -3,13 +3,13 @@ package workspace
 import (
 	"crypto/rand"
 	"encoding/hex"
-	"errors"
 	"fmt"
 	"sort"
 	"strings"
 	"sync"
 	"time"
 
+	"shh-h/internal/apperror"
 	workspacedomain "shh-h/internal/domain/workspace"
 )
 
@@ -48,7 +48,9 @@ func (service *Service) Create(candidate workspacedomain.Layout) (workspacedomai
 	service.mu.Lock()
 	defer service.mu.Unlock()
 	if len(service.layouts) >= MaxLayouts {
-		return workspacedomain.Layout{}, fmt.Errorf("cannot save more than %d workspace layouts", MaxLayouts)
+		return workspacedomain.Layout{}, apperror.New(
+			apperror.CodeConflict, fmt.Sprintf("Cannot save more than %d workspace layouts.", MaxLayouts),
+		)
 	}
 	id, err := newID()
 	if err != nil {
@@ -60,7 +62,9 @@ func (service *Service) Create(candidate workspacedomain.Layout) (workspacedomai
 	candidate.UpdatedAt = now
 	candidate = candidate.WithDefaults(now)
 	if err := candidate.Validate(); err != nil {
-		return workspacedomain.Layout{}, err
+		return workspacedomain.Layout{}, apperror.Wrap(
+			apperror.CodeInvalidArgument, "create workspace layout", err.Error(), err,
+		)
 	}
 	if err := ensureUniqueName(service.layouts, candidate.Name, ""); err != nil {
 		return workspacedomain.Layout{}, err
@@ -78,7 +82,7 @@ func (service *Service) Update(candidate workspacedomain.Layout) (workspacedomai
 	defer service.mu.Unlock()
 	index := indexByID(service.layouts, strings.TrimSpace(candidate.ID))
 	if index < 0 {
-		return workspacedomain.Layout{}, errors.New("workspace layout not found")
+		return workspacedomain.Layout{}, apperror.New(apperror.CodeNotFound, "Workspace layout was not found.")
 	}
 	now := time.Now().UTC()
 	candidate.ID = service.layouts[index].ID
@@ -86,7 +90,9 @@ func (service *Service) Update(candidate workspacedomain.Layout) (workspacedomai
 	candidate.UpdatedAt = now
 	candidate = candidate.WithDefaults(now)
 	if err := candidate.Validate(); err != nil {
-		return workspacedomain.Layout{}, err
+		return workspacedomain.Layout{}, apperror.Wrap(
+			apperror.CodeInvalidArgument, "update workspace layout", err.Error(), err,
+		)
 	}
 	if err := ensureUniqueName(service.layouts, candidate.Name, candidate.ID); err != nil {
 		return workspacedomain.Layout{}, err
@@ -105,7 +111,7 @@ func (service *Service) Delete(id string) error {
 	defer service.mu.Unlock()
 	index := indexByID(service.layouts, strings.TrimSpace(id))
 	if index < 0 {
-		return errors.New("workspace layout not found")
+		return apperror.New(apperror.CodeNotFound, "Workspace layout was not found.")
 	}
 	next := append(clone(service.layouts[:index]), clone(service.layouts[index+1:])...)
 	if err := service.repo.SaveLayouts(next); err != nil {
@@ -119,7 +125,10 @@ func ensureUniqueName(layouts []workspacedomain.Layout, name, excludingID string
 	key := strings.ToLower(strings.TrimSpace(name))
 	for _, layout := range layouts {
 		if layout.ID != excludingID && strings.ToLower(layout.Name) == key {
-			return fmt.Errorf("a workspace layout named %q already exists", strings.TrimSpace(name))
+			return apperror.New(
+				apperror.CodeConflict,
+				fmt.Sprintf("A workspace layout named %q already exists.", strings.TrimSpace(name)),
+			)
 		}
 	}
 	return nil

@@ -16,6 +16,7 @@ import (
 	"sync"
 	"time"
 
+	"shh-h/internal/apperror"
 	filedomain "shh-h/internal/domain/filetransfer"
 	"shh-h/internal/domain/profile"
 	"shh-h/internal/port"
@@ -29,7 +30,7 @@ const (
 	maxCollisionCandidates     = 10_000
 )
 
-var ErrDestinationExists = errors.New("transfer destination already exists")
+var ErrDestinationExists = apperror.New(apperror.CodeConflict, "Transfer destination already exists.")
 
 type Sink interface {
 	PublishTransfer(filedomain.Transfer)
@@ -100,16 +101,16 @@ func (m *Manager) SetSink(sink Sink) {
 
 func (m *Manager) Open(ctx context.Context, leaseID string, selected profile.Profile, credentials port.SSHCredentials) (filedomain.Session, error) {
 	if leaseID == "" {
-		return filedomain.Session{}, errors.New("frontend lease is required")
+		return filedomain.Session{}, apperror.New(apperror.CodeStale, "A current frontend lease is required.")
 	}
 	if selected.Protocol != profile.ProtocolSSH {
-		return filedomain.Session{}, errors.New("sftp requires an ssh profile")
+		return filedomain.Session{}, apperror.New(apperror.CodeInvalidArgument, "SFTP requires an SSH profile.")
 	}
 	if err := selected.Validate(); err != nil {
 		return filedomain.Session{}, err
 	}
 	if m.factory == nil {
-		return filedomain.Session{}, errors.New("sftp support is unavailable")
+		return filedomain.Session{}, apperror.New(apperror.CodeUnavailable, "SFTP support is unavailable.")
 	}
 
 	runtimeContext, cancel := context.WithCancel(ctx)
@@ -175,7 +176,7 @@ func (m *Manager) Remove(leaseID, sessionID, remotePath string) error {
 
 func (m *Manager) Chmod(leaseID, sessionID, remotePath string, mode uint32) error {
 	if mode > 0o7777 {
-		return errors.New("invalid remote file mode")
+		return apperror.New(apperror.CodeInvalidArgument, "Invalid remote file mode.")
 	}
 	runtime, err := m.session(leaseID, sessionID)
 	if err != nil {
@@ -212,7 +213,7 @@ func (m *Manager) StartUpload(leaseID, sessionID, localPath, remotePath string, 
 		return filedomain.Transfer{}, fmt.Errorf("inspect local source: %w", err)
 	}
 	if !info.Mode().IsRegular() {
-		return filedomain.Transfer{}, errors.New("local source is not a regular file")
+		return filedomain.Transfer{}, apperror.New(apperror.CodeInvalidArgument, "Local source is not a regular file.")
 	}
 	remotePath, skipped, err := m.resolveRemoteCollision(runtime, remotePath, collision)
 	if err != nil {
@@ -245,7 +246,7 @@ func (m *Manager) CancelTransfer(leaseID, transferID string) error {
 	transfer := m.transfers[transferID]
 	m.mu.RUnlock()
 	if transfer == nil || transfer.snapshotValue().LeaseID != leaseID {
-		return errors.New("transfer not found")
+		return apperror.New(apperror.CodeNotFound, "Transfer was not found.")
 	}
 	transfer.cancel()
 	return nil
@@ -819,10 +820,10 @@ func (m *Manager) session(leaseID, sessionID string) (*runtimeSession, error) {
 	runtime := m.sessions[sessionID]
 	m.mu.RUnlock()
 	if runtime == nil {
-		return nil, errors.New("sftp session not found")
+		return nil, apperror.New(apperror.CodeNotFound, "SFTP session was not found.")
 	}
 	if runtime.snapshot.LeaseID != leaseID {
-		return nil, errors.New("sftp session belongs to another frontend lease")
+		return nil, apperror.New(apperror.CodeStale, "SFTP session belongs to another frontend lease.")
 	}
 	return runtime, nil
 }

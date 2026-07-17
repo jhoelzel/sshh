@@ -13,6 +13,7 @@ import (
 	"sync"
 	"time"
 
+	"shh-h/internal/apperror"
 	"shh-h/internal/domain/remotepath"
 )
 
@@ -23,7 +24,7 @@ const (
 	fileMode      = 0o600
 )
 
-var ErrConflict = errors.New("remote path favorites changed outside shh-h; reload before saving")
+var ErrConflict = apperror.New(apperror.CodeConflict, "Remote path favorites changed outside shh-h; reload before saving.")
 
 type document struct {
 	Version   int                   `json:"version"`

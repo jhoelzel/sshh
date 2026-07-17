@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"shh-h/internal/apperror"
 	"shh-h/internal/domain/profile"
 	tunneldomain "shh-h/internal/domain/tunnel"
 	"shh-h/internal/port"
@@ -123,10 +124,10 @@ func (s *Service) Update(candidate tunneldomain.Config) (tunneldomain.Config, er
 	defer s.mu.Unlock()
 	index := configIndex(s.configs, strings.TrimSpace(candidate.ID))
 	if index < 0 {
-		return tunneldomain.Config{}, errors.New("tunnel not found")
+		return tunneldomain.Config{}, apperror.New(apperror.CodeNotFound, "Tunnel was not found.")
 	}
 	if current := s.runtimes[candidate.ID]; current != nil && current.snapshotValue().Live() {
-		return tunneldomain.Config{}, errors.New("stop the tunnel before editing it")
+		return tunneldomain.Config{}, apperror.New(apperror.CodeConflict, "Stop the tunnel before editing it.")
 	}
 	now := time.Now().UTC()
 	candidate.ID = s.configs[index].ID
@@ -150,10 +151,10 @@ func (s *Service) Delete(id string) error {
 	defer s.mu.Unlock()
 	index := configIndex(s.configs, id)
 	if index < 0 {
-		return errors.New("tunnel not found")
+		return apperror.New(apperror.CodeNotFound, "Tunnel was not found.")
 	}
 	if current := s.runtimes[id]; current != nil && current.snapshotValue().Live() {
-		return errors.New("stop the tunnel before deleting it")
+		return apperror.New(apperror.CodeConflict, "Stop the tunnel before deleting it.")
 	}
 	next := append([]tunneldomain.Config{}, s.configs[:index]...)
 	next = append(next, s.configs[index+1:]...)
@@ -169,7 +170,7 @@ func (s *Service) Start(ctx context.Context, leaseID, configID string, credentia
 	if strings.TrimSpace(leaseID) == "" {
 		clear(credentials.Password)
 		clear(credentials.Passphrase)
-		return tunneldomain.Snapshot{}, errors.New("frontend lease is required")
+		return tunneldomain.Snapshot{}, apperror.New(apperror.CodeStale, "A current frontend lease is required.")
 	}
 	s.mu.Lock()
 	index := configIndex(s.configs, configID)
@@ -177,7 +178,7 @@ func (s *Service) Start(ctx context.Context, leaseID, configID string, credentia
 		s.mu.Unlock()
 		clear(credentials.Password)
 		clear(credentials.Passphrase)
-		return tunneldomain.Snapshot{}, errors.New("tunnel not found")
+		return tunneldomain.Snapshot{}, apperror.New(apperror.CodeNotFound, "Tunnel was not found.")
 	}
 	config := s.configs[index]
 	selected, found := s.profiles.Find(config.ProfileID)
@@ -185,7 +186,7 @@ func (s *Service) Start(ctx context.Context, leaseID, configID string, credentia
 		s.mu.Unlock()
 		clear(credentials.Password)
 		clear(credentials.Passphrase)
-		return tunneldomain.Snapshot{}, errors.New("tunnel SSH profile is unavailable")
+		return tunneldomain.Snapshot{}, apperror.New(apperror.CodeNotFound, "Tunnel SSH profile is unavailable.")
 	}
 	if existing := s.runtimes[configID]; existing != nil && existing.snapshotValue().Live() {
 		snapshot := existing.snapshotValue()
@@ -193,7 +194,7 @@ func (s *Service) Start(ctx context.Context, leaseID, configID string, credentia
 		clear(credentials.Password)
 		clear(credentials.Passphrase)
 		if snapshot.LeaseID != leaseID {
-			return tunneldomain.Snapshot{}, errors.New("tunnel belongs to another frontend lease")
+			return tunneldomain.Snapshot{}, apperror.New(apperror.CodeStale, "Tunnel belongs to another frontend lease.")
 		}
 		return snapshot, nil
 	}
@@ -201,7 +202,9 @@ func (s *Service) Start(ctx context.Context, leaseID, configID string, credentia
 		s.mu.Unlock()
 		clear(credentials.Password)
 		clear(credentials.Passphrase)
-		return tunneldomain.Snapshot{}, errors.New("automatic reconnect requires agent or an unencrypted private key")
+		return tunneldomain.Snapshot{}, apperror.New(
+			apperror.CodeInvalidArgument, "Automatic reconnect requires an agent or an unencrypted private key.",
+		)
 	}
 	runtimeContext, cancel := context.WithCancel(ctx)
 	now := time.Now().UTC().Format(time.RFC3339Nano)
@@ -239,7 +242,7 @@ func (s *Service) Stop(leaseID, configID string) error {
 		return nil
 	}
 	if runtime.snapshotValue().LeaseID != leaseID {
-		return errors.New("tunnel belongs to another frontend lease")
+		return apperror.New(apperror.CodeStale, "Tunnel belongs to another frontend lease.")
 	}
 	runtime.cancel()
 	runtime.closeAttempt()
@@ -385,7 +388,7 @@ func (s *Service) run(runtime *runtimeTunnel, selected profile.Profile, credenti
 
 func (s *Service) openAttempt(ctx context.Context, config tunneldomain.Config, spec port.SSHTerminalSpec) (port.SSHConnection, net.Listener, error) {
 	if s.factory == nil {
-		return nil, nil, errors.New("SSH tunnel support is unavailable")
+		return nil, nil, apperror.New(apperror.CodeUnavailable, "SSH tunnel support is unavailable.")
 	}
 	connection, err := s.factory.OpenSSHConnection(ctx, spec)
 	if err != nil {
@@ -410,7 +413,7 @@ func (s *Service) serveAttempt(runtime *runtimeTunnel) error {
 	waitDone := make(chan error, 1)
 	connection := runtime.connectionValue()
 	if connection == nil {
-		return errors.New("SSH connection is unavailable")
+		return apperror.New(apperror.CodeUnavailable, "SSH connection is unavailable.")
 	}
 	runtime.accepting.Add(1)
 	go func() {
@@ -433,16 +436,18 @@ func (s *Service) serveAttempt(runtime *runtimeTunnel) error {
 
 func (s *Service) validateConfig(candidate tunneldomain.Config, excludingID string) error {
 	if err := candidate.Validate(); err != nil {
-		return err
+		return apperror.Wrap(apperror.CodeInvalidArgument, "validate tunnel", err.Error(), err)
 	}
 	selected, found := s.profiles.Find(candidate.ProfileID)
 	if !found || selected.Protocol != profile.ProtocolSSH {
-		return errors.New("a valid SSH profile is required")
+		return apperror.New(apperror.CodeInvalidArgument, "A valid SSH profile is required.")
 	}
 	name := strings.ToLower(candidate.Name)
 	for _, item := range s.configs {
 		if item.ID != excludingID && strings.ToLower(item.Name) == name {
-			return fmt.Errorf("a tunnel named %q already exists", candidate.Name)
+			return apperror.New(
+				apperror.CodeConflict, fmt.Sprintf("A tunnel named %q already exists.", candidate.Name),
+			)
 		}
 	}
 	return nil

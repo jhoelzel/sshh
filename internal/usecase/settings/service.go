@@ -3,6 +3,7 @@ package settings
 import (
 	"sync"
 
+	"shh-h/internal/apperror"
 	settingsdomain "shh-h/internal/domain/settings"
 )
 
@@ -37,7 +38,9 @@ func (s *Service) ConnectionSettings() settingsdomain.Connection {
 
 func (s *Service) Update(value settingsdomain.Settings) (settingsdomain.Settings, error) {
 	if err := value.Validate(); err != nil {
-		return settingsdomain.Settings{}, err
+		return settingsdomain.Settings{}, apperror.Wrap(
+			apperror.CodeInvalidArgument, "update settings", err.Error(), err,
+		)
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()

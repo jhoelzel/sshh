@@ -23,6 +23,7 @@ import (
 	"shh-h/internal/adapter/tunnelstore"
 	"shh-h/internal/adapter/wailsnotification"
 	"shh-h/internal/adapter/workspacestore"
+	"shh-h/internal/apperror"
 	"shh-h/internal/bridge"
 	filetransferusecase "shh-h/internal/usecase/filetransfer"
 	notificationusecase "shh-h/internal/usecase/notification"
@@ -137,6 +138,7 @@ func Run(assets fs.FS) error {
 		OnBeforeClose:            desktop.BeforeClose,
 		OnShutdown:               desktop.Shutdown,
 		LogLevelProduction:       logger.ERROR,
+		ErrorFormatter:           apperror.Format,
 		EnableDefaultContextMenu: false,
 		BindingsAllowedOrigins:   "",
 		DragAndDrop:              &options.DragAndDrop{DisableWebViewDrop: true},

@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"shh-h/internal/apperror"
 	"shh-h/internal/domain/profile"
 	"shh-h/internal/port"
 )
@@ -154,10 +155,12 @@ func (m *Manager) SetLogFactory(factory port.SessionLogFactory) {
 
 func (m *Manager) OpenLocal(ctx context.Context, leaseID string, selected profile.Profile, columns, rows uint16) (Session, error) {
 	if leaseID == "" {
-		return Session{}, errors.New("frontend lease is required")
+		return Session{}, apperror.New(apperror.CodeStale, "A current frontend lease is required.")
 	}
 	if selected.Protocol != profile.ProtocolLocal {
-		return Session{}, fmt.Errorf("profile %q is not a local terminal", selected.ID)
+		return Session{}, apperror.New(
+			apperror.CodeInvalidArgument, fmt.Sprintf("Profile %q is not a local terminal.", selected.ID),
+		)
 	}
 	if err := validateSize(columns, rows); err != nil {
 		return Session{}, err
@@ -192,10 +195,12 @@ func (m *Manager) OpenLocal(ctx context.Context, leaseID string, selected profil
 
 func (m *Manager) OpenSSH(ctx context.Context, leaseID string, selected profile.Profile, columns, rows uint16, credentials port.SSHCredentials) (Session, error) {
 	if leaseID == "" {
-		return Session{}, errors.New("frontend lease is required")
+		return Session{}, apperror.New(apperror.CodeStale, "A current frontend lease is required.")
 	}
 	if selected.Protocol != profile.ProtocolSSH {
-		return Session{}, fmt.Errorf("profile %q is not an ssh terminal", selected.ID)
+		return Session{}, apperror.New(
+			apperror.CodeInvalidArgument, fmt.Sprintf("Profile %q is not an SSH terminal.", selected.ID),
+		)
 	}
 	if err := selected.Validate(); err != nil {
 		return Session{}, err
@@ -208,7 +213,7 @@ func (m *Manager) OpenSSH(ctx context.Context, leaseID string, selected profile.
 	factory := m.sshFactory
 	m.mu.RUnlock()
 	if factory == nil {
-		return Session{}, errors.New("ssh terminal support is unavailable")
+		return Session{}, apperror.New(apperror.CodeUnavailable, "SSH terminal support is unavailable.")
 	}
 
 	id, err := newID()
@@ -276,7 +281,9 @@ func (m *Manager) Write(leaseID, sessionID string, generation, inputSequence uin
 		return nil
 	}
 	if len(data) > maxOutputChunk {
-		return fmt.Errorf("terminal input exceeds %d bytes", maxOutputChunk)
+		return apperror.New(
+			apperror.CodeInvalidArgument, fmt.Sprintf("Terminal input exceeds %d bytes.", maxOutputChunk),
+		)
 	}
 	runtime, err := m.runtime(leaseID, sessionID, generation)
 	if err != nil {
@@ -291,18 +298,22 @@ func (m *Manager) Write(leaseID, sessionID string, generation, inputSequence uin
 	if inputSequence != runtime.lastInput+1 {
 		expected := runtime.lastInput + 1
 		runtime.mu.Unlock()
-		return fmt.Errorf("input sequence gap: expected %d, got %d", expected, inputSequence)
+		return apperror.New(
+			apperror.CodeStale, fmt.Sprintf("Terminal input sequence gap: expected %d, got %d.", expected, inputSequence),
+		)
 	}
 	if runtime.session.State != StateRunning {
 		state := runtime.session.State
 		runtime.mu.Unlock()
-		return fmt.Errorf("session is %s", state)
+		return apperror.New(apperror.CodeConflict, fmt.Sprintf("Terminal session is %s.", state))
 	}
 	runtime.lastInput = inputSequence
 	runtime.mu.Unlock()
 
 	if _, err := runtime.transport.Write(data); err != nil {
-		return fmt.Errorf("write terminal input: %w", err)
+		return apperror.Wrap(
+			apperror.CodeUnavailable, "write terminal input", "Terminal input could not be written.", err,
+		)
 	}
 	return nil
 }
@@ -343,14 +354,14 @@ func (m *Manager) StartLogging(leaseID, sessionID string, generation uint64, tim
 	factory := m.logFactory
 	m.mu.RUnlock()
 	if factory == nil {
-		return SessionLogStatus{}, errors.New("session logging is unavailable")
+		return SessionLogStatus{}, apperror.New(apperror.CodeUnavailable, "Session logging is unavailable.")
 	}
 
 	runtime.logMu.Lock()
 	if runtime.logger != nil {
 		status := runtime.logStatus
 		runtime.logMu.Unlock()
-		return status, errors.New("session logging is already active")
+		return status, apperror.New(apperror.CodeConflict, "Session logging is already active.")
 	}
 	runtime.mu.RLock()
 	state := runtime.session.State
@@ -388,7 +399,7 @@ func (m *Manager) StopLogging(leaseID, sessionID string, generation uint64) (Ses
 	}
 	status, active, closeErr := m.stopLogging(runtime, "")
 	if !active {
-		return status, errors.New("session logging is not active")
+		return status, apperror.New(apperror.CodeConflict, "Session logging is not active.")
 	}
 	if closeErr != nil {
 		return status, closeErr
@@ -567,7 +578,7 @@ func (m *Manager) publishOutput(runtime *runtimeSession, data []byte, final bool
 	sink := m.sink
 	m.mu.RUnlock()
 	if sink == nil {
-		return errors.New("terminal event sink is unavailable")
+		return apperror.New(apperror.CodeUnavailable, "Terminal event delivery is unavailable.")
 	}
 	sink.PublishOutput(OutputChunk{
 		LeaseID: snapshot.LeaseID, SessionID: snapshot.ID, Generation: snapshot.Generation,
@@ -701,15 +712,15 @@ func (m *Manager) runtime(leaseID, sessionID string, generation uint64) (*runtim
 	runtime := m.runtimes[sessionID]
 	m.mu.RUnlock()
 	if runtime == nil {
-		return nil, errors.New("terminal session not found")
+		return nil, apperror.New(apperror.CodeNotFound, "Terminal session was not found.")
 	}
 
 	snapshot := runtime.snapshot()
 	if snapshot.LeaseID != leaseID {
-		return nil, errors.New("terminal session belongs to another frontend lease")
+		return nil, apperror.New(apperror.CodeStale, "Terminal session belongs to another frontend lease.")
 	}
 	if snapshot.Generation != generation {
-		return nil, errors.New("stale terminal session generation")
+		return nil, apperror.New(apperror.CodeStale, "Terminal session generation is stale.")
 	}
 	return runtime, nil
 }
@@ -775,10 +786,13 @@ func (r *runtimeSession) acknowledge(sequence, bytesConsumed uint64) error {
 		}
 	}
 	if index < 0 {
-		return fmt.Errorf("unknown output sequence %d", sequence)
+		return apperror.New(apperror.CodeStale, fmt.Sprintf("Unknown terminal output sequence %d.", sequence))
 	}
 	if bytesConsumed != expected {
-		return fmt.Errorf("output acknowledgement offset mismatch: expected %d, got %d", expected, bytesConsumed)
+		return apperror.New(
+			apperror.CodeStale,
+			fmt.Sprintf("Terminal output acknowledgement mismatch: expected %d, got %d.", expected, bytesConsumed),
+		)
 	}
 
 	r.ackedSequence = sequence
@@ -797,7 +811,9 @@ func (r *runtimeSession) closeFlow() {
 
 func validateSize(columns, rows uint16) error {
 	if columns < 2 || columns > 500 || rows < 1 || rows > 300 {
-		return fmt.Errorf("invalid terminal size %dx%d", columns, rows)
+		return apperror.New(
+			apperror.CodeInvalidArgument, fmt.Sprintf("Invalid terminal size %dx%d.", columns, rows),
+		)
 	}
 	return nil
 }

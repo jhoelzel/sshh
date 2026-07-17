@@ -4,6 +4,7 @@ import (
 	"errors"
 	"testing"
 
+	"shh-h/internal/apperror"
 	profiledomain "shh-h/internal/domain/profile"
 )
 
@@ -71,6 +72,9 @@ func TestServiceImportRejectsWholeBatchBeforeSave(t *testing.T) {
 	})
 	if err == nil {
 		t.Fatal("expected invalid batch to fail")
+	}
+	if !apperror.IsCode(err, apperror.CodeInvalidArgument) {
+		t.Fatalf("invalid import error code = %q", apperror.CodeOf(err))
 	}
 	if repository.saveCalls != 0 || len(service.List()) != 1 {
 		t.Fatalf("failed batch changed state: saves=%d profiles=%#v", repository.saveCalls, service.List())
@@ -163,7 +167,7 @@ func TestServiceRejectsDuplicateName(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create service: %v", err)
 	}
-	if _, err := service.Create(profiledomain.Profile{Name: " local ", Protocol: profiledomain.ProtocolLocal}); err == nil {
-		t.Fatal("expected duplicate name to fail")
+	if _, err := service.Create(profiledomain.Profile{Name: " local ", Protocol: profiledomain.ProtocolLocal}); !apperror.IsCode(err, apperror.CodeConflict) {
+		t.Fatalf("duplicate name error code = %q, want %q", apperror.CodeOf(err), apperror.CodeConflict)
 	}
 }
