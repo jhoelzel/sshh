@@ -1,0 +1,36 @@
+package settings
+
+import (
+	"math"
+	"testing"
+)
+
+func TestDefaultsAreValid(t *testing.T) {
+	defaults := Defaults()
+	if err := defaults.Validate(); err != nil {
+		t.Fatalf("default settings are invalid: %v", err)
+	}
+}
+
+func TestSettingsRejectOutOfRangeTerminalValues(t *testing.T) {
+	tests := []struct {
+		name   string
+		change func(*Settings)
+	}{
+		{name: "font", change: func(value *Settings) { value.Terminal.FontFamily = "unknown" }},
+		{name: "size", change: func(value *Settings) { value.Terminal.FontSize = 9 }},
+		{name: "height", change: func(value *Settings) { value.Terminal.LineHeight = 2.1 }},
+		{name: "nan height", change: func(value *Settings) { value.Terminal.LineHeight = math.NaN() }},
+		{name: "cursor", change: func(value *Settings) { value.Terminal.CursorStyle = "box" }},
+		{name: "scrollback", change: func(value *Settings) { value.Terminal.Scrollback = 100 }},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			value := Defaults()
+			test.change(&value)
+			if err := value.Validate(); err == nil {
+				t.Fatal("expected validation error")
+			}
+		})
+	}
+}

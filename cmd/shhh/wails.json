@@ -1,0 +1,22 @@
+{
+  "$schema": "https://wails.io/schemas/config.v2.json",
+  "name": "shh-h",
+  "outputfilename": "shhh",
+  "frontend:dir": "../../frontend",
+  "wailsjsdir": "../../frontend",
+  "build:dir": "../../build",
+  "frontend:install": "npm ci",
+  "frontend:build": "npm run build",
+  "frontend:dev:watcher": "npm run dev",
+  "frontend:dev:serverUrl": "auto",
+  "author": {
+    "name": "Johannes"
+  },
+  "info": {
+    "companyName": "shh-h",
+    "productName": "shh-h",
+    "productVersion": "0.1.0",
+    "copyright": "Copyright 2026",
+    "comments": "A local-first terminal workspace"
+  }
+}
