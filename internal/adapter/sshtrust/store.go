@@ -18,13 +18,17 @@ import (
 	"golang.org/x/crypto/ssh/knownhosts"
 
 	"shh-h/internal/domain/profile"
+	settingsdomain "shh-h/internal/domain/settings"
 	"shh-h/internal/domain/sshconnection"
 )
 
 const (
-	probeTimeout     = 10 * time.Second
 	challengeTimeout = 2 * time.Minute
 )
+
+type connectionSettingsSource interface {
+	ConnectionSettings() settingsdomain.Connection
+}
 
 type pendingKey struct {
 	leaseID   string
@@ -37,13 +41,14 @@ type Store struct {
 	mu              sync.Mutex
 	applicationPath string
 	userPath        string
+	settings        connectionSettingsSource
 	sessionKeys     map[string][]byte
 	pending         map[string]pendingKey
 }
 
 var errHostKeyCaptured = errors.New("ssh host key captured")
 
-func New(appID string) (*Store, error) {
+func New(appID string, settings connectionSettingsSource) (*Store, error) {
 	configDirectory, err := os.UserConfigDir()
 	if err != nil {
 		return nil, fmt.Errorf("resolve application config directory: %w", err)
@@ -52,16 +57,22 @@ func New(appID string) (*Store, error) {
 	if err != nil {
 		return nil, fmt.Errorf("resolve home directory: %w", err)
 	}
-	return NewAt(
+	return newStore(
 		filepath.Join(configDirectory, appID, "known_hosts"),
 		filepath.Join(home, ".ssh", "known_hosts"),
+		settings,
 	), nil
 }
 
 func NewAt(applicationPath, userPath string) *Store {
+	return newStore(applicationPath, userPath, nil)
+}
+
+func newStore(applicationPath, userPath string, settings connectionSettingsSource) *Store {
 	return &Store{
 		applicationPath: applicationPath,
 		userPath:        userPath,
+		settings:        settings,
 		sessionKeys:     make(map[string][]byte),
 		pending:         make(map[string]pendingKey),
 	}
@@ -75,7 +86,8 @@ func (s *Store) Probe(ctx context.Context, leaseID string, selected profile.Prof
 		return sshconnection.HostKeyInfo{}, errors.New("host key probing requires an ssh profile")
 	}
 	address := profileAddress(selected.Host, selected.Port)
-	key, err := probeHostKey(ctx, address, selected.Username)
+	timeout := time.Duration(s.connectionSettings().ConnectTimeoutSeconds) * time.Second
+	key, err := probeHostKey(ctx, address, selected.Username, timeout)
 	if err != nil {
 		return sshconnection.HostKeyInfo{}, err
 	}
@@ -104,6 +116,13 @@ func (s *Store) Probe(ctx context.Context, leaseID string, selected profile.Prof
 	s.mu.Unlock()
 	result.ChallengeID = challenge
 	return result, nil
+}
+
+func (s *Store) connectionSettings() settingsdomain.Connection {
+	if s.settings == nil {
+		return settingsdomain.Defaults().Connection
+	}
+	return s.settings.ConnectionSettings()
 }
 
 func (s *Store) Trust(leaseID, challengeID string, permanent bool) error {
@@ -236,8 +255,8 @@ func (s *Store) removeExpiredLocked(now time.Time) {
 	}
 }
 
-func probeHostKey(ctx context.Context, address, username string) (ssh.PublicKey, error) {
-	probeContext, cancel := context.WithTimeout(ctx, probeTimeout)
+func probeHostKey(ctx context.Context, address, username string, timeout time.Duration) (ssh.PublicKey, error) {
+	probeContext, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	raw, err := (&net.Dialer{}).DialContext(probeContext, "tcp", address)
 	if err != nil {
@@ -255,7 +274,7 @@ func probeHostKey(ctx context.Context, address, username string) (ssh.PublicKey,
 			captured = key
 			return errHostKeyCaptured
 		},
-		Timeout: probeTimeout,
+		Timeout: timeout,
 	}
 
 	done := make(chan error, 1)

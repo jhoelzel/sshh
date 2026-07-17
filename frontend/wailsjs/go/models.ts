@@ -1,5 +1,23 @@
 export namespace bridge {
 
+	export class ConnectionSettingsDTO {
+	    connectTimeoutSeconds: number;
+	    keepAliveEnabled: boolean;
+	    keepAliveIntervalSeconds: number;
+	    keepAliveMaxFailures: number;
+
+	    static createFrom(source: any = {}) {
+	        return new ConnectionSettingsDTO(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.connectTimeoutSeconds = source["connectTimeoutSeconds"];
+	        this.keepAliveEnabled = source["keepAliveEnabled"];
+	        this.keepAliveIntervalSeconds = source["keepAliveIntervalSeconds"];
+	        this.keepAliveMaxFailures = source["keepAliveMaxFailures"];
+	    }
+	}
 	export class FrontendLeaseDTO {
 	    id: string;
 	    expiresAt: string;
@@ -349,6 +367,7 @@ export namespace bridge {
 	}
 	export class SettingsDTO {
 	    terminal: TerminalSettingsDTO;
+	    connection: ConnectionSettingsDTO;
 	    notifications: NotificationSettingsDTO;
 	    transfers: TransferSettingsDTO;
 
@@ -359,6 +378,7 @@ export namespace bridge {
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.terminal = this.convertValues(source["terminal"], TerminalSettingsDTO);
+	        this.connection = this.convertValues(source["connection"], ConnectionSettingsDTO);
 	        this.notifications = this.convertValues(source["notifications"], NotificationSettingsDTO);
 	        this.transfers = this.convertValues(source["transfers"], TransferSettingsDTO);
 	    }

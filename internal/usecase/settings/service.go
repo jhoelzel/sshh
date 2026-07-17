@@ -31,6 +31,10 @@ func (s *Service) Get() settingsdomain.Settings {
 	return s.current
 }
 
+func (s *Service) ConnectionSettings() settingsdomain.Connection {
+	return s.Get().Connection
+}
+
 func (s *Service) Update(value settingsdomain.Settings) (settingsdomain.Settings, error) {
 	if err := value.Validate(); err != nil {
 		return settingsdomain.Settings{}, err

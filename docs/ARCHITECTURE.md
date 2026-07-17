@@ -175,6 +175,28 @@ Remote cleanup is best effort after transport loss because the SFTP client may
 already be unavailable. Retained files are manual recovery artifacts; they are
 not treated as verified resumable-transfer metadata.
 
+## Connection Policy Ownership
+
+Connection preferences are durable application settings and are exposed to SSH
+adapters through a narrow read-only settings source. Reading or changing them
+does not open a socket. Each host-key probe or authenticated SSH dial snapshots
+the latest validated policy; already-open terminals, SFTP clients, and tunnels
+retain their original policy until they close.
+
+The configured connection timeout bounds both the TCP dial and SSH handshake
+through one derived context. The same deadline path is used for saved profiles,
+quick connections, host-key probes, SFTP, and tunnels. This avoids divergent
+network behavior between trust and authenticated workflows.
+
+When enabled, each authenticated SSH client owns one context-bound keepalive
+coordinator. It sends `keepalive@openssh.com` global requests, treats either a
+positive or negative protocol reply as proof of transport liveness, bounds
+outstanding requests by the configured failure threshold, and closes the client
+after that threshold remains unanswered. Cancellation always closes the client
+and releases blocked keepalive requests. The connection settings store is
+schema-versioned; older documents migrate to conservative defaults before
+validation.
+
 ## Notification Ownership
 
 System notifications are an optional presentation side effect, not a runtime

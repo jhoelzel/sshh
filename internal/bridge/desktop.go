@@ -215,8 +215,16 @@ type TerminalSettingsDTO struct {
 
 type SettingsDTO struct {
 	Terminal      TerminalSettingsDTO     `json:"terminal"`
+	Connection    ConnectionSettingsDTO   `json:"connection"`
 	Notifications NotificationSettingsDTO `json:"notifications"`
 	Transfers     TransferSettingsDTO     `json:"transfers"`
+}
+
+type ConnectionSettingsDTO struct {
+	ConnectTimeoutSeconds    int  `json:"connectTimeoutSeconds"`
+	KeepAliveEnabled         bool `json:"keepAliveEnabled"`
+	KeepAliveIntervalSeconds int  `json:"keepAliveIntervalSeconds"`
+	KeepAliveMaxFailures     int  `json:"keepAliveMaxFailures"`
 }
 
 type NotificationSettingsDTO struct {
@@ -1298,6 +1306,12 @@ func settingsDTO(value settingsdomain.Settings) SettingsDTO {
 			CursorBlink: value.Terminal.CursorBlink, Scrollback: value.Terminal.Scrollback,
 			Bell: value.Terminal.Bell,
 		},
+		Connection: ConnectionSettingsDTO{
+			ConnectTimeoutSeconds:    value.Connection.ConnectTimeoutSeconds,
+			KeepAliveEnabled:         value.Connection.KeepAliveEnabled,
+			KeepAliveIntervalSeconds: value.Connection.KeepAliveIntervalSeconds,
+			KeepAliveMaxFailures:     value.Connection.KeepAliveMaxFailures,
+		},
 		Notifications: NotificationSettingsDTO{
 			Enabled: value.Notifications.Enabled, TransferCompleted: value.Notifications.TransferCompleted,
 			UnexpectedDisconnect: value.Notifications.UnexpectedDisconnect,
@@ -1317,6 +1331,12 @@ func settingsFromDTO(value SettingsDTO) settingsdomain.Settings {
 			LineHeight: value.Terminal.LineHeight, CursorStyle: value.Terminal.CursorStyle,
 			CursorBlink: value.Terminal.CursorBlink, Scrollback: value.Terminal.Scrollback,
 			Bell: value.Terminal.Bell,
+		},
+		Connection: settingsdomain.Connection{
+			ConnectTimeoutSeconds:    value.Connection.ConnectTimeoutSeconds,
+			KeepAliveEnabled:         value.Connection.KeepAliveEnabled,
+			KeepAliveIntervalSeconds: value.Connection.KeepAliveIntervalSeconds,
+			KeepAliveMaxFailures:     value.Connection.KeepAliveMaxFailures,
 		},
 		Notifications: settingsdomain.Notifications{
 			Enabled: value.Notifications.Enabled, TransferCompleted: value.Notifications.TransferCompleted,

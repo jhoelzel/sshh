@@ -260,6 +260,13 @@ export interface NotificationSettings {
   longTransferSeconds: number
 }
 
+export interface ConnectionSettings {
+  connectTimeoutSeconds: number
+  keepAliveEnabled: boolean
+  keepAliveIntervalSeconds: number
+  keepAliveMaxFailures: number
+}
+
 export interface NotificationStatus {
   available: boolean
   authorized: boolean
@@ -276,6 +283,7 @@ export interface TransferSettings {
 
 export interface AppSettings {
   terminal: TerminalSettings
+  connection: ConnectionSettings
   notifications: NotificationSettings
   transfers: TransferSettings
 }

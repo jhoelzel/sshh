@@ -67,11 +67,11 @@ func Run(assets fs.FS) error {
 		return err
 	}
 	manager.SetLogFactory(logFactory)
-	trust, err := sshtrust.New(appID)
+	trust, err := sshtrust.New(appID, settingsService)
 	if err != nil {
 		return err
 	}
-	sshFactory := sshterminal.NewFactory(trust)
+	sshFactory := sshterminal.NewFactory(trust, settingsService)
 	manager.SetSSHFactory(sshFactory)
 	files := filetransferusecase.NewManager(sftpfs.NewFactory(sshFactory))
 	if err := files.SetConcurrency(settingsService.Get().Transfers.Concurrency); err != nil {

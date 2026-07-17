@@ -3,8 +3,9 @@
 ## 1. Implementation Status
 
 The macOS core slices through M8, the productivity, favorites, and notification
-portions of M9, and the terminal, transfer-policy, and notification portions of
-M10 are implemented. The repository contains a Wails v2 host, embedded React
+portions of M9, and the terminal, connection-policy, transfer-policy, and
+notification portions of M10 are implemented. The repository contains a Wails
+v2 host, embedded React
 and strict TypeScript frontend, xterm.js terminal controllers, a real Unix PTY
 adapter, strict SSH and known-host adapters, SFTP, saved tunnel state, and
 lease-owned runtime managers with bounded bridge flow control.
@@ -32,6 +33,10 @@ Implemented and verified:
   without writing profile configuration.
 - SSH supports explicit first-use trust, changed-key rejection, agent, key,
   password, and keyboard-interactive authentication without persisting secrets.
+- Connection policy uses a migrated validated settings schema. Configurable
+  deadlines bound host-key probes, TCP connection, and SSH handshake setup;
+  context-owned keepalives detect unanswered transports for terminals, SFTP,
+  and tunnels without opening any connection at application startup.
 - SFTP operations stream through a live-configurable bounded worker pool and
   atomic partial files. Ask, overwrite, skip, and keep-both collision policies
   are enforced by the backend with in-flight destination reservations; the file
@@ -81,7 +86,7 @@ Still required for the complete cross-platform and 1.0 gates:
   harness. macOS launch and frontend attachment are verified today; runtime
   behavior is also exercised below the WebView boundary.
 - Shared reference-counted SSH connection groups, resumable transfer metadata,
-  and connection settings.
+  and remaining reconnect, proxy, known-hosts, and agent settings.
 - Signed/notarized macOS releases, Linux packaging validation, Windows WebView2
   and ConPTY implementation, native CI, accessibility review, and long-run
   soak/performance evidence.
@@ -859,7 +864,9 @@ Deliverables:
 - Send SSH window-change requests after UI resize.
 - Support startup directory and startup command without unsafe string
   concatenation.
-- Add configurable keepalives and server-alive failure thresholds.
+- Add configurable keepalives and server-alive failure thresholds. Implemented
+  with a global validated policy captured by each new SSH connection, bounded
+  unanswered requests, and connection-context cleanup.
 - Add proxy jump through one or more SSH profiles with loop detection.
 - Add optional agent forwarding with a prominent per-profile opt-in.
 - Make disconnect reasons and remote exit status visible.
@@ -968,7 +975,8 @@ Deliverables:
 - Add terminal font, size, line spacing, cursor, palette, scrollback, copy,
   paste, bell, and hyperlink policies.
 - Add connection timeout, keepalive, reconnect, proxy, known-hosts, and agent
-  settings.
+  settings. Timeout and keepalive controls are implemented across host-key
+  probes, terminal, SFTP, and tunnel dials; the remaining controls are pending.
 - Add transfer concurrency, collision, and partial-file settings. Implemented
   with a live bounded limiter, backend-owned collision resolution, and explicit
   failed-partial retention. Notification enablement, categories, long-transfer

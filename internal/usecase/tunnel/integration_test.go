@@ -49,7 +49,7 @@ func TestRealSSHTunnelForwarding(t *testing.T) {
 		ID: "ssh", Name: "SSH", Protocol: profile.ProtocolSSH,
 		Host: host, Port: sshPort, Username: "tester", Authentication: profile.AuthenticationPassword,
 	}
-	factory := sshterminal.NewFactory(integrationHostKey{key: server.hostKey})
+	factory := sshterminal.NewFactory(integrationHostKey{key: server.hostKey}, nil)
 
 	tests := []struct {
 		name   string

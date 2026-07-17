@@ -1,5 +1,5 @@
 import { useMemo, useState, type FormEvent } from 'react'
-import { ArrowLeftRight, Bell, BellRing, MousePointer2, RotateCcw, Save, Send, Settings2, Type } from 'lucide-react'
+import { ArrowLeftRight, Bell, BellRing, MousePointer2, Network, RotateCcw, Save, Send, Settings2, Type } from 'lucide-react'
 import type { AppSettings, NotificationStatus, TerminalCursorStyle, TerminalFontFamily, TransferCollisionPolicy } from '../../lib/bridge/types'
 
 interface SettingsWorkspaceProps {
@@ -38,6 +38,10 @@ export function SettingsWorkspace({
   const setNotifications = <Key extends keyof AppSettings['notifications']>(key: Key, value: AppSettings['notifications'][Key]) => {
     setDraft((current) => ({ ...current, notifications: { ...current.notifications, [key]: value } }))
     setNotificationNotice(undefined)
+  }
+
+  const setConnection = <Key extends keyof AppSettings['connection']>(key: Key, value: AppSettings['connection'][Key]) => {
+    setDraft((current) => ({ ...current, connection: { ...current.connection, [key]: value } }))
   }
 
   const setTransfers = <Key extends keyof AppSettings['transfers']>(key: Key, value: AppSettings['transfers'][Key]) => {
@@ -99,7 +103,7 @@ export function SettingsWorkspace({
   return (
     <form className="settings-workspace" aria-label="Application settings" onSubmit={(event) => void save(event)}>
       <header className="settings-header">
-        <div className="settings-title"><Settings2 size={18} /><div><strong>Settings</strong><span>Terminal, transfers, and notifications</span></div></div>
+        <div className="settings-title"><Settings2 size={18} /><div><strong>Settings</strong><span>Terminal, connections, transfers, and notifications</span></div></div>
         <button className="secondary-button" type="button" disabled={busy || Boolean(notificationAction)} onClick={() => void reset()}><RotateCcw size={15} /> Reset</button>
       </header>
 
@@ -152,6 +156,28 @@ export function SettingsWorkspace({
               <span><strong>Bell attention</strong><small>Mark inactive tabs on terminal bell</small></span>
               <Bell size={15} />
               <input type="checkbox" checked={draft.terminal.bell} onChange={(event) => setTerminal('bell', event.target.checked)} />
+            </label>
+          </div>
+        </section>
+
+        <section className="settings-section" aria-labelledby="connection-settings-title">
+          <header><Network size={17} /><h2 id="connection-settings-title">SSH connections</h2></header>
+          <div className="settings-control-list">
+            <label className="settings-control number-control">
+              <span><strong>Connection timeout</strong><small>Seconds allowed for network and SSH setup</small></span>
+              <input aria-label="Connection timeout" type="number" min={3} max={120} step={1} value={draft.connection.connectTimeoutSeconds} onChange={(event) => setConnection('connectTimeoutSeconds', Number(event.target.value))} />
+            </label>
+            <label className="settings-control toggle-control simple-toggle">
+              <span><strong>Keep connections alive</strong><small>Probe idle SSH connections for network loss</small></span>
+              <input aria-label="Keep connections alive" type="checkbox" checked={draft.connection.keepAliveEnabled} onChange={(event) => setConnection('keepAliveEnabled', event.target.checked)} />
+            </label>
+            <label className="settings-control number-control">
+              <span><strong>Probe interval</strong><small>Seconds between SSH keepalive requests</small></span>
+              <input aria-label="Keepalive interval" type="number" min={5} max={300} step={5} disabled={!draft.connection.keepAliveEnabled} value={draft.connection.keepAliveIntervalSeconds} onChange={(event) => setConnection('keepAliveIntervalSeconds', Number(event.target.value))} />
+            </label>
+            <label className="settings-control number-control">
+              <span><strong>Failure threshold</strong><small>Unanswered probes allowed before disconnecting</small></span>
+              <input aria-label="Keepalive failure threshold" type="number" min={1} max={10} step={1} disabled={!draft.connection.keepAliveEnabled} value={draft.connection.keepAliveMaxFailures} onChange={(event) => setConnection('keepAliveMaxFailures', Number(event.target.value))} />
             </label>
           </div>
         </section>

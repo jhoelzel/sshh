@@ -13,6 +13,12 @@ const settings = {
     scrollback: 10000,
     bell: true,
   },
+  connection: {
+    connectTimeoutSeconds: 15,
+    keepAliveEnabled: true,
+    keepAliveIntervalSeconds: 30,
+    keepAliveMaxFailures: 3,
+  },
   notifications: {
     enabled: false,
     transferCompleted: true,
@@ -52,6 +58,7 @@ describe('SettingsWorkspace', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Save settings' }))
     await waitFor(() => expect(save).toHaveBeenCalledWith({
       terminal: { ...settings.terminal, fontSize: 16, cursorStyle: 'bar' },
+      connection: settings.connection,
       notifications: settings.notifications,
       transfers: settings.transfers,
     }))
@@ -85,6 +92,7 @@ describe('SettingsWorkspace', () => {
 
     await waitFor(() => expect(save).toHaveBeenCalledWith({
       terminal: settings.terminal,
+      connection: settings.connection,
       notifications: {
         enabled: true,
         transferCompleted: true,
@@ -106,8 +114,31 @@ describe('SettingsWorkspace', () => {
 
     await waitFor(() => expect(save).toHaveBeenCalledWith({
       terminal: settings.terminal,
+      connection: settings.connection,
       notifications: settings.notifications,
       transfers: { concurrency: 4, collisionPolicy: 'rename', keepPartialFiles: true },
+    }))
+  })
+
+  it('saves connection timeout and keepalive preferences', async () => {
+    const save = vi.fn(async (value: AppSettings) => value)
+    renderSettings({ onSave: save })
+
+    fireEvent.change(screen.getByLabelText('Connection timeout'), { target: { value: '25' } })
+    fireEvent.change(screen.getByLabelText('Keepalive interval'), { target: { value: '45' } })
+    fireEvent.change(screen.getByLabelText('Keepalive failure threshold'), { target: { value: '5' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Save settings' }))
+
+    await waitFor(() => expect(save).toHaveBeenCalledWith({
+      terminal: settings.terminal,
+      connection: {
+        connectTimeoutSeconds: 25,
+        keepAliveEnabled: true,
+        keepAliveIntervalSeconds: 45,
+        keepAliveMaxFailures: 5,
+      },
+      notifications: settings.notifications,
+      transfers: settings.transfers,
     }))
   })
 })

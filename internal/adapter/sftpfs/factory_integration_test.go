@@ -35,7 +35,7 @@ func TestFactoryRemoteFilesystemOperations(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parse server port: %v", err)
 	}
-	dialer := sshterminal.NewFactory(fixedVerifier{key: server.hostKey})
+	dialer := sshterminal.NewFactory(fixedVerifier{key: server.hostKey}, nil)
 	filesystem, err := NewFactory(dialer).OpenRemoteFilesystem(context.Background(), port.SSHTerminalSpec{
 		Host: host, Port: sshPort, Username: "tester",
 		Authentication: profile.AuthenticationPassword,

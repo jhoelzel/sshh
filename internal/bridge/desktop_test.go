@@ -101,8 +101,12 @@ func TestTerminalTextFilenameSanitizesUntrustedTitles(t *testing.T) {
 	}
 }
 
-func TestSettingsDTORoundTripIncludesNotificationAndTransferPreferences(t *testing.T) {
+func TestSettingsDTORoundTripIncludesConnectionNotificationAndTransferPreferences(t *testing.T) {
 	settings := settingsdomain.Defaults()
+	settings.Connection.ConnectTimeoutSeconds = 25
+	settings.Connection.KeepAliveEnabled = false
+	settings.Connection.KeepAliveIntervalSeconds = 45
+	settings.Connection.KeepAliveMaxFailures = 5
 	settings.Notifications.Enabled = true
 	settings.Notifications.LongTransferSeconds = 75
 	settings.Transfers.Concurrency = 5

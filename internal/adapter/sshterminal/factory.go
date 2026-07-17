@@ -17,14 +17,15 @@ import (
 	"golang.org/x/crypto/ssh/agent"
 
 	"shh-h/internal/domain/profile"
+	settingsdomain "shh-h/internal/domain/settings"
 	"shh-h/internal/domain/sshconnection"
 	"shh-h/internal/port"
 )
 
 const (
-	dialTimeout     = 15 * time.Second
-	maximumKeySize  = 4 * 1024 * 1024
-	defaultTerminal = "xterm-256color"
+	keepAliveRequest = "keepalive@openssh.com"
+	maximumKeySize   = 4 * 1024 * 1024
+	defaultTerminal  = "xterm-256color"
 )
 
 var (
@@ -37,12 +38,17 @@ type hostKeyVerifier interface {
 	HostKeyCallback(host string, port int) ssh.HostKeyCallback
 }
 
-type Factory struct {
-	trust hostKeyVerifier
+type connectionSettingsSource interface {
+	ConnectionSettings() settingsdomain.Connection
 }
 
-func NewFactory(trust hostKeyVerifier) *Factory {
-	return &Factory{trust: trust}
+type Factory struct {
+	trust    hostKeyVerifier
+	settings connectionSettingsSource
+}
+
+func NewFactory(trust hostKeyVerifier, settings connectionSettingsSource) *Factory {
+	return &Factory{trust: trust, settings: settings}
 }
 
 func InspectAuthentication(selected profile.Profile) (sshconnection.AuthenticationInfo, error) {
@@ -151,10 +157,16 @@ func (f *Factory) DialSSH(ctx context.Context, spec port.SSHTerminalSpec) (*ssh.
 	}
 	defer closeAll(authClosers)
 
+	connectionSettings := f.connectionSettings()
+	connectTimeout := time.Duration(connectionSettings.ConnectTimeoutSeconds) * time.Second
 	address := net.JoinHostPort(strings.Trim(spec.Host, "[]"), fmt.Sprintf("%d", spec.Port))
-	dialContext, cancel := context.WithTimeout(ctx, dialTimeout)
+	dialContext, cancel := context.WithTimeout(ctx, connectTimeout)
 	defer cancel()
-	rawConnection, err := (&net.Dialer{}).DialContext(dialContext, "tcp", address)
+	dialer := &net.Dialer{Timeout: connectTimeout, KeepAlive: -1}
+	if connectionSettings.KeepAliveEnabled {
+		dialer.KeepAlive = time.Duration(connectionSettings.KeepAliveIntervalSeconds) * time.Second
+	}
+	rawConnection, err := dialer.DialContext(dialContext, "tcp", address)
 	if err != nil {
 		return nil, fmt.Errorf("dial ssh host %s: %w", address, err)
 	}
@@ -162,18 +174,84 @@ func (f *Factory) DialSSH(ctx context.Context, spec port.SSHTerminalSpec) (*ssh.
 	config := &ssh.ClientConfig{
 		User: username, Auth: authMethods,
 		HostKeyCallback: f.trust.HostKeyCallback(spec.Host, spec.Port),
-		Timeout:         dialTimeout,
+		Timeout:         connectTimeout,
 	}
 	connection, channels, requests, err := establishClientConnection(dialContext, rawConnection, address, config)
 	if err != nil {
 		_ = rawConnection.Close()
 		return nil, classifyHandshakeError(err)
 	}
-	return ssh.NewClient(connection, channels, requests), nil
+	client := ssh.NewClient(connection, channels, requests)
+	go maintainConnection(ctx, client, connectionSettings)
+	return client, nil
 }
 
 func (f *Factory) OpenSSHConnection(ctx context.Context, spec port.SSHTerminalSpec) (port.SSHConnection, error) {
 	return f.DialSSH(ctx, spec)
+}
+
+func (f *Factory) connectionSettings() settingsdomain.Connection {
+	if f.settings == nil {
+		return settingsdomain.Defaults().Connection
+	}
+	return f.settings.ConnectionSettings()
+}
+
+type maintainedSSHClient interface {
+	SendRequest(name string, wantReply bool, payload []byte) (bool, []byte, error)
+	Close() error
+}
+
+func maintainConnection(ctx context.Context, client maintainedSSHClient, settings settingsdomain.Connection) {
+	maintainConnectionAtInterval(
+		ctx,
+		client,
+		settings.KeepAliveEnabled,
+		time.Duration(settings.KeepAliveIntervalSeconds)*time.Second,
+		settings.KeepAliveMaxFailures,
+	)
+}
+
+func maintainConnectionAtInterval(ctx context.Context, client maintainedSSHClient, enabled bool, interval time.Duration, maxFailures int) {
+	if !enabled {
+		<-ctx.Done()
+		_ = client.Close()
+		return
+	}
+
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	results := make(chan error, maxFailures)
+	pending := 0
+
+	for {
+		select {
+		case <-ctx.Done():
+			_ = client.Close()
+			return
+		case err := <-results:
+			if pending > 0 {
+				pending--
+			}
+			if err != nil {
+				_ = client.Close()
+				return
+			}
+		case <-ticker.C:
+			if pending >= maxFailures {
+				_ = client.Close()
+				return
+			}
+			pending++
+			go func() {
+				_, _, err := client.SendRequest(keepAliveRequest, true, nil)
+				select {
+				case results <- err:
+				case <-ctx.Done():
+				}
+			}()
+		}
+	}
 }
 
 type transport struct {

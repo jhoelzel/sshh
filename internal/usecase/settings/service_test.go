@@ -33,6 +33,9 @@ func TestServiceUpdateAndReset(t *testing.T) {
 	if err != nil || updated.Terminal.FontSize != 18 {
 		t.Fatalf("update: value=%#v err=%v", updated, err)
 	}
+	if service.ConnectionSettings() != updated.Connection {
+		t.Fatalf("connection settings do not match current value: %#v", service.ConnectionSettings())
+	}
 	reset, err := service.Reset()
 	if err != nil || reset != settingsdomain.Defaults() {
 		t.Fatalf("reset: value=%#v err=%v", reset, err)

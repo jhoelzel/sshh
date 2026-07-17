@@ -28,6 +28,8 @@ native desktop application.
   permissions, bounded rotation, visible state, and terminal-owned cleanup.
 - Versioned terminal settings for font, spacing, cursor, scrollback, and bell
   behavior, with live application to open terminals and durable reset support.
+- Versioned SSH connection settings for bounded connect/handshake deadlines and
+  application-level keepalives with a configurable unanswered-probe threshold.
 - Versioned transfer settings for concurrency, destination collisions, and
   failed partial-file retention, with live application to queued work.
 - Opt-in native notifications for long completed transfers and failed terminal
@@ -47,7 +49,7 @@ native desktop application.
 
 The current native proof and packaged build target is macOS arm64. Windows
 ConPTY, signed/notarized release automation, SSH connection pooling, resumable
-transfers, connection preferences, and remaining
+transfers, advanced reconnect/proxy preferences, and remaining
 cross-platform UX are still future milestones; see the implementation plan for
 the release gates.
 
@@ -77,6 +79,22 @@ a user-chosen `.txt` or `.log` file. Exports are capped at 16 MiB, use private
 permissions, and are atomically replaced; cancelling the native dialog writes
 nothing. Both actions are available from the terminal toolbar and command
 palette.
+
+## SSH Connection Policy
+
+Connection settings default to a 15-second limit for TCP connection and SSH
+handshake setup. The supported range is 3 through 120 seconds. The same saved
+deadline applies to host-key probes, saved and quick SSH terminals, SFTP, and
+SSH tunnels.
+
+SSH keepalives are enabled by default every 30 seconds with an unanswered-probe
+threshold of three. They use application-level `keepalive@openssh.com` requests
+and bounded request concurrency, so a silent network failure eventually closes
+the SSH client instead of leaving an apparently connected runtime indefinitely.
+Keepalives can be disabled or configured from 5 through 300 seconds with a
+threshold from one through ten. Saved changes are captured by newly opened SSH
+connections; existing connections retain the policy with which they were
+opened.
 
 ## Remote Path Favorites
 

@@ -35,7 +35,7 @@ func TestFactoryInteractiveTerminalRoundTrip(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	factory := NewFactory(fixedHostKey{key: server.hostKey})
+	factory := NewFactory(fixedHostKey{key: server.hostKey}, nil)
 	terminal, err := factory.OpenSSH(ctx, port.SSHTerminalSpec{
 		Host: host, Port: sshPort, Username: "tester",
 		Authentication: profile.AuthenticationPassword,

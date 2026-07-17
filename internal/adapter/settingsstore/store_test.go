@@ -21,11 +21,12 @@ func TestStoreCreatesDefaultsAndRoundTripsPrivately(t *testing.T) {
 		t.Fatalf("unexpected defaults: %#v", loaded)
 	}
 	loaded.Terminal.FontSize = 16
+	loaded.Connection.ConnectTimeoutSeconds = 25
 	if err := store.SaveSettings(loaded); err != nil {
 		t.Fatalf("save settings: %v", err)
 	}
 	reloaded, err := NewAt(path).LoadSettings()
-	if err != nil || reloaded.Terminal.FontSize != 16 {
+	if err != nil || reloaded.Terminal.FontSize != 16 || reloaded.Connection.ConnectTimeoutSeconds != 25 {
 		t.Fatalf("reload settings: value=%#v err=%v", reloaded, err)
 	}
 	info, err := os.Stat(path)
@@ -87,8 +88,8 @@ func TestStoreMigratesVersionOneNotificationDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read migrated settings: %v", err)
 	}
-	if !bytes.Contains(data, []byte(`"version": 3`)) {
-		t.Fatalf("settings were not upgraded to version 3: %s", data)
+	if !bytes.Contains(data, []byte(`"version": 4`)) {
+		t.Fatalf("settings were not upgraded to version 4: %s", data)
 	}
 }
 
@@ -105,7 +106,28 @@ func TestStoreMigratesVersionTwoTransferDefaults(t *testing.T) {
 	if loaded.Transfers != settingsdomain.Defaults().Transfers {
 		t.Fatalf("unexpected migrated transfers: %#v", loaded.Transfers)
 	}
+	if loaded.Connection != settingsdomain.Defaults().Connection {
+		t.Fatalf("unexpected migrated connection settings: %#v", loaded.Connection)
+	}
 	if !loaded.Notifications.Enabled || loaded.Notifications.TransferCompleted || loaded.Notifications.LongTransferSeconds != 45 {
 		t.Fatalf("version two notification preferences changed: %#v", loaded.Notifications)
+	}
+}
+
+func TestStoreMigratesVersionThreeConnectionDefaults(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "settings.json")
+	fixture := []byte(`{"version":3,"revision":11,"settings":{"terminal":{"fontFamily":"menlo","fontSize":15,"lineHeight":1.25,"cursorStyle":"bar","cursorBlink":false,"scrollback":20000,"bell":false},"notifications":{"enabled":true,"transferCompleted":true,"unexpectedDisconnect":false,"longTransferSeconds":60},"transfers":{"concurrency":4,"collisionPolicy":"rename","keepPartialFiles":true}}}`)
+	if err := os.WriteFile(path, fixture, 0o600); err != nil {
+		t.Fatalf("write version three fixture: %v", err)
+	}
+	loaded, err := NewAt(path).LoadSettings()
+	if err != nil {
+		t.Fatalf("load version three settings: %v", err)
+	}
+	if loaded.Connection != settingsdomain.Defaults().Connection {
+		t.Fatalf("unexpected migrated connection settings: %#v", loaded.Connection)
+	}
+	if loaded.Terminal.FontSize != 15 || loaded.Transfers.Concurrency != 4 || !loaded.Notifications.Enabled {
+		t.Fatalf("existing version three settings changed: %#v", loaded)
 	}
 }
