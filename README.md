@@ -60,9 +60,9 @@ the implementation plan for the release gates.
 
 - Go 1.26.5 or newer.
 - Node.js 24.18 or newer and npm 11 for frontend development.
-- The repository-local Wails CLI at `bin/wails`.
 
-Node and npm are build-time dependencies only.
+Node and npm are build-time dependencies only. Make installs the pinned Wails
+v2.13.0 CLI into the ignored local `bin/` directory when it is first needed.
 
 ## Commands
 
@@ -71,6 +71,7 @@ make run       # foreground Wails development mode; Ctrl+C stops it
 make test      # Go and frontend unit/integration tests
 make lint      # ESLint and go vet
 make build     # native package with embedded build identity
+make check-bindings # regenerate, normalize, and verify Wails bridge contracts
 ```
 
 ## Build Identity
@@ -91,6 +92,23 @@ make build VERSION=1.0.0 COMMIT=0123456789ab \
 
 Direct Go builds fall back to Go's embedded VCS revision and modified flag.
 Their build date remains `unknown` unless supplied through the linker.
+
+## Continuous Integration
+
+GitHub Actions runs normal and race-enabled Go tests, `go vet`, frontend lint,
+tests, and production compilation on Ubuntu. A macOS job installs the pinned
+Wails CLI from a clean checkout, performs a production-mode native compile,
+regenerates the Go-to-TypeScript bridge, normalizes generator-only whitespace,
+and fails if any binding differs from the committed contract.
+
+The security job runs the Go team's call-graph vulnerability scanner and fails
+for reachable advisories. It also runs `npm audit --audit-level=high`; moderate
+and lower reports remain visible but do not fail CI. GitHub Actions are pinned
+to immutable full commit SHAs with their release tags in comments. Dependabot
+checks Go modules, frontend packages, and Actions weekly.
+
+Run the binding gate locally with `make check-bindings`. The current audit
+policy and module-only advisory review are recorded in `docs/SECURITY.md`.
 
 ## Terminal Text Actions
 
@@ -212,6 +230,7 @@ executable is `build/bin/shh-h.app/Contents/MacOS/shhh`.
   and settings workspaces.
 - `docs/IMPLEMENTATION_PLAN.md`: milestones, acceptance criteria, and release
   scope.
+- `docs/SECURITY.md`: automated audit policy and reviewed advisory notes.
 - `docs/REMOTE_PROJECTS_PLAN.md`: proposed self-hosted remote code editor,
   provisioning, project lifecycle, and browser-authentication design.
 - `docs/adr/0001-desktop-frontend-stack.md`: accepted frontend decision and

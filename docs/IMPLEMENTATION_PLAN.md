@@ -84,6 +84,10 @@ Implemented and verified:
 - [x] Native builds embed version, source revision, UTC build date, and dirty-tree
   state. Settings exposes that identity with the Go version and target platform;
   direct Go builds fall back to embedded VCS metadata.
+- [x] Read-only GitHub Actions run Go and frontend quality gates, race tests,
+  call-graph and npm vulnerability scans, and a native macOS Wails compile.
+  Actions are pinned to immutable SHAs and dependencies receive weekly update
+  checks.
 - [x] Go race tests cover managers and adapters. Real loopback integration tests
   cover PTY, shared multi-channel SSH terminal lifetime, terminal resize/exit,
   SFTP operations, and bidirectional local, remote, and SOCKS forwarding.
@@ -630,7 +634,8 @@ Deliverables:
   dependencies, and frontend dependencies. Configure strict TypeScript, React
   StrictMode, linting, formatting, frontend unit tests, `package-lock.json`, and
   reproducible `npm ci` builds.
-- [ ] Generate or validate Go-to-TypeScript bridge contracts in CI.
+- [x] Generate and validate Go-to-TypeScript bridge contracts in CI through a
+  production-mode macOS Wails build and deterministic generated-file comparison.
 - [x] Record process lifecycle, SSH trust, secrets, WebView security, and
   single-application distribution decisions.
 - [x] Replace the current generic backend package shape with domain, use-case,
@@ -638,9 +643,9 @@ Deliverables:
 - [ ] Introduce a consistent typed error taxonomy. Structured state transitions
   are implemented, while several bridge-facing paths still return contextual
   ordinary errors.
-- [ ] Establish automated vulnerability scanning and frontend dependency checks.
-  Local `go test`, race, formatting, TypeScript, Vitest, ESLint, vet, frontend
-  production, and native macOS build checks are implemented.
+- [x] Establish automated `govulncheck`, high-severity npm audit, weekly Go/npm/
+  Actions dependency updates, Go test/race/vet, TypeScript, Vitest, ESLint,
+  frontend production, and native macOS build checks.
 - [x] Add build metadata: semantic version, commit, build date, and dirty state.
 - [x] Add a root application context and coordinated shutdown service.
 - [x] Configure `OnStartup`, `OnDomReady`, `OnBeforeClose`, and `OnShutdown` with
@@ -1097,8 +1102,10 @@ Deliverables:
 - [ ] Add and run the complete UI, fuzz, and native cross-platform suites.
 - [ ] Add goroutine and file-descriptor leak checks around every long-lived
   service.
-- [ ] Run `govulncheck`, dependency review, static analysis, and a manual
-  threat-model review.
+- [x] Run `govulncheck`, high-severity npm audit, and Go vet automatically in CI;
+  the current local scans pass and the module-only advisory is recorded.
+- [ ] Complete release-time dependency review, broader static analysis, and a
+  manual threat-model review.
 - [ ] Profile startup, idle CPU, terminal flood, scrollback memory, large
   directory listing, large transfer, and many-session behavior.
 - [ ] Add structured local diagnostics and a user-controlled diagnostic export
