@@ -9,6 +9,7 @@ import {
   FileDown,
   FileUp,
   FolderOpen,
+  LayoutPanelTop,
   Laptop,
   LoaderCircle,
   Network,
@@ -33,7 +34,9 @@ import { LoggingDialog } from '../feature/terminal/LoggingDialog'
 import { TerminalController } from '../feature/terminal/TerminalController'
 import { TerminalPane } from '../feature/terminal/TerminalPane'
 import { TunnelWorkspace } from '../feature/tunnels/TunnelWorkspace'
+import { WorkspaceLayoutWorkspace } from '../feature/workspaces/WorkspaceLayoutWorkspace'
 import { backend, onCloseRequested, onSessionLog, onSessionState, onTerminalOutput, onTransfer, onTunnel } from '../lib/bridge/client'
+import { createDisconnectedTabs } from './workspaces'
 import type {
   AppSettings,
   FileSession,
@@ -57,6 +60,8 @@ import type {
   TunnelConfig,
   TunnelInput,
   TunnelSnapshot,
+  WorkspaceLayout,
+  WorkspaceLayoutInput,
 } from '../lib/bridge/types'
 
 const frontendNonce = crypto.randomUUID()
@@ -65,25 +70,31 @@ const initialRows = 30
 const isMacOS = navigator.userAgent.includes('Macintosh')
 const shortcutPrefix = isMacOS ? 'Cmd Shift' : 'Ctrl Shift'
 
+type TerminalTabState = SessionState | 'disconnected'
+
 interface TabModel {
-  session: Session
-  controller: TerminalController
+  id: string
+  profileId: string
+  endpoint: string
+  session?: Session
+  controller?: TerminalController
   title: string
-  state: SessionState
+  state: TerminalTabState
   exitSummary?: string
   attention: boolean
 }
 
 type Confirmation =
-  | { kind: 'close-tab'; sessionId: string }
+  | { kind: 'close-tab'; tabId: string }
   | { kind: 'close-application' }
   | { kind: 'delete-profile'; profileId: string }
+  | { kind: 'restore-layout'; layoutId: string }
 
 interface ProfileEditorState {
   profile?: Profile
 }
 
-type SSHAction = { kind: 'terminal' } | { kind: 'files' } | { kind: 'tunnel'; configId: string }
+type SSHAction = { kind: 'terminal'; replaceTabId?: string } | { kind: 'files' } | { kind: 'tunnel'; configId: string }
 
 type SSHPrompt =
   | { kind: 'trust'; action: SSHAction; profile: Profile; hostKey: SSHHostKey; quick?: QuickSSHInput }
@@ -93,7 +104,7 @@ export function App() {
   const [profiles, setProfiles] = useState<Profile[]>([])
   const [lease, setLease] = useState<FrontendLease>()
   const [tabs, setTabs] = useState<TabModel[]>([])
-  const [workspaceMode, setWorkspaceMode] = useState<'terminals' | 'files' | 'tunnels' | 'snippets' | 'settings'>('terminals')
+  const [workspaceMode, setWorkspaceMode] = useState<'terminals' | 'files' | 'tunnels' | 'snippets' | 'layouts' | 'settings'>('terminals')
   const [activeId, setActiveId] = useState<string>()
   const [openingProfile, setOpeningProfile] = useState<string>()
   const [profileEditor, setProfileEditor] = useState<ProfileEditorState>()
@@ -115,6 +126,7 @@ export function App() {
   const [tunnelConfigs, setTunnelConfigs] = useState<TunnelConfig[]>([])
   const [tunnelSnapshots, setTunnelSnapshots] = useState<TunnelSnapshot[]>([])
   const [snippets, setSnippets] = useState<Snippet[]>([])
+  const [workspaceLayouts, setWorkspaceLayouts] = useState<WorkspaceLayout[]>([])
   const [sessionLogs, setSessionLogs] = useState<SessionLogStatus[]>([])
   const [settings, setSettings] = useState<AppSettings>()
   const [loggingSessionId, setLoggingSessionId] = useState<string>()
@@ -122,15 +134,19 @@ export function App() {
   const controllers = useRef(new Map<string, TerminalController>())
   const autoStartAttempted = useRef(new Set<string>())
 
-  const activeTab = useMemo(() => tabs.find((tab) => tab.session.id === activeId), [activeId, tabs])
+  const activeTab = useMemo(() => tabs.find((tab) => tab.id === activeId), [activeId, tabs])
+  const activeProfile = useMemo(
+    () => profiles.find((profile) => profile.id === activeTab?.profileId),
+    [activeTab?.profileId, profiles],
+  )
   const activeLog = useMemo(
-    () => sessionLogs.find((status) => status.sessionId === activeId && status.active),
-    [activeId, sessionLogs],
+    () => sessionLogs.find((status) => status.sessionId === activeTab?.session?.id && status.active),
+    [activeTab?.session?.id, sessionLogs],
   )
   const snippetTargets = useMemo(
-    () => tabs.filter((tab) => tab.state === 'running').map((tab) => ({
-      id: tab.session.id, title: tab.title, active: tab.session.id === activeId,
-    })),
+    () => tabs.flatMap((tab) => tab.state === 'running' && tab.session ? [{
+      id: tab.session.id, title: tab.title, active: tab.id === activeId,
+    }] : []),
     [activeId, tabs],
   )
   const localProfiles = useMemo(
@@ -138,6 +154,10 @@ export function App() {
     [profiles],
   )
   const visibleProfiles = useMemo(() => filterAndSortProfiles(profiles, profileFilter), [profileFilter, profiles])
+  const workspaceSnapshot = useMemo(
+    () => captureWorkspace(tabs, profiles, activeId),
+    [activeId, profiles, tabs],
+  )
   const runningCount = tabs.filter((tab) => isLive(tab.state)).length
   const activeTransferCount = transfers.filter((transfer) => transfer.state === 'queued' || transfer.state === 'running').length
   const activeTunnelCount = tunnelSnapshots.filter((snapshot) => isLiveTunnel(snapshot.state)).length
@@ -151,13 +171,14 @@ export function App() {
     let cancelled = false
     void Promise.all([
       backend.attachFrontend(frontendNonce), backend.listProfiles(), backend.listTunnels(),
-      backend.listSnippets(), backend.getSettings(),
-    ]).then(([attachedLease, loadedProfiles, loadedTunnels, loadedSnippets, loadedSettings]) => {
+      backend.listSnippets(), backend.listWorkspaceLayouts(), backend.getSettings(),
+    ]).then(([attachedLease, loadedProfiles, loadedTunnels, loadedSnippets, loadedLayouts, loadedSettings]) => {
         if (!cancelled) {
           setLease(attachedLease)
           setProfiles(loadedProfiles)
           setTunnelConfigs(loadedTunnels)
           setSnippets(loadedSnippets)
+          setWorkspaceLayouts(loadedLayouts)
           setSettings(loadedSettings)
         }
     })
@@ -264,19 +285,19 @@ export function App() {
     }
   }, [])
 
-  const removeTab = useCallback((sessionId: string) => {
-    controllers.current.get(sessionId)?.dispose()
-    controllers.current.delete(sessionId)
-    setSessionLogs((current) => current.filter((status) => status.sessionId !== sessionId))
-    setLoggingSessionId((current) => current === sessionId ? undefined : current)
+  const removeTab = useCallback((tabId: string) => {
+    controllers.current.get(tabId)?.dispose()
+    controllers.current.delete(tabId)
+    setSessionLogs((current) => current.filter((status) => status.sessionId !== tabId))
+    setLoggingSessionId((current) => current === tabId ? undefined : current)
     setTabs((current) => {
-      const index = current.findIndex((tab) => tab.session.id === sessionId)
-      const next = current.filter((tab) => tab.session.id !== sessionId)
+      const index = current.findIndex((tab) => tab.id === tabId)
+      const next = current.filter((tab) => tab.id !== tabId)
       setActiveId((active) => {
-        if (active !== sessionId) {
+        if (active !== tabId) {
           return active
         }
-        return next[Math.min(index, next.length - 1)]?.session.id
+        return next[Math.min(index, next.length - 1)]?.id
       })
       return next
     })
@@ -329,10 +350,16 @@ export function App() {
   }, [reportError])
 
   const openTerminalSession = useCallback(
-    async (selected: Profile, credentials: SSHCredentials = { password: '', passphrase: '' }, quick?: QuickSSHInput) => {
+    async (
+      selected: Profile,
+      credentials: SSHCredentials = { password: '', passphrase: '' },
+      quick?: QuickSSHInput,
+      replaceTabId?: string,
+    ) => {
       if (!lease || !settings) throw new Error('Terminal backend is not ready')
       if (!selected.connectable) throw new Error('Selected profile cannot open a terminal')
       let opened: { session: Session; controller: TerminalController } | undefined
+      let replaced: { tab: TabModel; index: number } | undefined
       try {
         const session = selected.protocol === 'local'
           ? await backend.openLocalTerminal(lease.id, selected.id, initialColumns, initialRows)
@@ -341,20 +368,35 @@ export function App() {
             : await backend.openSSHTerminal(lease.id, selected.id, initialColumns, initialRows, credentials)
         const controller = new TerminalController(session, settings.terminal, {
           onTitle: (title) =>
-            setTabs((current) => current.map((tab) => (tab.session.id === session.id ? { ...tab, title } : tab))),
+            setTabs((current) => current.map((tab) => (tab.id === session.id ? { ...tab, title } : tab))),
           onBell: () =>
             setTabs((current) =>
-              current.map((tab) => (tab.session.id === session.id ? { ...tab, attention: true } : tab)),
+              current.map((tab) => (tab.id === session.id ? { ...tab, attention: true } : tab)),
             ),
           onError: reportError,
           onSearchRequested: () => setSearchOpen(true),
         })
         opened = { session, controller }
         controllers.current.set(session.id, controller)
-        setTabs((current) => [
-          ...current,
-          { session, controller, title: session.title, state: session.state, attention: false },
-        ])
+        const liveTab: TabModel = {
+          id: session.id,
+          profileId: selected.id,
+          endpoint: selected.endpoint,
+          session,
+          controller,
+          title: session.title,
+          state: session.state,
+          attention: false,
+        }
+        setTabs((current) => {
+          if (!replaceTabId) return [...current, liveTab]
+          const index = current.findIndex((tab) => tab.id === replaceTabId)
+          if (index < 0) return [...current, liveTab]
+          replaced = { tab: current[index], index }
+          const next = [...current]
+          next[index] = liveTab
+          return next
+        })
         setActiveId(session.id)
         await controller.ready()
         await backend.activateTerminal(lease.id, session.id, session.generation)
@@ -363,11 +405,20 @@ export function App() {
         if (opened) {
           try {
             await backend.closeTerminal(lease.id, opened.session.id, opened.session.generation)
-            removeTab(opened.session.id)
           } catch (cleanupCause) {
             failure = new Error(
               `${errorMessage(cause)} Terminal cleanup also failed: ${errorMessage(cleanupCause)}`,
             )
+          }
+          removeTab(opened.session.id)
+          if (replaced) {
+            const saved = replaced
+            setTabs((current) => {
+              const next = [...current]
+              next.splice(Math.min(saved.index, next.length), 0, saved.tab)
+              return next
+            })
+            setActiveId(saved.tab.id)
           }
         }
         throw failure
@@ -403,7 +454,7 @@ export function App() {
   const performSSHAction = useCallback(
     async (selected: Profile, action: SSHAction, credentials?: SSHCredentials, quick?: QuickSSHInput) => {
       if (action.kind === 'terminal') {
-        await openTerminalSession(selected, credentials, quick)
+        await openTerminalSession(selected, credentials, quick, action.replaceTabId)
         setWorkspaceMode('terminals')
       } else if (action.kind === 'files') {
         if (quick) throw new Error('Quick connections support terminals only')
@@ -453,7 +504,7 @@ export function App() {
           if (action.kind !== 'terminal') {
             throw new Error('Local profiles do not support SFTP')
           }
-          await openTerminalSession(selected)
+          await openTerminalSession(selected, undefined, undefined, action.replaceTabId)
           setWorkspaceMode('terminals')
           setOpeningProfile(undefined)
           return
@@ -481,6 +532,15 @@ export function App() {
     (selected: Profile) => startProfileAction(selected, { kind: 'terminal' }),
     [startProfileAction],
   )
+
+  const connectRestoredTab = useCallback((tab: TabModel) => {
+    const selected = profiles.find((profile) => profile.id === tab.profileId)
+    if (!selected) {
+      reportError(new Error('The profile used by this layout is no longer available'))
+      return
+    }
+    void startProfileAction(selected, { kind: 'terminal', replaceTabId: tab.id })
+  }, [profiles, reportError, startProfileAction])
 
   const browseProfile = useCallback(
     (selected: Profile) => startProfileAction(selected, { kind: 'files' }),
@@ -683,6 +743,28 @@ export function App() {
     setSnippets((current) => current.filter((snippet) => snippet.id !== snippetId))
   }, [])
 
+  const createWorkspaceLayout = useCallback(async (name: string) => {
+    if (workspaceSnapshot.tabs.length === 0) throw new Error('No saved-profile terminal tabs are open')
+    const created = await backend.createWorkspaceLayout({ id: '', name, ...workspaceSnapshot })
+    setWorkspaceLayouts((current) => sortWorkspaceLayouts([...current, created]))
+  }, [workspaceSnapshot])
+
+  const renameWorkspaceLayout = useCallback(async (layout: WorkspaceLayout, name: string) => {
+    const updated = await backend.updateWorkspaceLayout(layoutInput(layout, { name }))
+    setWorkspaceLayouts((current) => sortWorkspaceLayouts(current.map((item) => item.id === updated.id ? updated : item)))
+  }, [])
+
+  const replaceWorkspaceLayout = useCallback(async (layout: WorkspaceLayout) => {
+    if (workspaceSnapshot.tabs.length === 0) throw new Error('No saved-profile terminal tabs are open')
+    const updated = await backend.updateWorkspaceLayout(layoutInput(layout, workspaceSnapshot))
+    setWorkspaceLayouts((current) => sortWorkspaceLayouts(current.map((item) => item.id === updated.id ? updated : item)))
+  }, [workspaceSnapshot])
+
+  const deleteWorkspaceLayout = useCallback(async (layout: WorkspaceLayout) => {
+    await backend.deleteWorkspaceLayout(layout.id)
+    setWorkspaceLayouts((current) => current.filter((item) => item.id !== layout.id))
+  }, [])
+
   const renderSnippet = useCallback(
     (snippetId: string, values: Record<string, string>): Promise<SnippetPreview> => backend.renderSnippet(snippetId, values),
     [],
@@ -708,18 +790,18 @@ export function App() {
   }, [applySettings])
 
   const executeSnippet = useCallback(async (text: string, targetIds: string[], submit: boolean) => {
-    const targets = targetIds.map((id) => tabs.find((tab) => tab.session.id === id))
-    if (targets.some((tab) => !tab || tab.state !== 'running')) {
+    const targets = targetIds.map((id) => tabs.find((tab) => tab.session?.id === id))
+    if (targets.some((tab) => !tab || tab.state !== 'running' || !tab.controller)) {
       throw new Error('One or more target terminals are no longer running')
     }
-    await Promise.all(targets.map((tab) => tab!.controller.sendText(text, submit)))
-    if (targetIds.length === 1) setActiveId(targetIds[0])
+    await Promise.all(targets.map((tab) => tab!.controller!.sendText(text, submit)))
+    if (targetIds.length === 1) setActiveId(targets[0]!.id)
     setWorkspaceMode('terminals')
   }, [tabs])
 
   const startSessionLogging = useCallback(async (timestampLines: boolean) => {
-    const tab = tabs.find((item) => item.session.id === loggingSessionId)
-    if (!lease || !tab || tab.state !== 'running') throw new Error('Terminal is no longer running')
+    const tab = tabs.find((item) => item.session?.id === loggingSessionId)
+    if (!lease || !tab?.session || tab.state !== 'running') throw new Error('Terminal is no longer running')
     const status = await backend.startSessionLogging(
       lease.id, tab.session.id, tab.session.generation, timestampLines,
     )
@@ -728,7 +810,7 @@ export function App() {
   }, [lease, loggingSessionId, tabs])
 
   const toggleSessionLogging = useCallback(async () => {
-    if (!lease || !activeTab || activeTab.state !== 'running') return
+    if (!lease || !activeTab?.session || activeTab.state !== 'running') return
     if (!activeLog) {
       setLoggingSessionId(activeTab.session.id)
       return
@@ -743,30 +825,65 @@ export function App() {
     }
   }, [activeLog, activeTab, lease, reportError])
 
-  const selectTab = useCallback((sessionId: string) => {
-    setActiveId(sessionId)
-    setTabs((current) => current.map((tab) => (tab.session.id === sessionId ? { ...tab, attention: false } : tab)))
+  const selectTab = useCallback((tabId: string) => {
+    setActiveId(tabId)
+    setTabs((current) => current.map((tab) => (tab.id === tabId ? { ...tab, attention: false } : tab)))
   }, [])
 
   const closeTab = useCallback(
-    async (sessionId: string, confirmed = false) => {
-      const tab = tabs.find((item) => item.session.id === sessionId)
-      if (!tab || !lease) {
+    async (tabId: string, confirmed = false) => {
+      const tab = tabs.find((item) => item.id === tabId)
+      if (!tab) {
+        return
+      }
+      if (!tab.session) {
+        removeTab(tabId)
         return
       }
       if (!confirmed && isLive(tab.state)) {
-        setConfirmation({ kind: 'close-tab', sessionId })
+        setConfirmation({ kind: 'close-tab', tabId })
         return
       }
+      if (!lease) return
       try {
         await backend.closeTerminal(lease.id, tab.session.id, tab.session.generation)
-        removeTab(sessionId)
+        removeTab(tabId)
       } catch (cause) {
         reportError(cause)
       }
     },
     [lease, removeTab, reportError, tabs],
   )
+
+  const applyWorkspaceLayout = useCallback(async (layout: WorkspaceLayout) => {
+    const sessionTabs = tabs.filter((tab): tab is TabModel & { session: Session } => Boolean(tab.session))
+    if (sessionTabs.length > 0) {
+      if (!lease) throw new Error('Backend is not attached')
+      const closed = await Promise.allSettled(sessionTabs.map((tab) =>
+        backend.closeTerminal(lease.id, tab.session.id, tab.session.generation),
+      ))
+      const failure = closed.find((result): result is PromiseRejectedResult => result.status === 'rejected')
+      if (failure) throw new Error(`Could not close the current workspace: ${errorMessage(failure.reason)}`)
+    }
+    for (const controller of controllers.current.values()) controller.dispose()
+    controllers.current.clear()
+    setSessionLogs([])
+    setLoggingSessionId(undefined)
+    setSearchOpen(false)
+    setSearchQuery('')
+    const restored = createDisconnectedTabs(layout)
+    setTabs(restored)
+    setActiveId(restored[Math.min(layout.activeTab, restored.length - 1)]?.id)
+    setWorkspaceMode('terminals')
+  }, [lease, tabs])
+
+  const restoreWorkspaceLayout = useCallback(async (layout: WorkspaceLayout) => {
+    if (tabs.some((tab) => isLive(tab.state))) {
+      setConfirmation({ kind: 'restore-layout', layoutId: layout.id })
+      return
+    }
+    await applyWorkspaceLayout(layout)
+  }, [applyWorkspaceLayout, tabs])
 
   const confirmClose = useCallback(async () => {
     const pending = confirmation
@@ -784,11 +901,21 @@ export function App() {
       }
       return
     }
+    if (pending.kind === 'restore-layout') {
+      const layout = workspaceLayouts.find((item) => item.id === pending.layoutId)
+      if (!layout) return
+      try {
+        await applyWorkspaceLayout(layout)
+      } catch (cause) {
+        reportError(cause)
+      }
+      return
+    }
     if (!lease) {
       return
     }
     if (pending.kind === 'close-tab') {
-      await closeTab(pending.sessionId, true)
+      await closeTab(pending.tabId, true)
     } else {
       try {
         await backend.confirmApplicationClose(lease.id)
@@ -796,7 +923,7 @@ export function App() {
         reportError(cause)
       }
     }
-  }, [closeTab, confirmation, lease, reportError])
+  }, [applyWorkspaceLayout, closeTab, confirmation, lease, reportError, workspaceLayouts])
 
   const activeController = activeTab?.controller
   const blockingOverlayOpen = Boolean(
@@ -853,6 +980,10 @@ export function App() {
       keywords: ['commands'], run: () => setWorkspaceMode('snippets'),
     },
     {
+      id: 'show-layouts', label: 'Go to workspace layouts', group: 'Navigation', icon: LayoutPanelTop,
+      keywords: ['saved', 'restore', 'tabs'], run: () => setWorkspaceMode('layouts'),
+    },
+    {
       id: 'show-settings', label: 'Go to settings', group: 'Navigation', icon: Settings2,
       keywords: ['preferences', 'terminal'], run: () => setWorkspaceMode('settings'),
     },
@@ -876,10 +1007,18 @@ export function App() {
         if (activeId) void closeTab(activeId)
       },
     },
+    ...workspaceLayouts.map((layout) => ({
+      id: `restore-layout-${layout.id}`,
+      label: `Restore ${layout.name}`,
+      group: 'Workspace layouts',
+      icon: FolderOpen,
+      keywords: ['tabs', 'disconnected'],
+      run: () => void restoreWorkspaceLayout(layout).catch(reportError),
+    })),
   ], [
     activeController, activeId, activeLog, activeTab, canOpenLocalTerminal, closeTab, exportProfiles,
     importProfiles, lease, openLocalTerminal, openingProfile, profileExchangeAction, settings,
-    toggleSessionLogging,
+    reportError, restoreWorkspaceLayout, toggleSessionLogging, workspaceLayouts,
   ])
 
   useEffect(() => {
@@ -1001,6 +1140,10 @@ export function App() {
             <Braces size={16} /> Snippets
             {snippets.length > 0 && <span>{snippets.length}</span>}
           </button>
+          <button className={workspaceMode === 'layouts' ? 'is-active' : ''} type="button" onClick={() => setWorkspaceMode('layouts')}>
+            <LayoutPanelTop size={16} /> Layouts
+            {workspaceLayouts.length > 0 && <span>{workspaceLayouts.length}</span>}
+          </button>
           <button className={workspaceMode === 'settings' ? 'is-active' : ''} type="button" onClick={() => setWorkspaceMode('settings')}>
             <Settings2 size={16} /> Settings
           </button>
@@ -1013,12 +1156,12 @@ export function App() {
           <div className="tabs" role="tablist" aria-label="Terminal sessions">
             {tabs.map((tab) => (
               <div
-                className={`tab${tab.session.id === activeId ? ' is-active' : ''}`}
+                className={`tab${tab.id === activeId ? ' is-active' : ''}`}
                 role="tab"
-                aria-selected={tab.session.id === activeId}
-                key={tab.session.id}
+                aria-selected={tab.id === activeId}
+                key={tab.id}
               >
-                <button className="tab-select" type="button" onClick={() => selectTab(tab.session.id)}>
+                <button className="tab-select" type="button" onClick={() => selectTab(tab.id)}>
                   <span className={`state-dot state-${tab.state}${tab.attention ? ' has-attention' : ''}`} />
                   <span className="tab-title">{tab.title}</span>
                 </button>
@@ -1027,7 +1170,7 @@ export function App() {
                   type="button"
                   title="Close terminal"
                   aria-label={`Close ${tab.title}`}
-                  onClick={() => void closeTab(tab.session.id)}
+                  onClick={() => void closeTab(tab.id)}
                 >
                   <X size={14} />
                 </button>
@@ -1123,11 +1266,19 @@ export function App() {
             </div>
           ) : (
             tabs.map((tab) => (
-              <TerminalPane
-                key={tab.session.id}
-                controller={tab.controller}
-                active={tab.session.id === activeId}
-              />
+              tab.controller ? (
+                <TerminalPane key={tab.id} controller={tab.controller} active={tab.id === activeId} />
+              ) : tab.id === activeId ? (
+                <div className="disconnected-terminal" key={tab.id}>
+                  <LayoutPanelTop size={32} strokeWidth={1.4} />
+                  <h1>{tab.title}</h1>
+                  <span>{activeProfile?.endpoint || tab.endpoint || 'Profile unavailable'}</span>
+                  <button className="primary-button" type="button" disabled={!activeProfile || Boolean(openingProfile)} onClick={() => connectRestoredTab(tab)}>
+                    {openingProfile === activeProfile?.id ? <LoaderCircle className="spin" size={16} /> : <Zap size={16} />}
+                    {activeProfile ? 'Connect' : 'Profile unavailable'}
+                  </button>
+                </div>
+              ) : null
             ))
           )}
         </section>
@@ -1199,6 +1350,18 @@ export function App() {
           />
         )}
 
+        {workspaceMode === 'layouts' && (
+          <WorkspaceLayoutWorkspace
+            layouts={workspaceLayouts}
+            savableTabCount={workspaceSnapshot.tabs.length}
+            onCreate={createWorkspaceLayout}
+            onRename={renameWorkspaceLayout}
+            onReplace={replaceWorkspaceLayout}
+            onRestore={restoreWorkspaceLayout}
+            onDelete={deleteWorkspaceLayout}
+          />
+        )}
+
         {workspaceMode === 'settings' && settings && (
           <SettingsWorkspace settings={settings} onSave={saveSettings} onReset={resetSettings} />
         )}
@@ -1252,7 +1415,7 @@ export function App() {
 
       {loggingSessionId && (
         <LoggingDialog
-          title={tabs.find((tab) => tab.session.id === loggingSessionId)?.title ?? 'Terminal'}
+          title={tabs.find((tab) => tab.session?.id === loggingSessionId)?.title ?? 'Terminal'}
           onCancel={() => setLoggingSessionId(undefined)}
           onStart={startSessionLogging}
         />
@@ -1268,19 +1431,23 @@ export function App() {
                   ? 'Close running sessions?'
                   : confirmation.kind === 'delete-profile'
                     ? 'Delete this profile?'
-                    : 'Close this terminal?'}
+                    : confirmation.kind === 'restore-layout'
+                      ? 'Replace the current workspace?'
+                      : 'Close this terminal?'}
               </h2>
               <p>
                 {confirmation.kind === 'close-application'
                   ? `${activityCount} active resource${activityCount === 1 ? '' : 's'} will be closed.`
                   : confirmation.kind === 'delete-profile'
                     ? 'The saved connection settings will be removed. Existing sessions remain open.'
-                    : 'The shell process and its child processes will be terminated.'}
+                    : confirmation.kind === 'restore-layout'
+                      ? `${runningCount} running terminal${runningCount === 1 ? '' : 's'} will be closed before the layout is restored.`
+                      : 'The shell process and its child processes will be terminated.'}
               </p>
             </div>
             <div className="dialog-actions">
               <button className="secondary-button" type="button" autoFocus onClick={() => setConfirmation(undefined)}>Cancel</button>
-              <button className="danger-button" type="button" onClick={() => void confirmClose()}>Close</button>
+              <button className="danger-button" type="button" onClick={() => void confirmClose()}>{confirmation.kind === 'restore-layout' ? 'Restore' : confirmation.kind === 'delete-profile' ? 'Delete' : 'Close'}</button>
             </div>
           </section>
         </div>
@@ -1291,7 +1458,7 @@ export function App() {
 
 function updateTabState(tabs: TabModel[], event: SessionStateEvent): TabModel[] {
   return tabs.map((tab) => {
-    if (tab.session.id !== event.sessionId || tab.session.generation !== event.generation) {
+    if (tab.session?.id !== event.sessionId || tab.session.generation !== event.generation) {
       return tab
     }
     let exitSummary: string | undefined
@@ -1304,7 +1471,7 @@ function updateTabState(tabs: TabModel[], event: SessionStateEvent): TabModel[] 
   })
 }
 
-function isLive(state: SessionState): boolean {
+function isLive(state: TerminalTabState): boolean {
   return state === 'starting' || state === 'running' || state === 'closing'
 }
 
@@ -1366,4 +1533,32 @@ function sortSnippets(snippets: Snippet[]): Snippet[] {
     const folder = left.folder.localeCompare(right.folder, undefined, { sensitivity: 'base' })
     return folder || left.name.localeCompare(right.name, undefined, { sensitivity: 'base' })
   })
+}
+
+function captureWorkspace(tabs: TabModel[], profiles: Profile[], activeId?: string): Pick<WorkspaceLayoutInput, 'tabs' | 'activeTab'> {
+  const captured = tabs.flatMap((tab) => {
+    const profile = profiles.find((item) => item.id === tab.profileId)
+    return profile ? [{
+      sourceId: tab.id,
+      tab: { profileId: profile.id, title: tab.title || profile.name, endpoint: profile.endpoint },
+    }] : []
+  })
+  const activeTab = Math.max(0, captured.findIndex((item) => item.sourceId === activeId))
+  return { tabs: captured.map((item) => item.tab), activeTab }
+}
+
+function layoutInput(
+  layout: WorkspaceLayout,
+  changes: Partial<Pick<WorkspaceLayoutInput, 'name' | 'tabs' | 'activeTab'>>,
+): WorkspaceLayoutInput {
+  return {
+    id: layout.id,
+    name: changes.name ?? layout.name,
+    tabs: changes.tabs ?? layout.tabs,
+    activeTab: changes.activeTab ?? layout.activeTab,
+  }
+}
+
+function sortWorkspaceLayouts(layouts: WorkspaceLayout[]): WorkspaceLayout[] {
+  return [...layouts].sort((left, right) => left.name.localeCompare(right.name, undefined, { sensitivity: 'base' }))
 }

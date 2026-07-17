@@ -11,10 +11,12 @@ import {
   CreateRemoteDirectory,
   CreateSnippet,
   CreateTunnel,
+  CreateWorkspaceLayout,
   DeleteProfile,
   DeleteRemotePath,
   DeleteSnippet,
   DeleteTunnel,
+  DeleteWorkspaceLayout,
   DuplicateProfile,
   ExportProfiles,
   GetSettings,
@@ -24,6 +26,7 @@ import {
   ListTransfers,
   ListTunnelStates,
   ListTunnels,
+  ListWorkspaceLayouts,
   InspectSSHAuthentication,
   ImportProfiles,
   InspectQuickSSHAuthentication,
@@ -48,6 +51,7 @@ import {
   UpdateSettings,
   UpdateSnippet,
   UpdateTunnel,
+  UpdateWorkspaceLayout,
   TrustSSHHostKey,
   WriteTerminal,
 } from '../../../wailsjs/go/bridge/Desktop'
@@ -78,6 +82,8 @@ import type {
   TunnelConfig,
   TunnelInput,
   TunnelSnapshot,
+  WorkspaceLayout,
+  WorkspaceLayoutInput,
 } from './types'
 
 export const events = {
@@ -116,6 +122,12 @@ export const backend = {
   deleteSnippet: (snippetId: string) => DeleteSnippet(snippetId),
   renderSnippet: (snippetId: string, values: Record<string, string>) =>
     RenderSnippet(snippetId, values) as Promise<SnippetPreview>,
+  listWorkspaceLayouts: async () => normalizeWorkspaceLayouts(await ListWorkspaceLayouts()),
+  createWorkspaceLayout: (input: WorkspaceLayoutInput) =>
+    CreateWorkspaceLayout(bridge.WorkspaceLayoutInputDTO.createFrom(input)) as Promise<WorkspaceLayout>,
+  updateWorkspaceLayout: (input: WorkspaceLayoutInput) =>
+    UpdateWorkspaceLayout(bridge.WorkspaceLayoutInputDTO.createFrom(input)) as Promise<WorkspaceLayout>,
+  deleteWorkspaceLayout: (layoutId: string) => DeleteWorkspaceLayout(layoutId),
   listTunnels: async () => ((await ListTunnels()) ?? []) as TunnelConfig[],
   createTunnel: (input: TunnelInput) => CreateTunnel(input) as Promise<TunnelConfig>,
   updateTunnel: (input: TunnelInput) => UpdateTunnel(input) as Promise<TunnelConfig>,
@@ -227,6 +239,20 @@ function normalizeSnippets(value: unknown): Snippet[] {
       tags: Array.isArray(snippet.tags) ? snippet.tags : [],
       variables: Array.isArray(snippet.variables) ? snippet.variables : [],
     } as Snippet
+  })
+}
+
+function normalizeWorkspaceLayouts(value: unknown): WorkspaceLayout[] {
+  if (!Array.isArray(value)) {
+    return []
+  }
+  return value.map((item) => {
+    const layout = item as Partial<WorkspaceLayout>
+    return {
+      ...layout,
+      tabs: Array.isArray(layout.tabs) ? layout.tabs : [],
+      activeTab: Number.isInteger(layout.activeTab) ? layout.activeTab : 0,
+    } as WorkspaceLayout
   })
 }
 

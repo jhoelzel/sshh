@@ -28,6 +28,8 @@ native desktop application.
   behavior, with live application to open terminals and durable reset support.
 - A searchable command palette with grouped actions, disabled-state feedback,
   keyboard navigation, and shell-safe application shortcuts.
+- Saved workspace layouts with private atomic persistence, ordered profile-tab
+  snapshots, disconnected restoration, and explicit per-tab reconnection.
 - Explicit session ownership, activation, ordered input/output, bounded output
   flow control, frontend leases, and deterministic shutdown of terminals,
   transfers, SFTP clients, and tunnels.
@@ -37,9 +39,9 @@ native desktop application.
 
 The current native proof and packaged build target is macOS arm64. Windows
 ConPTY, signed/notarized release automation, SSH connection pooling, resumable
-transfers, connection and transfer preferences, workspace
-restoration, notifications, and remaining cross-platform UX
-are still future milestones; see the implementation plan for the release gates.
+transfers, connection and transfer preferences, notifications, and remaining
+cross-platform UX are still future milestones; see the implementation plan for
+the release gates.
 
 ## Prerequisites
 
@@ -65,12 +67,15 @@ executable is `build/bin/shh-h.app/Contents/MacOS/shhh`.
 
 - `cmd/shhh`: executable entry point and Wails project configuration.
 - `internal/app`: composition root and desktop lifecycle configuration.
-- `internal/domain`: pure profile, transfer, SSH, tunnel, snippet, and settings models.
+- `internal/domain`: pure profile, transfer, SSH, tunnel, snippet, workspace,
+  and settings models.
 - `internal/port`: terminal, SSH connection, and remote filesystem contracts.
 - `internal/adapter`: PTY, SSH, known-host, SFTP, session-log, profile exchange, and configuration adapters.
-- `internal/usecase`: profile, session, transfer, SSH, tunnel, and snippet orchestration.
+- `internal/usecase`: profile, session, transfer, SSH, tunnel, snippet, and
+  workspace orchestration.
 - `internal/bridge`: narrow typed Wails command and event boundary.
-- `frontend`: React terminal, profile, file, transfer, and tunnel workspaces.
+- `frontend`: React terminal, profile, file, transfer, tunnel, snippet, layout,
+  and settings workspaces.
 - `docs/IMPLEMENTATION_PLAN.md`: milestones, acceptance criteria, and release
   scope.
 - `docs/REMOTE_PROJECTS_PLAN.md`: proposed self-hosted remote code editor,

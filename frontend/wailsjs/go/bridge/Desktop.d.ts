@@ -29,6 +29,8 @@ export function CreateSnippet(arg1:bridge.SnippetInputDTO):Promise<bridge.Snippe
 
 export function CreateTunnel(arg1:bridge.TunnelInputDTO):Promise<tunnel.Config>;
 
+export function CreateWorkspaceLayout(arg1:bridge.WorkspaceLayoutInputDTO):Promise<bridge.WorkspaceLayoutDTO>;
+
 export function DeleteProfile(arg1:string):Promise<void>;
 
 export function DeleteRemotePath(arg1:string,arg2:string,arg3:string):Promise<void>;
@@ -36,6 +38,8 @@ export function DeleteRemotePath(arg1:string,arg2:string,arg3:string):Promise<vo
 export function DeleteSnippet(arg1:string):Promise<void>;
 
 export function DeleteTunnel(arg1:string):Promise<void>;
+
+export function DeleteWorkspaceLayout(arg1:string):Promise<void>;
 
 export function DuplicateProfile(arg1:string):Promise<bridge.ProfileDTO>;
 
@@ -60,6 +64,8 @@ export function ListTransfers(arg1:string):Promise<Array<filetransfer.Transfer>>
 export function ListTunnelStates(arg1:string):Promise<Array<tunnel.Snapshot>>;
 
 export function ListTunnels():Promise<Array<tunnel.Config>>;
+
+export function ListWorkspaceLayouts():Promise<Array<bridge.WorkspaceLayoutDTO>>;
 
 export function OpenLocalTerminal(arg1:string,arg2:string,arg3:number,arg4:number):Promise<session.Session>;
 
@@ -106,5 +112,7 @@ export function UpdateSettings(arg1:bridge.SettingsDTO):Promise<bridge.SettingsD
 export function UpdateSnippet(arg1:bridge.SnippetInputDTO):Promise<bridge.SnippetDTO>;
 
 export function UpdateTunnel(arg1:bridge.TunnelInputDTO):Promise<tunnel.Config>;
+
+export function UpdateWorkspaceLayout(arg1:bridge.WorkspaceLayoutInputDTO):Promise<bridge.WorkspaceLayoutDTO>;
 
 export function WriteTerminal(arg1:string,arg2:string,arg3:number,arg4:number,arg5:string):Promise<void>;

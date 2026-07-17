@@ -2,8 +2,8 @@
 
 ## 1. Implementation Status
 
-The macOS core slices through M8, the first M9 productivity slice, and the
-terminal portion of M10 are implemented. The repository contains a Wails v2
+The macOS core slices through M8, the workspace-layout and command-productivity
+portions of M9, and the terminal portion of M10 are implemented. The repository contains a Wails v2
 host, embedded React and strict TypeScript frontend, xterm.js terminal
 controllers, a real Unix PTY adapter, strict SSH and known-host adapters, SFTP,
 saved tunnel state, and lease-owned runtime managers with bounded bridge flow
@@ -49,6 +49,11 @@ Implemented and verified:
 - The command palette searches grouped connection, profile, navigation, and
   active-terminal actions. Arrow-key operation and non-conflicting
   `Cmd/Ctrl+Shift` shortcuts work without intercepting ordinary shell input.
+- Workspace layouts use a strict versioned private store and retain only
+  ordered profile references, display snapshots, and the selected index.
+  Restore creates disconnected frontend tabs with no process or network
+  resource; each tab reconnects explicitly through the normal trust and
+  credential workflow.
 - Go race tests cover managers and adapters. Real loopback integration tests
   cover PTY, SSH terminal resize/exit, SFTP operations, and bidirectional local,
   remote, and SOCKS forwarding. TypeScript, ESLint, Vitest, vet, and production
@@ -63,9 +68,8 @@ Still required for the complete cross-platform and 1.0 gates:
   harness. macOS launch and frontend attachment are verified today; runtime
   behavior is also exercised below the WebView boundary.
 - Shared reference-counted SSH connection groups, resumable transfer metadata,
-  connection and transfer settings, saved workspace
-  layouts, notifications, and the remaining productivity
-  actions.
+  connection and transfer settings, notifications, and the remaining
+  productivity actions.
 - Signed/notarized macOS releases, Linux packaging validation, Windows WebView2
   and ConPTY implementation, native CI, accessibility review, and long-run
   soak/performance evidence.
@@ -146,6 +150,8 @@ and acceptance criteria are in `docs/REMOTE_PROJECTS_PLAN.md`.
 - A local process starts only after the user chooses New Local Terminal or
   connects a local profile.
 - An SSH connection starts only after the user explicitly connects a profile.
+- Restoring a saved workspace creates disconnected tabs only; it never opens a
+  PTY, SSH transport, SFTP session, tunnel, or other network resource.
 - Every running terminal has a visible tab and state indicator.
 - An unfocused tab may continue running, as normal terminal tabs do, but it is
   never invisible background work.
@@ -924,7 +930,7 @@ Deliverables:
   rotation, and secure file permissions.
 - Add terminal search, copy-all-visible, and export-selection actions.
 - Add saved workspace layouts that restore profile tabs as disconnected tabs;
-  reconnection remains explicit.
+  reconnection remains explicit. Implemented for saved-profile terminal tabs.
 - Add profile and remote-path favorites.
 - Add command palette and consistent keyboard shortcuts.
 - Add notifications for long transfer completion and unexpected disconnect,

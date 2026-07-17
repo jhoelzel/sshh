@@ -43,8 +43,8 @@ cmd/shhh -> internal/app wires the complete application
 
 - Domain models use only the Go standard library.
 - Use cases depend on domain models and narrow ports.
-- PTY, SSH, SFTP, session-log, config, settings, profile-exchange, and secret
-  adapters implement those ports.
+- PTY, SSH, SFTP, session-log, config, settings, workspace-layout,
+  profile-exchange, and secret adapters implement those ports.
 - The Wails bridge maps task-oriented commands and typed events to use cases.
 - React never receives backend objects and never stores terminal output in
   component state.
@@ -86,7 +86,8 @@ secret-store implementations.
 ### `internal/bridge`
 
 The only privileged frontend boundary. It exposes typed commands for profiles,
-sessions, transfers, and tunnels and emits typed lifecycle events. Terminal
+sessions, transfers, tunnels, snippets, settings, and workspace layouts and
+emits typed lifecycle events. Terminal
 output uses ordered byte-safe chunks, per-session generations, bounded queues,
 cumulative byte-credit acknowledgement, fair scheduling, and backpressure.
 Lifecycle and control traffic does not wait behind bulk terminal output.
@@ -99,17 +100,36 @@ connection fields required for a one-off terminal.
 React application, feature views, shared components, styles, and terminal
 controllers. xterm.js receives terminal bytes directly from the bridge;
 terminal data does not pass through React rendering. One persistent host and
-controller exists per open tab. `onData` and `onBinary` feed one ordered input
-queue; resize is coalesced without losing the final dimensions. Palette and
-shortcut actions call the same React workflow callbacks as visible controls;
-they do not add a second bridge path or create backend resources on their own.
+controller exists per live tab; a restored disconnected tab has neither a
+backend session nor a terminal controller. `onData` and `onBinary` feed one
+ordered input queue; resize is coalesced without losing the final dimensions.
+Palette and shortcut actions call the same React workflow callbacks as visible
+controls; they do not add a second bridge path or create backend resources on
+their own.
+
+## Workspace Layout Ownership
+
+A saved layout is declarative UI state, not a session checkpoint. Its versioned
+private store contains a layout name, ordered profile IDs, display-only title
+and endpoint snapshots, and the selected tab index. It never contains terminal
+output, runtime IDs, credentials, trust decisions, environment secrets, or
+serialized xterm state. Deleted profile references remain readable so the UI
+can show an unavailable disconnected tab instead of corrupting the layout.
+
+Workspace-layout persistence commands never call the PTY, SSH, SFTP, tunnel,
+lease, or session managers. Frontend restoration first confirms and closes any
+live terminal tabs, then creates frontend-only disconnected tabs; it never
+creates a runtime. Connect is a separate user action that resolves the current
+profile and enters the existing host-key and credential workflow. Quick-connect
+targets are transient and are omitted when capturing a layout.
 
 ## Session Ownership
 
 The Go session manager owns every live process and connection. Each runtime has
 a context, transport, state machine, output pump, waiter, frontend lease,
 session generation, and idempotent close. The frontend refers to it by session
-ID and generation. Closing a tab closes the corresponding runtime; closing the
+ID and generation. Closing a live tab closes the corresponding runtime;
+closing a disconnected tab removes only its frontend metadata. Closing the
 application coordinates shutdown of all sessions, transfers, and tunnels.
 
 A DOM instance attaches through a frontend lease. The lease is renewed only

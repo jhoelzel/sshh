@@ -18,6 +18,7 @@ import (
 	"shh-h/internal/adapter/sshterminal"
 	"shh-h/internal/adapter/sshtrust"
 	"shh-h/internal/adapter/tunnelstore"
+	"shh-h/internal/adapter/workspacestore"
 	"shh-h/internal/bridge"
 	filetransferusecase "shh-h/internal/usecase/filetransfer"
 	profileusecase "shh-h/internal/usecase/profile"
@@ -26,6 +27,7 @@ import (
 	snippetusecase "shh-h/internal/usecase/snippet"
 	sshconnectionusecase "shh-h/internal/usecase/sshconnection"
 	tunnelusecase "shh-h/internal/usecase/tunnel"
+	workspaceusecase "shh-h/internal/usecase/workspace"
 )
 
 const (
@@ -80,8 +82,16 @@ func Run(assets fs.FS) error {
 	if err != nil {
 		return err
 	}
+	workspaceRepository, err := workspacestore.New(appID)
+	if err != nil {
+		return err
+	}
+	workspaces, err := workspaceusecase.NewService(workspaceRepository)
+	if err != nil {
+		return err
+	}
 	remote := sshconnectionusecase.NewService(profiles, manager, files, trust, sshFactory)
-	desktop := bridge.NewDesktop(manager, profiles, remote, files, tunnels, snippets, settingsService)
+	desktop := bridge.NewDesktop(manager, profiles, remote, files, tunnels, snippets, workspaces, settingsService)
 
 	return wails.Run(&options.App{
 		Title:                    "shh-h",

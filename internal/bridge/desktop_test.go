@@ -8,7 +8,7 @@ import (
 )
 
 func TestAttachFrontendIsIdempotentForSameInstance(t *testing.T) {
-	desktop := NewDesktop(sessionusecase.NewManager(nil), nil, nil, nil, nil, nil, nil)
+	desktop := NewDesktop(sessionusecase.NewManager(nil), nil, nil, nil, nil, nil, nil, nil)
 
 	first, err := desktop.AttachFrontend("frontend-instance")
 	if err != nil {
@@ -27,7 +27,7 @@ func TestAttachFrontendIsIdempotentForSameInstance(t *testing.T) {
 }
 
 func TestAttachFrontendReplacesPreviousInstance(t *testing.T) {
-	desktop := NewDesktop(sessionusecase.NewManager(nil), nil, nil, nil, nil, nil, nil)
+	desktop := NewDesktop(sessionusecase.NewManager(nil), nil, nil, nil, nil, nil, nil, nil)
 
 	first, err := desktop.AttachFrontend("first-instance")
 	if err != nil {
@@ -49,7 +49,7 @@ func TestAttachFrontendReplacesPreviousInstance(t *testing.T) {
 }
 
 func TestAttachFrontendRejectsInvalidNonce(t *testing.T) {
-	desktop := NewDesktop(sessionusecase.NewManager(nil), nil, nil, nil, nil, nil, nil)
+	desktop := NewDesktop(sessionusecase.NewManager(nil), nil, nil, nil, nil, nil, nil, nil)
 
 	if _, err := desktop.AttachFrontend("  "); err == nil {
 		t.Fatal("expected an empty frontend nonce to be rejected")

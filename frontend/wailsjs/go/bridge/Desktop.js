@@ -50,6 +50,10 @@ export function CreateTunnel(arg1) {
   return window['go']['bridge']['Desktop']['CreateTunnel'](arg1);
 }
 
+export function CreateWorkspaceLayout(arg1) {
+  return window['go']['bridge']['Desktop']['CreateWorkspaceLayout'](arg1);
+}
+
 export function DeleteProfile(arg1) {
   return window['go']['bridge']['Desktop']['DeleteProfile'](arg1);
 }
@@ -64,6 +68,10 @@ export function DeleteSnippet(arg1) {
 
 export function DeleteTunnel(arg1) {
   return window['go']['bridge']['Desktop']['DeleteTunnel'](arg1);
+}
+
+export function DeleteWorkspaceLayout(arg1) {
+  return window['go']['bridge']['Desktop']['DeleteWorkspaceLayout'](arg1);
 }
 
 export function DuplicateProfile(arg1) {
@@ -112,6 +120,10 @@ export function ListTunnelStates(arg1) {
 
 export function ListTunnels() {
   return window['go']['bridge']['Desktop']['ListTunnels']();
+}
+
+export function ListWorkspaceLayouts() {
+  return window['go']['bridge']['Desktop']['ListWorkspaceLayouts']();
 }
 
 export function OpenLocalTerminal(arg1, arg2, arg3, arg4) {
@@ -204,6 +216,10 @@ export function UpdateSnippet(arg1) {
 
 export function UpdateTunnel(arg1) {
   return window['go']['bridge']['Desktop']['UpdateTunnel'](arg1);
+}
+
+export function UpdateWorkspaceLayout(arg1) {
+  return window['go']['bridge']['Desktop']['UpdateWorkspaceLayout'](arg1);
 }
 
 export function WriteTerminal(arg1, arg2, arg3, arg4, arg5) {

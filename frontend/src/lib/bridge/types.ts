@@ -196,6 +196,23 @@ export interface SnippetPreview {
   variables: string[]
 }
 
+export interface WorkspaceTab {
+  profileId: string
+  title: string
+  endpoint: string
+}
+
+export interface WorkspaceLayout {
+  id: string
+  name: string
+  tabs: WorkspaceTab[]
+  activeTab: number
+  createdAt: string
+  updatedAt: string
+}
+
+export type WorkspaceLayoutInput = Omit<WorkspaceLayout, 'createdAt' | 'updatedAt'>
+
 export interface SessionLogStatus {
   leaseId: string
   sessionId: string

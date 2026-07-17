@@ -24,6 +24,7 @@ import (
 	snippetdomain "shh-h/internal/domain/snippet"
 	sshconnectiondomain "shh-h/internal/domain/sshconnection"
 	tunneldomain "shh-h/internal/domain/tunnel"
+	workspacedomain "shh-h/internal/domain/workspace"
 	"shh-h/internal/port"
 	filetransferusecase "shh-h/internal/usecase/filetransfer"
 	profileusecase "shh-h/internal/usecase/profile"
@@ -32,6 +33,7 @@ import (
 	snippetusecase "shh-h/internal/usecase/snippet"
 	sshconnectionusecase "shh-h/internal/usecase/sshconnection"
 	tunnelusecase "shh-h/internal/usecase/tunnel"
+	workspaceusecase "shh-h/internal/usecase/workspace"
 )
 
 const (
@@ -166,6 +168,28 @@ type SnippetPreviewDTO struct {
 	Variables []string `json:"variables"`
 }
 
+type WorkspaceTabDTO struct {
+	ProfileID string `json:"profileId"`
+	Title     string `json:"title"`
+	Endpoint  string `json:"endpoint"`
+}
+
+type WorkspaceLayoutInputDTO struct {
+	ID        string            `json:"id"`
+	Name      string            `json:"name"`
+	Tabs      []WorkspaceTabDTO `json:"tabs"`
+	ActiveTab int               `json:"activeTab"`
+}
+
+type WorkspaceLayoutDTO struct {
+	ID        string            `json:"id"`
+	Name      string            `json:"name"`
+	Tabs      []WorkspaceTabDTO `json:"tabs"`
+	ActiveTab int               `json:"activeTab"`
+	CreatedAt string            `json:"createdAt"`
+	UpdatedAt string            `json:"updatedAt"`
+}
+
 type TerminalSettingsDTO struct {
 	FontFamily  settingsdomain.FontFamily  `json:"fontFamily"`
 	FontSize    int                        `json:"fontSize"`
@@ -204,13 +228,14 @@ type frontendLease struct {
 }
 
 type Desktop struct {
-	manager  *sessionusecase.Manager
-	profiles *profileusecase.Service
-	remote   *sshconnectionusecase.Service
-	files    *filetransferusecase.Manager
-	tunnels  *tunnelusecase.Service
-	snippets *snippetusecase.Service
-	settings *settingsusecase.Service
+	manager    *sessionusecase.Manager
+	profiles   *profileusecase.Service
+	remote     *sshconnectionusecase.Service
+	files      *filetransferusecase.Manager
+	tunnels    *tunnelusecase.Service
+	snippets   *snippetusecase.Service
+	workspaces *workspaceusecase.Service
+	settings   *settingsusecase.Service
 
 	ctxMu sync.RWMutex
 	ctx   context.Context
@@ -226,10 +251,10 @@ type eventSink struct {
 	desktop *Desktop
 }
 
-func NewDesktop(manager *sessionusecase.Manager, profiles *profileusecase.Service, remote *sshconnectionusecase.Service, files *filetransferusecase.Manager, tunnels *tunnelusecase.Service, snippets *snippetusecase.Service, settings *settingsusecase.Service) *Desktop {
+func NewDesktop(manager *sessionusecase.Manager, profiles *profileusecase.Service, remote *sshconnectionusecase.Service, files *filetransferusecase.Manager, tunnels *tunnelusecase.Service, snippets *snippetusecase.Service, workspaces *workspaceusecase.Service, settings *settingsusecase.Service) *Desktop {
 	desktop := &Desktop{
 		manager: manager, profiles: profiles, remote: remote, files: files, tunnels: tunnels,
-		snippets: snippets, settings: settings,
+		snippets: snippets, workspaces: workspaces, settings: settings,
 		leaseWake: make(chan struct{}, 1),
 	}
 	sink := &eventSink{desktop: desktop}
@@ -490,6 +515,47 @@ func (d *Desktop) RenderSnippet(snippetID string, values map[string]string) (Sni
 		return SnippetPreviewDTO{}, err
 	}
 	return SnippetPreviewDTO{Text: text, Variables: variables}, nil
+}
+
+func (d *Desktop) ListWorkspaceLayouts() []WorkspaceLayoutDTO {
+	if d.workspaces == nil {
+		return []WorkspaceLayoutDTO{}
+	}
+	layouts := d.workspaces.List()
+	result := make([]WorkspaceLayoutDTO, 0, len(layouts))
+	for _, layout := range layouts {
+		result = append(result, workspaceLayoutDTO(layout))
+	}
+	return result
+}
+
+func (d *Desktop) CreateWorkspaceLayout(input WorkspaceLayoutInputDTO) (WorkspaceLayoutDTO, error) {
+	if d.workspaces == nil {
+		return WorkspaceLayoutDTO{}, errors.New("workspace layout support is unavailable")
+	}
+	created, err := d.workspaces.Create(workspaceLayoutFromInput(input))
+	if err != nil {
+		return WorkspaceLayoutDTO{}, err
+	}
+	return workspaceLayoutDTO(created), nil
+}
+
+func (d *Desktop) UpdateWorkspaceLayout(input WorkspaceLayoutInputDTO) (WorkspaceLayoutDTO, error) {
+	if d.workspaces == nil {
+		return WorkspaceLayoutDTO{}, errors.New("workspace layout support is unavailable")
+	}
+	updated, err := d.workspaces.Update(workspaceLayoutFromInput(input))
+	if err != nil {
+		return WorkspaceLayoutDTO{}, err
+	}
+	return workspaceLayoutDTO(updated), nil
+}
+
+func (d *Desktop) DeleteWorkspaceLayout(layoutID string) error {
+	if d.workspaces == nil {
+		return errors.New("workspace layout support is unavailable")
+	}
+	return d.workspaces.Delete(layoutID)
 }
 
 func (d *Desktop) GetSettings() SettingsDTO {
@@ -1026,6 +1092,26 @@ func snippetDTO(item snippetdomain.Snippet) (SnippetDTO, error) {
 		CreatedAt: item.CreatedAt.UTC().Format(time.RFC3339Nano),
 		UpdatedAt: item.UpdatedAt.UTC().Format(time.RFC3339Nano),
 	}, nil
+}
+
+func workspaceLayoutFromInput(input WorkspaceLayoutInputDTO) workspacedomain.Layout {
+	tabs := make([]workspacedomain.Tab, len(input.Tabs))
+	for index, tab := range input.Tabs {
+		tabs[index] = workspacedomain.Tab{ProfileID: tab.ProfileID, Title: tab.Title, Endpoint: tab.Endpoint}
+	}
+	return workspacedomain.Layout{ID: input.ID, Name: input.Name, Tabs: tabs, ActiveTab: input.ActiveTab}
+}
+
+func workspaceLayoutDTO(layout workspacedomain.Layout) WorkspaceLayoutDTO {
+	tabs := make([]WorkspaceTabDTO, len(layout.Tabs))
+	for index, tab := range layout.Tabs {
+		tabs[index] = WorkspaceTabDTO{ProfileID: tab.ProfileID, Title: tab.Title, Endpoint: tab.Endpoint}
+	}
+	return WorkspaceLayoutDTO{
+		ID: layout.ID, Name: layout.Name, Tabs: tabs, ActiveTab: layout.ActiveTab,
+		CreatedAt: layout.CreatedAt.UTC().Format(time.RFC3339Nano),
+		UpdatedAt: layout.UpdatedAt.UTC().Format(time.RFC3339Nano),
+	}
 }
 
 func settingsDTO(value settingsdomain.Settings) SettingsDTO {
