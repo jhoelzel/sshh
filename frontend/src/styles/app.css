@@ -1235,12 +1235,24 @@ textarea:focus-visible {
 .transfer-row {
   display: grid;
   min-height: 38px;
-  grid-template-columns: 24px minmax(0, 1fr) minmax(55px, auto) 28px;
+  grid-template-columns: 24px minmax(0, 1fr) minmax(55px, auto) minmax(28px, auto);
   align-items: center;
   gap: 5px;
   padding: 3px 8px;
   border-bottom: 1px solid #222623;
   color: #748079;
+}
+
+.transfer-resume {
+  background: #171b18;
+}
+
+.transfer-actions {
+  display: flex;
+  min-width: 28px;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 3px;
 }
 
 .transfer-copy {

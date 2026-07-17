@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -24,11 +25,30 @@ func (f *fakeFactory) OpenRemoteFilesystem(context.Context, port.SSHTerminalSpec
 	return f.filesystem, nil
 }
 
-type fakeFilesystem struct {
+type memoryResumeRepository struct {
 	mu      sync.Mutex
-	files   map[string][]byte
-	closed  bool
-	readErr error
+	records []filedomain.ResumeRecord
+}
+
+func (r *memoryResumeRepository) LoadResumes() ([]filedomain.ResumeRecord, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return append([]filedomain.ResumeRecord(nil), r.records...), nil
+}
+
+func (r *memoryResumeRepository) SaveResumes(records []filedomain.ResumeRecord) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.records = append([]filedomain.ResumeRecord(nil), records...)
+	return nil
+}
+
+type fakeFilesystem struct {
+	mu         sync.Mutex
+	files      map[string][]byte
+	closed     bool
+	readErr    error
+	writeLimit int
 }
 
 func newFakeFilesystem() *fakeFilesystem {
@@ -48,7 +68,10 @@ func (f *fakeFilesystem) Stat(_ context.Context, path string) (filedomain.Entry,
 	if !exists {
 		return filedomain.Entry{}, os.ErrNotExist
 	}
-	return filedomain.Entry{Name: filepath.Base(path), Path: path, Size: int64(len(data))}, nil
+	return filedomain.Entry{
+		Name: filepath.Base(path), Path: path, Size: int64(len(data)), Mode: uint32(0o600),
+		ModifiedAt: fakeModifiedAt,
+	}, nil
 }
 
 func (f *fakeFilesystem) CreateDirectory(context.Context, string) error { return nil }
@@ -74,23 +97,37 @@ func (f *fakeFilesystem) Remove(_ context.Context, path string) error {
 
 func (f *fakeFilesystem) Chmod(context.Context, string, os.FileMode) error { return nil }
 
-func (f *fakeFilesystem) OpenRead(_ context.Context, path string) (io.ReadCloser, int64, error) {
+func (f *fakeFilesystem) OpenRead(_ context.Context, path string, offset int64) (io.ReadCloser, int64, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	data, exists := f.files[path]
 	if !exists {
 		return nil, 0, os.ErrNotExist
 	}
+	if offset < 0 || offset > int64(len(data)) {
+		return nil, 0, errors.New("invalid read offset")
+	}
 	copyData := append([]byte(nil), data...)
-	reader := io.Reader(bytes.NewReader(copyData))
+	reader := io.Reader(bytes.NewReader(copyData[offset:]))
 	if f.readErr != nil {
 		reader = io.MultiReader(reader, errorReader{err: f.readErr})
 	}
 	return io.NopCloser(reader), int64(len(copyData)), nil
 }
 
-func (f *fakeFilesystem) OpenWrite(_ context.Context, path string) (io.WriteCloser, error) {
-	return &fakeRemoteWriter{filesystem: f, path: path}, nil
+func (f *fakeFilesystem) OpenWrite(_ context.Context, path string, offset int64) (io.WriteCloser, error) {
+	f.mu.Lock()
+	existing := append([]byte(nil), f.files[path]...)
+	limit := f.writeLimit
+	f.mu.Unlock()
+	if offset < 0 || offset > int64(len(existing)) {
+		return nil, errors.New("invalid write offset")
+	}
+	writer := &fakeRemoteWriter{filesystem: f, path: path, limit: limit}
+	if offset > 0 {
+		_, _ = writer.buffer.Write(existing[:offset])
+	}
+	return writer, nil
 }
 
 func (f *fakeFilesystem) Close() error {
@@ -110,14 +147,31 @@ type fakeRemoteWriter struct {
 	filesystem *fakeFilesystem
 	path       string
 	buffer     bytes.Buffer
+	limit      int
+	written    int
 	once       sync.Once
 }
 
 type errorReader struct{ err error }
 
+const fakeModifiedAt = "2026-07-17T12:00:00Z"
+
 func (reader errorReader) Read([]byte) (int, error) { return 0, reader.err }
 
-func (w *fakeRemoteWriter) Write(data []byte) (int, error) { return w.buffer.Write(data) }
+func (w *fakeRemoteWriter) Write(data []byte) (int, error) {
+	if w.limit > 0 && w.written+len(data) > w.limit {
+		allowed := w.limit - w.written
+		if allowed < 0 {
+			allowed = 0
+		}
+		written, _ := w.buffer.Write(data[:allowed])
+		w.written += written
+		return written, errors.New("connection lost")
+	}
+	written, err := w.buffer.Write(data)
+	w.written += written
+	return written, err
+}
 
 func (w *fakeRemoteWriter) Close() error {
 	w.once.Do(func() {
@@ -261,6 +315,208 @@ func TestManagerKeepsDownloadPartialOnlyWhenConfigured(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestManagerResumesDownloadAfterRestart(t *testing.T) {
+	filesystem := newFakeFilesystem()
+	filesystem.files["/remote/source.txt"] = []byte("resumable download")
+	filesystem.readErr = errors.New("connection lost")
+	repository := &memoryResumeRepository{}
+	manager, err := NewManagerWithResumeRepository(&fakeFactory{filesystem: filesystem}, repository)
+	if err != nil {
+		t.Fatalf("create first manager: %v", err)
+	}
+	session := openTestSession(t, manager)
+	destination := filepath.Join(t.TempDir(), "source.txt")
+	started, err := manager.StartDownload(
+		"lease", session.ID, "/remote/source.txt", destination,
+		filedomain.CollisionOverwrite, true,
+	)
+	if err != nil {
+		t.Fatalf("start interrupted download: %v", err)
+	}
+	failed := waitForTransfer(t, manager, started.ID)
+	if failed.State != filedomain.TransferFailed || failed.ResumeID == "" {
+		t.Fatalf("interrupted download was not resumable: %#v", failed)
+	}
+	manager.CloseLease("lease")
+
+	filesystem.readErr = nil
+	filesystem.closed = false
+	restarted, err := NewManagerWithResumeRepository(&fakeFactory{filesystem: filesystem}, repository)
+	if err != nil {
+		t.Fatalf("create restarted manager: %v", err)
+	}
+	restartedSession := openTestSession(t, restarted)
+	resumes, err := restarted.TransferResumes("lease", restartedSession.ID)
+	if err != nil || len(resumes) != 1 || !resumes[0].Available {
+		t.Fatalf("load persisted resume: resumes=%#v err=%v", resumes, err)
+	}
+	resumed, err := restarted.ResumeTransfer("lease", restartedSession.ID, resumes[0].ID)
+	if err != nil {
+		t.Fatalf("resume download: %v", err)
+	}
+	completed := waitForTransfer(t, restarted, resumed.ID)
+	if completed.State != filedomain.TransferCompleted || completed.ResumedFrom != int64(len("resumable download")) {
+		t.Fatalf("unexpected resumed download: %#v", completed)
+	}
+	data, err := os.ReadFile(destination)
+	if err != nil || string(data) != "resumable download" {
+		t.Fatalf("read resumed download: data=%q err=%v", data, err)
+	}
+	if resumes, err := restarted.TransferResumes("lease", restartedSession.ID); err != nil || len(resumes) != 0 {
+		t.Fatalf("completed resume metadata remained: resumes=%#v err=%v", resumes, err)
+	}
+}
+
+func TestManagerResumesUploadWithChecksumVerification(t *testing.T) {
+	filesystem := newFakeFilesystem()
+	filesystem.writeLimit = 7
+	repository := &memoryResumeRepository{}
+	manager, err := NewManagerWithResumeRepository(&fakeFactory{filesystem: filesystem}, repository)
+	if err != nil {
+		t.Fatalf("create manager: %v", err)
+	}
+	session := openTestSession(t, manager)
+	localPath := filepath.Join(t.TempDir(), "upload.txt")
+	content := []byte("resumable upload content")
+	if err := os.WriteFile(localPath, content, 0o600); err != nil {
+		t.Fatalf("write upload source: %v", err)
+	}
+	started, err := manager.StartUpload(
+		"lease", session.ID, localPath, "/remote/upload.txt",
+		filedomain.CollisionOverwrite, true,
+	)
+	if err != nil {
+		t.Fatalf("start interrupted upload: %v", err)
+	}
+	failed := waitForTransfer(t, manager, started.ID)
+	if failed.State != filedomain.TransferFailed || failed.ResumeID == "" {
+		t.Fatalf("interrupted upload was not resumable: %#v", failed)
+	}
+	filesystem.writeLimit = 0
+	resumed, err := manager.ResumeTransfer("lease", session.ID, failed.ResumeID)
+	if err != nil {
+		t.Fatalf("resume upload: %v", err)
+	}
+	completed := waitForTransfer(t, manager, resumed.ID)
+	if completed.State != filedomain.TransferCompleted || completed.ResumedFrom != 7 {
+		t.Fatalf("unexpected resumed upload: %#v", completed)
+	}
+	if actual := filesystem.file("/remote/upload.txt"); !bytes.Equal(actual, content) {
+		t.Fatalf("unexpected resumed upload content %q", actual)
+	}
+}
+
+func TestManagerRejectsAndDiscardsCorruptUploadPartial(t *testing.T) {
+	filesystem := newFakeFilesystem()
+	filesystem.writeLimit = 5
+	manager := NewManager(&fakeFactory{filesystem: filesystem})
+	session := openTestSession(t, manager)
+	localPath := filepath.Join(t.TempDir(), "upload.txt")
+	if err := os.WriteFile(localPath, []byte("checksum source"), 0o600); err != nil {
+		t.Fatalf("write upload source: %v", err)
+	}
+	started, err := manager.StartUpload(
+		"lease", session.ID, localPath, "/remote/upload.txt",
+		filedomain.CollisionOverwrite, true,
+	)
+	if err != nil {
+		t.Fatalf("start interrupted upload: %v", err)
+	}
+	failed := waitForTransfer(t, manager, started.ID)
+	partialPath := remotePartialPath("/remote/upload.txt", failed.ResumeID)
+	filesystem.mu.Lock()
+	filesystem.files[partialPath] = []byte("wrong")
+	filesystem.writeLimit = 0
+	filesystem.mu.Unlock()
+
+	resumed, err := manager.ResumeTransfer("lease", session.ID, failed.ResumeID)
+	if err != nil {
+		t.Fatalf("queue corrupt resume: %v", err)
+	}
+	result := waitForTransfer(t, manager, resumed.ID)
+	if result.State != filedomain.TransferFailed || !strings.Contains(result.Message, "checksum") {
+		t.Fatalf("corrupt partial was not rejected: %#v", result)
+	}
+	if len(filesystem.file("/remote/upload.txt")) != 0 {
+		t.Fatal("corrupt partial was published as the final upload")
+	}
+	if err := manager.DiscardTransferResume("lease", session.ID, failed.ResumeID); err != nil {
+		t.Fatalf("discard corrupt resume: %v", err)
+	}
+	if partial := filesystem.file(partialPath); len(partial) != 0 {
+		t.Fatalf("discard left partial data %q", partial)
+	}
+}
+
+func TestManagerRejectsSymlinkedDownloadPartial(t *testing.T) {
+	filesystem := newFakeFilesystem()
+	filesystem.files["/remote/source.txt"] = []byte("resumable download")
+	filesystem.readErr = errors.New("connection lost")
+	manager := NewManager(&fakeFactory{filesystem: filesystem})
+	session := openTestSession(t, manager)
+	directory := t.TempDir()
+	destination := filepath.Join(directory, "source.txt")
+	started, err := manager.StartDownload(
+		"lease", session.ID, "/remote/source.txt", destination,
+		filedomain.CollisionOverwrite, true,
+	)
+	if err != nil {
+		t.Fatalf("start interrupted download: %v", err)
+	}
+	failed := waitForTransfer(t, manager, started.ID)
+	partialPath := localPartialPath(destination, failed.ResumeID)
+	if err := os.Remove(partialPath); err != nil {
+		t.Fatalf("remove original partial: %v", err)
+	}
+	victimPath := filepath.Join(directory, "victim.txt")
+	if err := os.WriteFile(victimPath, []byte("do not change"), 0o600); err != nil {
+		t.Fatalf("write symlink target: %v", err)
+	}
+	if err := os.Symlink(victimPath, partialPath); err != nil {
+		t.Fatalf("replace partial with symlink: %v", err)
+	}
+	filesystem.readErr = nil
+
+	resumes, err := manager.TransferResumes("lease", session.ID)
+	if err != nil || len(resumes) != 1 || resumes[0].Available {
+		t.Fatalf("symlinked partial was reported available: resumes=%#v err=%v", resumes, err)
+	}
+	resumed, err := manager.ResumeTransfer("lease", session.ID, failed.ResumeID)
+	if err != nil {
+		t.Fatalf("queue symlinked resume: %v", err)
+	}
+	result := waitForTransfer(t, manager, resumed.ID)
+	if result.State != filedomain.TransferFailed || !strings.Contains(result.Message, "valid resumable file") {
+		t.Fatalf("symlinked partial was not rejected: %#v", result)
+	}
+	if data, err := os.ReadFile(victimPath); err != nil || string(data) != "do not change" {
+		t.Fatalf("symlink target changed: data=%q err=%v", data, err)
+	}
+	if err := manager.DiscardTransferResume("lease", session.ID, failed.ResumeID); err != nil {
+		t.Fatalf("discard symlinked resume: %v", err)
+	}
+	if _, err := os.Lstat(partialPath); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("discard left symlink: %v", err)
+	}
+}
+
+func TestResumeOverwriteReservesDestinationExclusively(t *testing.T) {
+	manager := NewManager(nil)
+	runtime := &runtimeSession{snapshot: filedomain.Session{ID: "files"}}
+	record := filedomain.ResumeRecord{
+		Direction:   filedomain.DirectionDownload,
+		Destination: filepath.Join(t.TempDir(), "download.bin"),
+		Overwrite:   true,
+	}
+	if err := manager.reserveResumeDestination(runtime, record); err != nil {
+		t.Fatalf("reserve first resume destination: %v", err)
+	}
+	if err := manager.reserveResumeDestination(runtime, record); !errors.Is(err, ErrDestinationExists) {
+		t.Fatalf("second resume reservation error=%v, want destination exists", err)
+	}
+	manager.releaseDestination(record.Direction, runtime.snapshot.ID, record.Destination)
 }
 
 func TestManagerConcurrencyCanIncreaseWhileWorkIsQueued(t *testing.T) {

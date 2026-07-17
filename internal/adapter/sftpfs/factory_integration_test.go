@@ -56,7 +56,7 @@ func TestFactoryRemoteFilesystemOperations(t *testing.T) {
 	if len(entries) != 1 || entries[0].Name != "fixture.txt" {
 		t.Fatalf("unexpected remote entries: %#v", entries)
 	}
-	source, size, err := filesystem.OpenRead(context.Background(), entries[0].Path)
+	source, size, err := filesystem.OpenRead(context.Background(), entries[0].Path, 0)
 	if err != nil {
 		t.Fatalf("open remote fixture: %v", err)
 	}
@@ -65,17 +65,45 @@ func TestFactoryRemoteFilesystemOperations(t *testing.T) {
 	if err != nil || string(data) != "fixture" || size != int64(len("fixture")) {
 		t.Fatalf("unexpected remote fixture: data=%q size=%d err=%v", data, size, err)
 	}
+	resumedSource, resumedSize, err := filesystem.OpenRead(context.Background(), entries[0].Path, 3)
+	if err != nil {
+		t.Fatalf("open remote fixture at offset: %v", err)
+	}
+	resumedData, err := io.ReadAll(resumedSource)
+	_ = resumedSource.Close()
+	if err != nil || string(resumedData) != "ture" || resumedSize != int64(len("fixture")) {
+		t.Fatalf("unexpected resumed read: data=%q size=%d err=%v", resumedData, resumedSize, err)
+	}
 
 	uploadPath := filepath.ToSlash(filepath.Join(filesystem.WorkingDirectory(), "upload.txt"))
-	destination, err := filesystem.OpenWrite(context.Background(), uploadPath)
+	destination, err := filesystem.OpenWrite(context.Background(), uploadPath, 0)
 	if err != nil {
 		t.Fatalf("open remote upload: %v", err)
 	}
-	if _, err := destination.Write([]byte("uploaded")); err != nil {
+	if _, err := destination.Write([]byte("upload")); err != nil {
 		t.Fatalf("write remote upload: %v", err)
 	}
 	if err := destination.Close(); err != nil {
 		t.Fatalf("close remote upload: %v", err)
+	}
+	destination, err = filesystem.OpenWrite(context.Background(), uploadPath, int64(len("upload")))
+	if err != nil {
+		t.Fatalf("resume remote upload: %v", err)
+	}
+	if _, err := destination.Write([]byte("ed")); err != nil {
+		t.Fatalf("write resumed remote upload: %v", err)
+	}
+	if err := destination.Close(); err != nil {
+		t.Fatalf("close resumed remote upload: %v", err)
+	}
+	uploaded, uploadedSize, err := filesystem.OpenRead(context.Background(), uploadPath, 0)
+	if err != nil {
+		t.Fatalf("open resumed upload: %v", err)
+	}
+	uploadedData, err := io.ReadAll(uploaded)
+	_ = uploaded.Close()
+	if err != nil || string(uploadedData) != "uploaded" || uploadedSize != int64(len("uploaded")) {
+		t.Fatalf("unexpected resumed upload: data=%q size=%d err=%v", uploadedData, uploadedSize, err)
 	}
 	renamedPath := filepath.ToSlash(filepath.Join(filesystem.WorkingDirectory(), "renamed.txt"))
 	if err := filesystem.Rename(context.Background(), uploadPath, renamedPath); err != nil {

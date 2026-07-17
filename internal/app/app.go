@@ -19,6 +19,7 @@ import (
 	"shh-h/internal/adapter/sshclient"
 	"shh-h/internal/adapter/sshterminal"
 	"shh-h/internal/adapter/sshtrust"
+	"shh-h/internal/adapter/transferstore"
 	"shh-h/internal/adapter/tunnelstore"
 	"shh-h/internal/adapter/wailsnotification"
 	"shh-h/internal/adapter/workspacestore"
@@ -77,7 +78,14 @@ func Run(assets fs.FS) error {
 	defer func() { _ = sshClients.Shutdown() }()
 	sshFactory := sshterminal.NewFactory(sshClients)
 	manager.SetSSHFactory(sshFactory)
-	files := filetransferusecase.NewManager(sftpfs.NewFactory(sshClients))
+	transferRepository, err := transferstore.New(appID)
+	if err != nil {
+		return err
+	}
+	files, err := filetransferusecase.NewManagerWithResumeRepository(sftpfs.NewFactory(sshClients), transferRepository)
+	if err != nil {
+		return err
+	}
 	if err := files.SetConcurrency(settingsService.Get().Transfers.Concurrency); err != nil {
 		return err
 	}

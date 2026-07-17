@@ -3,9 +3,9 @@
 ## 1. Implementation Status
 
 The macOS core slices through M8, the productivity, favorites, and notification
-portions of M9, and the terminal, connection-policy, transfer-policy, and
-notification portions of M10 are implemented. The repository contains a Wails
-v2 host, embedded React
+portions of M9, and the terminal, connection-policy, resumable-transfer,
+transfer-policy, and notification portions of M10 are implemented. The
+repository contains a Wails v2 host, embedded React
 and strict TypeScript frontend, xterm.js terminal controllers, a real Unix PTY
 adapter, strict SSH and known-host adapters, SFTP, saved tunnel state, and
 lease-owned runtime managers with bounded bridge flow control.
@@ -46,6 +46,12 @@ Implemented and verified:
   are enforced by the backend with in-flight destination reservations; the file
   workspace exposes navigation, upload, download, rename, delete, mkdir, chmod,
   progress, and cancellation.
+- Opt-in resumable uploads and downloads persist private versioned metadata
+  before copying, survive application restart, and expose only explicit Resume
+  and Discard actions inside a matching visible SFTP workspace. Upload resume
+  verifies source, prefix, and completed-partial SHA-256 integrity; download
+  resume validates remote metadata, partial type and size, and file identity
+  throughout the resumed operation.
 - Profile favorites sort saved connections first. Remote-path favorites use a
   separate strict private store keyed by saved SSH profile and expose explicit
   star-toggle and quick-navigation controls inside an open SFTP workspace.
@@ -89,8 +95,7 @@ Still required for the complete cross-platform and 1.0 gates:
 - Accessibility-driven native interaction automation or a dedicated Wails E2E
   harness. macOS launch and frontend attachment are verified today; runtime
   behavior is also exercised below the WebView boundary.
-- Resumable transfer metadata and remaining reconnect, proxy, known-hosts, and
-  agent settings.
+- Remaining reconnect, proxy, known-hosts, and agent settings.
 - Signed/notarized macOS releases, Linux packaging validation, Windows WebView2
   and ConPTY implementation, native CI, accessibility review, and long-run
   soak/performance evidence.
@@ -901,7 +906,9 @@ Deliverables:
   ETA, cancellation, retry, and per-transfer errors.
 - Download to a temporary partial file and atomically rename on success.
 - Support resumable upload/download where server capabilities and metadata make
-  it safe.
+  it safe. Implemented with private versioned records, explicit Resume/Discard,
+  deterministic partial paths, source validation, exclusive destination
+  reservations, and upload prefix/final checksum verification.
 - Define symlink behavior explicitly and prevent accidental recursive cycles.
 - Keep transfers alive when a terminal tab closes only if another SSH
   connection lease and visible Activity item remain.
@@ -985,8 +992,9 @@ Deliverables:
   probes, terminal, SFTP, and tunnel dials; the remaining controls are pending.
 - Add transfer concurrency, collision, and partial-file settings. Implemented
   with a live bounded limiter, backend-owned collision resolution, and explicit
-  failed-partial retention. Notification enablement, categories, long-transfer
-  threshold, permission status, and test delivery are implemented.
+  failed-partial retention plus restart-safe resumable metadata and explicit
+  cleanup. Notification enablement, categories, long-transfer threshold,
+  permission status, and test delivery are implemented.
 - Add reset-to-default and per-profile override indicators.
 - Add screen-reader labels, keyboard traversal, visible focus, contrast checks,
   and reduced-motion behavior.

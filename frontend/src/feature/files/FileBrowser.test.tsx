@@ -1,7 +1,7 @@
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { ComponentProps } from 'react'
-import type { FileSession, Profile, RemotePathFavorite, Transfer } from '../../lib/bridge/types'
+import type { FileSession, Profile, RemotePathFavorite, Transfer, TransferResume } from '../../lib/bridge/types'
 import { FileBrowser } from './FileBrowser'
 
 const profile: Profile = {
@@ -46,7 +46,7 @@ describe('FileBrowser remote path favorites', () => {
     const skipped: Transfer = {
       id: 'transfer-1', leaseId: session.leaseId, sessionId: session.id,
       direction: 'upload', source: '/tmp/report.csv', destination: '/srv/app/report.csv',
-      bytes: 0, total: 120, state: 'skipped', message: 'Destination already exists',
+      bytes: 0, total: 120, resumeId: '', resumedFrom: 0, state: 'skipped', message: 'Destination already exists',
       startedAt: '2026-07-17T12:00:00Z', finishedAt: '2026-07-17T12:00:00Z',
     }
     render(<FileBrowser {...props({ transfers: [skipped] })} />)
@@ -54,16 +54,50 @@ describe('FileBrowser remote path favorites', () => {
     expect(screen.getByText('report.csv')).toBeTruthy()
     expect(screen.getByText('Skipped')).toBeTruthy()
   })
+
+  it('resumes or discards a persisted interrupted transfer', async () => {
+    const resumeTransfer = vi.fn(async () => undefined)
+    const discardResume = vi.fn(async () => undefined)
+    const resume: TransferResume = {
+      id: 'resume-1', profileId: profile.id, direction: 'download',
+      source: '/srv/app/archive.tar', destination: '/tmp/archive.tar',
+      bytes: 50, total: 100, available: true, message: 'connection closed',
+      createdAt: '2026-07-17T12:00:00Z', updatedAt: '2026-07-17T12:01:00Z',
+    }
+    render(<FileBrowser {...props({ resumes: [resume], onResumeTransfer: resumeTransfer, onDiscardResume: discardResume })} />)
+
+    expect(screen.getByText('Interrupted')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Resume transfer' }))
+    await waitFor(() => expect(resumeTransfer).toHaveBeenCalledWith(resume.id))
+
+    fireEvent.click(screen.getByRole('button', { name: 'Discard partial transfer' }))
+    await waitFor(() => expect(discardResume).toHaveBeenCalledWith(resume.id))
+  })
+
+  it('keeps an unavailable resume discardable', () => {
+    const resume: TransferResume = {
+      id: 'resume-2', profileId: profile.id, direction: 'upload',
+      source: '/tmp/archive.tar', destination: '/srv/app/archive.tar',
+      bytes: 50, total: 100, available: false, message: 'Local source changed since the interruption',
+      createdAt: '2026-07-17T12:00:00Z', updatedAt: '2026-07-17T12:01:00Z',
+    }
+    render(<FileBrowser {...props({ resumes: [resume] })} />)
+
+    expect(screen.getByText(resume.message)).toBeTruthy()
+    expect((screen.getByRole('button', { name: 'Resume transfer' }) as HTMLButtonElement).disabled).toBe(true)
+    expect((screen.getByRole('button', { name: 'Discard partial transfer' }) as HTMLButtonElement).disabled).toBe(false)
+  })
 })
 
 function props(overrides: Partial<ComponentProps<typeof FileBrowser>> = {}): ComponentProps<typeof FileBrowser> {
   return {
-    profile, session, path: '/srv/app', files: [], transfers: [], favorites: [], loading: false,
+    profile, session, path: '/srv/app', files: [], transfers: [], resumes: [], favorites: [], loading: false,
     onNavigate: vi.fn(async () => undefined), onRefresh: vi.fn(async () => undefined),
     onUpload: vi.fn(async () => undefined), onDownload: vi.fn(async () => undefined),
     onCreateDirectory: vi.fn(async () => undefined), onRename: vi.fn(async () => undefined),
     onDelete: vi.fn(async () => undefined), onChmod: vi.fn(async () => undefined),
-    onCancelTransfer: vi.fn(async () => undefined), onCreateFavorite: vi.fn(async () => undefined),
+    onCancelTransfer: vi.fn(async () => undefined), onResumeTransfer: vi.fn(async () => undefined),
+    onDiscardResume: vi.fn(async () => undefined), onCreateFavorite: vi.fn(async () => undefined),
     onDeleteFavorite: vi.fn(async () => undefined), onClose: vi.fn(async () => undefined),
     ...overrides,
   }

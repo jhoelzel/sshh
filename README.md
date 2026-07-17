@@ -18,7 +18,8 @@ native desktop application.
   first-use trust, agent, key, password, and keyboard-interactive authentication.
 - An SFTP browser with streamed upload/download, configurable bounded
   concurrency, explicit collision policies, progress, cancellation, atomic
-  partial files, directory operations, permissions, and profile-scoped
+  partial files, explicit restart-safe resume/discard actions, upload integrity
+  verification, directory operations, permissions, and profile-scoped
   remote-path favorites.
 - Saved local, remote, and dynamic SOCKS5 SSH tunnels with explicit lifecycle,
   actual bound addresses, retry policy, auto-start policy, and loopback defaults.
@@ -51,10 +52,9 @@ native desktop application.
   or sidecar process required at runtime.
 
 The current native proof and packaged build target is macOS arm64. Windows
-ConPTY, signed/notarized release automation, resumable transfers, advanced
-reconnect/proxy preferences, and remaining
-cross-platform UX are still future milestones; see the implementation plan for
-the release gates.
+ConPTY, signed/notarized release automation, advanced reconnect/proxy
+preferences, and remaining cross-platform UX are still future milestones; see
+the implementation plan for the release gates.
 
 ## Prerequisites
 
@@ -140,9 +140,20 @@ destination folder and retain the remote basename.
 Uploads and downloads always write a hidden `.shhh-part-<transfer-id>` file and
 publish the destination only after success. By default failed and cancelled
 partials are removed; remote cleanup is necessarily best effort if the SFTP
-transport itself has already been lost. Enabling Keep partial files retains
-those artifacts for manual recovery. Retained partials are not yet automatic
-resume metadata.
+transport itself has already been lost. Enabling Keep partial files records a
+private, versioned resume entry before bytes are copied. Interrupted entries
+survive an application restart and expose explicit Resume and Discard actions
+after an SFTP workspace for the same saved profile is opened. Nothing reconnects
+or resumes automatically at startup.
+
+Before resuming, downloads require the same remote size and modification time
+and a regular local partial with a valid size. Uploads additionally require the
+same local source SHA-256 digest, compare the remote partial prefix with the
+local source, and verify the completed remote partial before publication.
+Destination collisions are checked again and every resume owns an exclusive
+in-flight reservation. Successful transfers and explicit discards remove their
+metadata; records whose source or partial changed remain visible but can only be
+discarded.
 
 ## System Notifications
 

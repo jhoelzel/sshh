@@ -113,8 +113,24 @@ export interface Transfer {
   total: number
   state: TransferState
   message: string
+  resumeId: string
+  resumedFrom: number
   startedAt: string
   finishedAt: string
+}
+
+export interface TransferResume {
+  id: string
+  profileId: string
+  direction: 'download' | 'upload'
+  source: string
+  destination: string
+  bytes: number
+  total: number
+  available: boolean
+  message: string
+  createdAt: string
+  updatedAt: string
 }
 
 export type TunnelKind = 'local' | 'remote' | 'dynamic'

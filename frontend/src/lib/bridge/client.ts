@@ -16,6 +16,7 @@ import {
   DeleteProfile,
   DeleteRemotePathFavorite,
   DeleteRemotePath,
+  DiscardTransferResume,
   DeleteSnippet,
   DeleteTunnel,
   DeleteWorkspaceLayout,
@@ -28,6 +29,7 @@ import {
   ListRemotePathFavorites,
   ListRemoteFiles,
   ListSnippets,
+  ListTransferResumes,
   ListTransfers,
   ListTunnelStates,
   ListTunnels,
@@ -47,6 +49,7 @@ import {
   ResetSettings,
   ResizeTerminal,
   RenameRemotePath,
+  ResumeTransfer,
   SendTestNotification,
   StartDownload,
   StartSessionLogging,
@@ -89,6 +92,7 @@ import type {
   TerminalOutput,
   TerminalTextExportResult,
   Transfer,
+  TransferResume,
   TunnelConfig,
   TunnelInput,
   TunnelSnapshot,
@@ -225,6 +229,12 @@ export const backend = {
   startUpload: (leaseId: string, sessionId: string, directory: string) =>
     StartUpload(leaseId, sessionId, directory) as Promise<Transfer>,
   listTransfers: async (leaseId: string) => ((await ListTransfers(leaseId)) ?? []) as Transfer[],
+  listTransferResumes: async (leaseId: string, sessionId: string) =>
+    ((await ListTransferResumes(leaseId, sessionId)) ?? []) as TransferResume[],
+  resumeTransfer: (leaseId: string, sessionId: string, resumeId: string) =>
+    ResumeTransfer(leaseId, sessionId, resumeId) as Promise<Transfer>,
+  discardTransferResume: (leaseId: string, sessionId: string, resumeId: string) =>
+    DiscardTransferResume(leaseId, sessionId, resumeId),
   cancelTransfer: (leaseId: string, transferId: string) => CancelTransfer(leaseId, transferId),
   closeSFTP: (leaseId: string, sessionId: string) => CloseSFTP(leaseId, sessionId),
   startTunnel: (leaseId: string, configId: string, credentials: SSHCredentials) =>

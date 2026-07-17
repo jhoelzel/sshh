@@ -661,6 +661,8 @@ export namespace filetransfer {
 	    total: number;
 	    state: string;
 	    message: string;
+	    resumeId: string;
+	    resumedFrom: number;
 	    startedAt: string;
 	    finishedAt: string;
 
@@ -680,8 +682,42 @@ export namespace filetransfer {
 	        this.total = source["total"];
 	        this.state = source["state"];
 	        this.message = source["message"];
+	        this.resumeId = source["resumeId"];
+	        this.resumedFrom = source["resumedFrom"];
 	        this.startedAt = source["startedAt"];
 	        this.finishedAt = source["finishedAt"];
+	    }
+	}
+	export class TransferResume {
+	    id: string;
+	    profileId: string;
+	    direction: string;
+	    source: string;
+	    destination: string;
+	    bytes: number;
+	    total: number;
+	    available: boolean;
+	    message: string;
+	    createdAt: string;
+	    updatedAt: string;
+
+	    static createFrom(source: any = {}) {
+	        return new TransferResume(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.profileId = source["profileId"];
+	        this.direction = source["direction"];
+	        this.source = source["source"];
+	        this.destination = source["destination"];
+	        this.bytes = source["bytes"];
+	        this.total = source["total"];
+	        this.available = source["available"];
+	        this.message = source["message"];
+	        this.createdAt = source["createdAt"];
+	        this.updatedAt = source["updatedAt"];
 	    }
 	}
 

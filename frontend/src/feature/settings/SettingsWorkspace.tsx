@@ -200,7 +200,7 @@ export function SettingsWorkspace({
               </select>
             </label>
             <label className="settings-control toggle-control simple-toggle">
-              <span><strong>Keep partial files</strong><small>Retain hidden .shhh-part files after failures</small></span>
+              <span><strong>Keep partial files</strong><small>Retain interrupted transfers for explicit resume or discard</small></span>
               <input aria-label="Keep partial files" type="checkbox" checked={draft.transfers.keepPartialFiles} onChange={(event) => setTransfers('keepPartialFiles', event.target.checked)} />
             </label>
           </div>

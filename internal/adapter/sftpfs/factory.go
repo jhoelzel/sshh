@@ -166,9 +166,12 @@ func (f *filesystem) Chmod(ctx context.Context, remotePath string, mode os.FileM
 	return nil
 }
 
-func (f *filesystem) OpenRead(ctx context.Context, remotePath string) (io.ReadCloser, int64, error) {
+func (f *filesystem) OpenRead(ctx context.Context, remotePath string, offset int64) (io.ReadCloser, int64, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, 0, err
+	}
+	if offset < 0 {
+		return nil, 0, errors.New("remote read offset cannot be negative")
 	}
 	remotePath = cleanRemotePath(remotePath, f.workingDirectory)
 	info, err := f.client.Stat(remotePath)
@@ -178,20 +181,51 @@ func (f *filesystem) OpenRead(ctx context.Context, remotePath string) (io.ReadCl
 	if !info.Mode().IsRegular() {
 		return nil, 0, errors.New("remote path is not a regular file")
 	}
+	if offset > info.Size() {
+		return nil, 0, errors.New("remote read offset exceeds file size")
+	}
 	file, err := f.client.Open(remotePath)
 	if err != nil {
 		return nil, 0, fmt.Errorf("open remote file: %w", err)
 	}
+	if offset > 0 {
+		if _, err := file.Seek(offset, io.SeekStart); err != nil {
+			_ = file.Close()
+			return nil, 0, fmt.Errorf("seek remote source: %w", err)
+		}
+	}
 	return file, info.Size(), nil
 }
 
-func (f *filesystem) OpenWrite(ctx context.Context, remotePath string) (io.WriteCloser, error) {
+func (f *filesystem) OpenWrite(ctx context.Context, remotePath string, offset int64) (io.WriteCloser, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	file, err := f.client.OpenFile(cleanRemotePath(remotePath, f.workingDirectory), os.O_WRONLY|os.O_CREATE|os.O_TRUNC)
+	if offset < 0 {
+		return nil, errors.New("remote write offset cannot be negative")
+	}
+	flags := os.O_WRONLY
+	if offset == 0 {
+		flags |= os.O_CREATE | os.O_TRUNC
+	}
+	file, err := f.client.OpenFile(cleanRemotePath(remotePath, f.workingDirectory), flags)
 	if err != nil {
 		return nil, fmt.Errorf("open remote destination: %w", err)
+	}
+	if offset > 0 {
+		info, err := file.Stat()
+		if err != nil {
+			_ = file.Close()
+			return nil, fmt.Errorf("inspect remote destination offset: %w", err)
+		}
+		if info.Size() != offset {
+			_ = file.Close()
+			return nil, fmt.Errorf("remote destination size %d does not match resume offset %d", info.Size(), offset)
+		}
+		if _, err := file.Seek(offset, io.SeekStart); err != nil {
+			_ = file.Close()
+			return nil, fmt.Errorf("seek remote destination: %w", err)
+		}
 	}
 	return file, nil
 }

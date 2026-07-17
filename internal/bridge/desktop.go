@@ -1024,6 +1024,27 @@ func (d *Desktop) ListTransfers(leaseID string) ([]filedomain.Transfer, error) {
 	return d.files.Transfers(leaseID), nil
 }
 
+func (d *Desktop) ListTransferResumes(leaseID, sessionID string) ([]filedomain.TransferResume, error) {
+	if _, err := d.touchLease(leaseID); err != nil {
+		return nil, err
+	}
+	return d.files.TransferResumes(leaseID, sessionID)
+}
+
+func (d *Desktop) ResumeTransfer(leaseID, sessionID, resumeID string) (filedomain.Transfer, error) {
+	if _, err := d.touchLease(leaseID); err != nil {
+		return filedomain.Transfer{}, err
+	}
+	return d.files.ResumeTransfer(leaseID, sessionID, resumeID)
+}
+
+func (d *Desktop) DiscardTransferResume(leaseID, sessionID, resumeID string) error {
+	if _, err := d.touchLease(leaseID); err != nil {
+		return err
+	}
+	return d.files.DiscardTransferResume(leaseID, sessionID, resumeID)
+}
+
 func (d *Desktop) CancelTransfer(leaseID, transferID string) error {
 	if _, err := d.touchLease(leaseID); err != nil {
 		return err

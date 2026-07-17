@@ -3,6 +3,7 @@ package filetransfer
 import (
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -42,6 +43,11 @@ type Manager struct {
 	transfers map[string]*runtimeTransfer
 	reserved  map[string]int
 
+	resumeMu      sync.Mutex
+	resumeRepo    ResumeRepository
+	resumes       map[string]filedomain.ResumeRecord
+	activeResumes map[string]struct{}
+
 	workerMu     sync.Mutex
 	workerLimit  int
 	activeWorker int
@@ -69,6 +75,7 @@ func NewManager(factory port.RemoteFilesystemFactory) *Manager {
 	return &Manager{
 		factory: factory, sessions: make(map[string]*runtimeSession),
 		transfers: make(map[string]*runtimeTransfer), reserved: make(map[string]int),
+		resumes: make(map[string]filedomain.ResumeRecord), activeResumes: make(map[string]struct{}),
 		workerLimit: defaultTransferConcurrency,
 		workerWake:  make(chan struct{}),
 	}
@@ -295,6 +302,10 @@ func (m *Manager) LiveCount() int {
 }
 
 func (m *Manager) startTransfer(runtime *runtimeSession, direction filedomain.Direction, source, destination string, operation func(*runtimeTransfer) error) (filedomain.Transfer, error) {
+	return m.startTransferAt(runtime, direction, source, destination, "", 0, 0, operation)
+}
+
+func (m *Manager) startTransferAt(runtime *runtimeSession, direction filedomain.Direction, source, destination, resumeID string, bytes, total int64, operation func(*runtimeTransfer) error) (filedomain.Transfer, error) {
 	id, err := newID()
 	if err != nil {
 		m.releaseDestination(direction, runtime.snapshot.ID, destination)
@@ -303,7 +314,8 @@ func (m *Manager) startTransfer(runtime *runtimeSession, direction filedomain.Di
 	ctx, cancel := context.WithCancel(runtime.ctx)
 	snapshot := filedomain.Transfer{
 		ID: id, LeaseID: runtime.snapshot.LeaseID, SessionID: runtime.snapshot.ID,
-		Direction: direction, Source: source, Destination: destination, State: filedomain.TransferQueued,
+		Direction: direction, Source: source, Destination: destination,
+		Bytes: bytes, Total: total, ResumeID: resumeID, ResumedFrom: bytes, State: filedomain.TransferQueued,
 	}
 	transfer := &runtimeTransfer{snapshot: snapshot, ctx: ctx, cancel: cancel, done: make(chan struct{})}
 	m.mu.Lock()
@@ -317,6 +329,12 @@ func (m *Manager) startTransfer(runtime *runtimeSession, direction filedomain.Di
 func (m *Manager) runTransfer(transfer *runtimeTransfer, operation func(*runtimeTransfer) error) {
 	defer close(transfer.done)
 	defer m.releaseDestination(transfer.snapshot.Direction, transfer.snapshot.SessionID, transfer.snapshot.Destination)
+	resumeID := transfer.snapshot.ResumeID
+	defer func() {
+		if resumeID != "" {
+			m.endActiveResume(resumeID)
+		}
+	}()
 	if !m.acquireWorker(transfer.ctx) {
 		transfer.finish(filedomain.TransferCancelled, "")
 		m.publish(transfer.snapshotValue())
@@ -334,39 +352,96 @@ func (m *Manager) runTransfer(transfer *runtimeTransfer, operation func(*runtime
 	} else {
 		transfer.finish(filedomain.TransferCompleted, "")
 	}
+	if resumeID != "" {
+		m.endActiveResume(resumeID)
+		resumeID = ""
+	}
 	m.publish(transfer.snapshotValue())
 	m.pruneTransferHistory()
 }
 
-func (m *Manager) download(runtime *runtimeSession, transfer *runtimeTransfer, remotePath, localPath string, overwrite, keepPartial bool) error {
-	source, total, err := runtime.filesystem.OpenRead(transfer.ctx, remotePath)
+func (m *Manager) download(runtime *runtimeSession, transfer *runtimeTransfer, remotePath, localPath string, overwrite, keepPartial bool) (resultErr error) {
+	sourceInfo, err := runtime.filesystem.Stat(transfer.ctx, remotePath)
+	if err != nil {
+		return err
+	}
+	if sourceInfo.Directory || sourceInfo.Symlink || !os.FileMode(sourceInfo.Mode).IsRegular() {
+		return errors.New("remote source is not a regular non-symlink file")
+	}
+	source, total, err := runtime.filesystem.OpenRead(transfer.ctx, remotePath, 0)
 	if err != nil {
 		return err
 	}
 	defer source.Close()
+	if total != sourceInfo.Size {
+		return errors.New("remote source changed while the download was opening")
+	}
 	transfer.setTotal(total)
-	temporaryPath := filepath.Join(filepath.Dir(localPath), "."+filepath.Base(localPath)+".shhh-part-"+transfer.snapshot.ID)
+	temporaryPath := localPartialPath(localPath, transfer.snapshot.ID)
 	destination, err := os.OpenFile(temporaryPath, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
 	if err != nil {
 		return fmt.Errorf("create partial download: %w", err)
 	}
-	removeTemporary := true
+	temporaryInfo, err := destination.Stat()
+	if err != nil {
+		_ = destination.Close()
+		return fmt.Errorf("inspect partial download: %w", err)
+	}
+	destinationClosed := false
+	resumeCreated := false
+	resume := filedomain.ResumeRecord{}
 	defer func() {
-		if removeTemporary && !keepPartial {
+		if !destinationClosed {
+			_ = destination.Close()
+		}
+		if resumeCreated {
+			if resultErr == nil {
+				_ = m.deleteResume(resume.ID)
+			} else {
+				resume.Bytes = localFileSize(temporaryPath, transfer.snapshotValue().Bytes)
+				resume.LastError = boundedResumeError(resultErr)
+				resume.UpdatedAt = time.Now().UTC().Format(time.RFC3339Nano)
+				transfer.setResume(resume.ID, resume.Bytes)
+				if persistErr := m.upsertResume(resume); persistErr != nil {
+					resultErr = errors.Join(resultErr, fmt.Errorf("update download resume metadata: %w", persistErr))
+				}
+			}
+			m.endActiveResume(resume.ID)
+		}
+		if resultErr != nil && !resumeCreated {
 			_ = os.Remove(temporaryPath)
 		}
 	}()
+	if keepPartial {
+		now := time.Now().UTC().Format(time.RFC3339Nano)
+		resume = filedomain.ResumeRecord{
+			ID: transfer.snapshot.ID, ProfileID: runtime.snapshot.ProfileID, Direction: filedomain.DirectionDownload,
+			Source: path.Clean(remotePath), Destination: filepath.Clean(localPath), PartialPath: temporaryPath,
+			Total: total, SourceSize: sourceInfo.Size, SourceModifiedAt: sourceInfo.ModifiedAt,
+			Overwrite: overwrite, CreatedAt: now, UpdatedAt: now,
+		}
+		if err := m.createResume(resume); err != nil {
+			return fmt.Errorf("create download resume metadata: %w", err)
+		}
+		resumeCreated = true
+	}
 	if err := m.copy(transfer, destination, source); err != nil {
-		_ = destination.Close()
 		return err
 	}
+	currentSource, err := runtime.filesystem.Stat(transfer.ctx, remotePath)
+	if err != nil {
+		return fmt.Errorf("recheck remote source: %w", err)
+	}
+	if !sameRemoteSource(sourceInfo, currentSource) {
+		return errors.New("remote source changed during download; partial retained but cannot be resumed")
+	}
 	if err := destination.Sync(); err != nil {
-		_ = destination.Close()
 		return fmt.Errorf("sync partial download: %w", err)
 	}
 	if err := destination.Close(); err != nil {
 		return fmt.Errorf("close partial download: %w", err)
 	}
+	destinationClosed = true
 	if !overwrite {
 		exists, err := localPathExists(localPath)
 		if err != nil {
@@ -376,37 +451,86 @@ func (m *Manager) download(runtime *runtimeSession, transfer *runtimeTransfer, r
 			return fmt.Errorf("%w during download", ErrDestinationExists)
 		}
 	}
+	currentTemporary, err := os.Lstat(temporaryPath)
+	if err != nil || !currentTemporary.Mode().IsRegular() || !os.SameFile(temporaryInfo, currentTemporary) {
+		return errors.New("partial download path changed before publication")
+	}
 	if err := os.Rename(temporaryPath, localPath); err != nil {
 		return fmt.Errorf("finish download: %w", err)
 	}
-	removeTemporary = false
 	return nil
 }
 
-func (m *Manager) upload(runtime *runtimeSession, transfer *runtimeTransfer, localPath, remotePath string, overwrite, keepPartial bool) error {
+func (m *Manager) upload(runtime *runtimeSession, transfer *runtimeTransfer, localPath, remotePath string, overwrite, keepPartial bool) (resultErr error) {
 	source, err := os.Open(localPath)
 	if err != nil {
 		return fmt.Errorf("open local source: %w", err)
 	}
 	defer source.Close()
-	temporaryPath := path.Join(path.Dir(remotePath), "."+path.Base(remotePath)+".shhh-part-"+transfer.snapshot.ID)
-	destination, err := runtime.filesystem.OpenWrite(transfer.ctx, temporaryPath)
+	sourceInfo, sourceDigest, err := digestOpenFile(transfer.ctx, source)
 	if err != nil {
 		return err
 	}
-	removeTemporary := true
+	transfer.setTotal(sourceInfo.Size())
+	temporaryPath := remotePartialPath(remotePath, transfer.snapshot.ID)
+	destination, err := runtime.filesystem.OpenWrite(transfer.ctx, temporaryPath, 0)
+	if err != nil {
+		return err
+	}
+	destinationClosed := false
+	resumeCreated := false
+	resume := filedomain.ResumeRecord{}
 	defer func() {
-		_ = destination.Close()
-		if removeTemporary && !keepPartial {
+		if !destinationClosed {
+			_ = destination.Close()
+		}
+		if resumeCreated {
+			if resultErr == nil {
+				_ = m.deleteResume(resume.ID)
+			} else {
+				resume.Bytes = m.remoteFileSize(runtime, temporaryPath, transfer.snapshotValue().Bytes)
+				resume.LastError = boundedResumeError(resultErr)
+				resume.UpdatedAt = time.Now().UTC().Format(time.RFC3339Nano)
+				transfer.setResume(resume.ID, resume.Bytes)
+				if persistErr := m.upsertResume(resume); persistErr != nil {
+					resultErr = errors.Join(resultErr, fmt.Errorf("update upload resume metadata: %w", persistErr))
+				}
+			}
+			m.endActiveResume(resume.ID)
+		}
+		if resultErr != nil && !resumeCreated {
 			_ = runtime.filesystem.Remove(context.Background(), temporaryPath)
 		}
 	}()
-	if err := m.copy(transfer, destination, source); err != nil {
+	if keepPartial {
+		now := time.Now().UTC().Format(time.RFC3339Nano)
+		resume = filedomain.ResumeRecord{
+			ID: transfer.snapshot.ID, ProfileID: runtime.snapshot.ProfileID, Direction: filedomain.DirectionUpload,
+			Source: filepath.Clean(localPath), Destination: path.Clean(remotePath), PartialPath: temporaryPath,
+			Total: sourceInfo.Size(), SourceSize: sourceInfo.Size(),
+			SourceModifiedAt: sourceInfo.ModTime().UTC().Format(time.RFC3339Nano), SourceSHA256: sourceDigest,
+			Overwrite: overwrite, CreatedAt: now, UpdatedAt: now,
+		}
+		if err := m.createResume(resume); err != nil {
+			return fmt.Errorf("create upload resume metadata: %w", err)
+		}
+		resumeCreated = true
+	}
+	writtenDigest := sha256.New()
+	if err := m.copy(transfer, destination, io.TeeReader(source, writtenDigest)); err != nil {
 		return err
+	}
+	if hex.EncodeToString(writtenDigest.Sum(nil)) != sourceDigest {
+		return errors.New("local source changed while it was being uploaded")
+	}
+	currentSource, err := os.Stat(localPath)
+	if err != nil || !sameLocalSource(sourceInfo, currentSource) {
+		return errors.New("local source changed during upload")
 	}
 	if err := destination.Close(); err != nil {
 		return fmt.Errorf("close remote upload: %w", err)
 	}
+	destinationClosed = true
 	if !overwrite {
 		exists, err := remotePathExists(runtime, remotePath)
 		if err != nil {
@@ -419,7 +543,6 @@ func (m *Manager) upload(runtime *runtimeSession, transfer *runtimeTransfer, loc
 	if err := runtime.filesystem.Rename(runtime.ctx, temporaryPath, remotePath); err != nil {
 		return err
 	}
-	removeTemporary = false
 	return nil
 }
 
@@ -596,7 +719,7 @@ func validateCollisionPolicy(policy filedomain.CollisionPolicy) error {
 }
 
 func localPathExists(candidate string) (bool, error) {
-	_, err := os.Stat(candidate)
+	_, err := os.Lstat(candidate)
 	if err == nil {
 		return true, nil
 	}
@@ -762,6 +885,23 @@ func (t *runtimeTransfer) setTotal(total int64) {
 func (t *runtimeTransfer) addBytes(count int64) {
 	t.mu.Lock()
 	t.snapshot.Bytes += count
+	t.mu.Unlock()
+}
+
+func (t *runtimeTransfer) setProgress(bytes, total int64) {
+	t.mu.Lock()
+	t.snapshot.Bytes = bytes
+	t.snapshot.Total = total
+	t.snapshot.ResumedFrom = bytes
+	t.mu.Unlock()
+}
+
+func (t *runtimeTransfer) setResume(id string, bytes int64) {
+	t.mu.Lock()
+	t.snapshot.ResumeID = id
+	if bytes > t.snapshot.Bytes {
+		t.snapshot.Bytes = bytes
+	}
 	t.mu.Unlock()
 }
 

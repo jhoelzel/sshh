@@ -45,6 +45,8 @@ export function DeleteTunnel(arg1:string):Promise<void>;
 
 export function DeleteWorkspaceLayout(arg1:string):Promise<void>;
 
+export function DiscardTransferResume(arg1:string,arg2:string,arg3:string):Promise<void>;
+
 export function DuplicateProfile(arg1:string):Promise<bridge.ProfileDTO>;
 
 export function ExportProfiles():Promise<bridge.ProfileExportDTO>;
@@ -68,6 +70,8 @@ export function ListRemoteFiles(arg1:string,arg2:string,arg3:string):Promise<Arr
 export function ListRemotePathFavorites():Promise<Array<bridge.RemotePathFavoriteDTO>>;
 
 export function ListSnippets():Promise<Array<bridge.SnippetDTO>>;
+
+export function ListTransferResumes(arg1:string,arg2:string):Promise<Array<filetransfer.TransferResume>>;
 
 export function ListTransfers(arg1:string):Promise<Array<filetransfer.Transfer>>;
 
@@ -100,6 +104,8 @@ export function RequestNotificationPermission():Promise<bridge.NotificationStatu
 export function ResetSettings():Promise<bridge.SettingsDTO>;
 
 export function ResizeTerminal(arg1:string,arg2:string,arg3:number,arg4:number,arg5:number):Promise<void>;
+
+export function ResumeTransfer(arg1:string,arg2:string,arg3:string):Promise<filetransfer.Transfer>;
 
 export function SendTestNotification():Promise<void>;
 

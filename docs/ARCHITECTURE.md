@@ -170,10 +170,25 @@ renames to fail safely if an external process wins a race.
 
 Every transfer writes a generated hidden `.shhh-part-<transfer-id>` path and
 renames it only after a successful close and, for local downloads, sync. Failed
-partials are removed by default or retained according to the captured setting.
-Remote cleanup is best effort after transport loss because the SFTP client may
-already be unavailable. Retained files are manual recovery artifacts; they are
-not treated as verified resumable-transfer metadata.
+partials are removed by default. When retention is enabled, the manager writes a
+versioned private resume record before copying and updates it after interruption.
+The record contains a generated ID, saved-profile ID, canonical source,
+destination and partial paths, source size and modification time, captured
+collision policy, progress, and an upload source SHA-256 digest. It contains no
+credential, SSH client, frontend lease, SFTP session, or file-content data.
+
+Resume records survive process restart but are never executed automatically.
+They become visible only after the user opens an SFTP workspace for the matching
+saved profile, and React can request only explicit Resume or Discard commands.
+The manager serializes each record, reacquires an exclusive destination
+reservation, and rechecks non-overwrite collisions before final publication.
+Downloads require an unchanged remote size and modification time and use
+`Lstat` plus file-identity checks so a local partial cannot be replaced by a
+symlink between validation, append, and rename. Uploads require the original
+local SHA-256 digest, compare the local and remote partial prefixes, and verify
+the complete remote partial digest before rename. Success and discard remove
+the record; failed validation preserves it as unavailable for explicit cleanup.
+Remote cleanup remains best effort after transport loss.
 
 ## Connection Policy Ownership
 

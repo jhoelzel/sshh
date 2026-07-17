@@ -56,6 +56,40 @@ type Transfer struct {
 	Total       int64         `json:"total"`
 	State       TransferState `json:"state"`
 	Message     string        `json:"message"`
+	ResumeID    string        `json:"resumeId"`
+	ResumedFrom int64         `json:"resumedFrom"`
 	StartedAt   string        `json:"startedAt"`
 	FinishedAt  string        `json:"finishedAt"`
+}
+
+type ResumeRecord struct {
+	ID               string    `json:"id"`
+	ProfileID        string    `json:"profileId"`
+	Direction        Direction `json:"direction"`
+	Source           string    `json:"source"`
+	Destination      string    `json:"destination"`
+	PartialPath      string    `json:"partialPath"`
+	Bytes            int64     `json:"bytes"`
+	Total            int64     `json:"total"`
+	SourceSize       int64     `json:"sourceSize"`
+	SourceModifiedAt string    `json:"sourceModifiedAt"`
+	SourceSHA256     string    `json:"sourceSha256,omitempty"`
+	Overwrite        bool      `json:"overwrite"`
+	LastError        string    `json:"lastError,omitempty"`
+	CreatedAt        string    `json:"createdAt"`
+	UpdatedAt        string    `json:"updatedAt"`
+}
+
+type TransferResume struct {
+	ID          string    `json:"id"`
+	ProfileID   string    `json:"profileId"`
+	Direction   Direction `json:"direction"`
+	Source      string    `json:"source"`
+	Destination string    `json:"destination"`
+	Bytes       int64     `json:"bytes"`
+	Total       int64     `json:"total"`
+	Available   bool      `json:"available"`
+	Message     string    `json:"message"`
+	CreatedAt   string    `json:"createdAt"`
+	UpdatedAt   string    `json:"updatedAt"`
 }

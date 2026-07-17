@@ -82,6 +82,10 @@ export function DeleteWorkspaceLayout(arg1) {
   return window['go']['bridge']['Desktop']['DeleteWorkspaceLayout'](arg1);
 }
 
+export function DiscardTransferResume(arg1, arg2, arg3) {
+  return window['go']['bridge']['Desktop']['DiscardTransferResume'](arg1, arg2, arg3);
+}
+
 export function DuplicateProfile(arg1) {
   return window['go']['bridge']['Desktop']['DuplicateProfile'](arg1);
 }
@@ -128,6 +132,10 @@ export function ListRemotePathFavorites() {
 
 export function ListSnippets() {
   return window['go']['bridge']['Desktop']['ListSnippets']();
+}
+
+export function ListTransferResumes(arg1, arg2) {
+  return window['go']['bridge']['Desktop']['ListTransferResumes'](arg1, arg2);
 }
 
 export function ListTransfers(arg1) {
@@ -192,6 +200,10 @@ export function ResetSettings() {
 
 export function ResizeTerminal(arg1, arg2, arg3, arg4, arg5) {
   return window['go']['bridge']['Desktop']['ResizeTerminal'](arg1, arg2, arg3, arg4, arg5);
+}
+
+export function ResumeTransfer(arg1, arg2, arg3) {
+  return window['go']['bridge']['Desktop']['ResumeTransfer'](arg1, arg2, arg3);
 }
 
 export function SendTestNotification() {

@@ -10,13 +10,14 @@ import {
   FolderPlus,
   KeyRound,
   LoaderCircle,
+  Play,
   RefreshCw,
   RotateCcw,
   Star,
   Trash2,
   X,
 } from 'lucide-react'
-import type { FileSession, Profile, RemoteFile, RemotePathFavorite, Transfer } from '../../lib/bridge/types'
+import type { FileSession, Profile, RemoteFile, RemotePathFavorite, Transfer, TransferResume } from '../../lib/bridge/types'
 import { joinRemotePath, parentRemotePath } from './remotePath'
 
 interface FileBrowserProps {
@@ -25,6 +26,7 @@ interface FileBrowserProps {
   path: string
   files: RemoteFile[]
   transfers: Transfer[]
+  resumes: TransferResume[]
   favorites: RemotePathFavorite[]
   loading: boolean
   onNavigate: (path: string) => Promise<void>
@@ -36,6 +38,8 @@ interface FileBrowserProps {
   onDelete: (path: string) => Promise<void>
   onChmod: (path: string, mode: number) => Promise<void>
   onCancelTransfer: (id: string) => Promise<void>
+  onResumeTransfer: (id: string) => Promise<void>
+  onDiscardResume: (id: string) => Promise<void>
   onCreateFavorite: (path: string) => Promise<void>
   onDeleteFavorite: (id: string) => Promise<void>
   onClose: () => Promise<void>
@@ -62,6 +66,10 @@ export function FileBrowser(props: FileBrowserProps) {
   const selected = props.files.find((entry) => entry.path === selectedPath)
   const currentFavorite = props.favorites.find((favorite) => favorite.path === props.path)
   const sessionTransfers = props.transfers.filter((transfer) => transfer.sessionId === props.session.id)
+  const sessionResumeIds = new Set(sessionTransfers.map((transfer) => transfer.resumeId).filter(Boolean))
+  const persistedResumes = props.resumes.filter(
+    (resume) => resume.profileId === props.profile.id && !sessionResumeIds.has(resume.id),
+  )
 
   const run = async (operation: () => Promise<void>) => {
     setBusy(true)
@@ -231,23 +239,62 @@ export function FileBrowser(props: FileBrowserProps) {
           <span>{sessionTransfers.filter((transfer) => transfer.state === 'queued' || transfer.state === 'running').length} active</span>
         </div>
         <div className="transfer-list">
-          {sessionTransfers.length === 0 ? (
+          {sessionTransfers.length === 0 && persistedResumes.length === 0 ? (
             <div className="transfer-empty">No transfers</div>
-          ) : sessionTransfers.map((transfer) => (
-            <div className="transfer-row" key={transfer.id}>
-              {transfer.direction === 'download' ? <ArrowDownToLine size={15} /> : <ArrowUpFromLine size={15} />}
-              <div className="transfer-copy">
-                <span>{baseName(transfer.direction === 'download' ? transfer.source : transfer.destination)}</span>
-                <div className="transfer-progress"><i style={{ width: `${progressPercent(transfer)}%` }} /></div>
-              </div>
-              <span className={`transfer-state state-${transfer.state}`}>{transferLabel(transfer)}</span>
-              {(transfer.state === 'queued' || transfer.state === 'running') && (
-                <button className="icon-button compact" type="button" title="Cancel transfer" aria-label="Cancel transfer" onClick={() => void run(() => props.onCancelTransfer(transfer.id))}>
-                  <CircleX size={15} />
-                </button>
-              )}
-            </div>
-          ))}
+          ) : (
+            <>
+              {sessionTransfers.map((transfer) => {
+                const resumable = transfer.resumeId !== '' && (transfer.state === 'failed' || transfer.state === 'cancelled')
+                return (
+                  <div className="transfer-row" key={transfer.id}>
+                    {transfer.direction === 'download' ? <ArrowDownToLine size={15} /> : <ArrowUpFromLine size={15} />}
+                    <div className="transfer-copy">
+                      <span>{baseName(transfer.direction === 'download' ? transfer.source : transfer.destination)}</span>
+                      <div className="transfer-progress"><i style={{ width: `${progressPercent(transfer)}%` }} /></div>
+                    </div>
+                    <span className={`transfer-state state-${transfer.state}`} title={transfer.message}>{transferLabel(transfer)}</span>
+                    <div className="transfer-actions">
+                      {(transfer.state === 'queued' || transfer.state === 'running') && (
+                        <button className="icon-button compact" type="button" title="Cancel transfer" aria-label="Cancel transfer" disabled={busy} onClick={() => void run(() => props.onCancelTransfer(transfer.id))}>
+                          <CircleX size={15} />
+                        </button>
+                      )}
+                      {resumable && (
+                        <>
+                          <button className="icon-button compact" type="button" title="Resume transfer" aria-label="Resume transfer" disabled={busy} onClick={() => void run(() => props.onResumeTransfer(transfer.resumeId))}>
+                            <Play size={14} />
+                          </button>
+                          <button className="icon-button compact" type="button" title="Discard partial transfer" aria-label="Discard partial transfer" disabled={busy} onClick={() => void run(() => props.onDiscardResume(transfer.resumeId))}>
+                            <Trash2 size={14} />
+                          </button>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                )
+              })}
+              {persistedResumes.map((resume) => (
+                <div className="transfer-row transfer-resume" key={`resume-${resume.id}`}>
+                  {resume.direction === 'download' ? <ArrowDownToLine size={15} /> : <ArrowUpFromLine size={15} />}
+                  <div className="transfer-copy">
+                    <span>{baseName(resume.direction === 'download' ? resume.source : resume.destination)}</span>
+                    <div className="transfer-progress"><i style={{ width: `${progressFromBytes(resume.bytes, resume.total)}%` }} /></div>
+                  </div>
+                  <span className={`transfer-state${resume.available ? '' : ' state-failed'}`} title={resume.message}>
+                    {resume.available ? 'Interrupted' : resume.message}
+                  </span>
+                  <div className="transfer-actions">
+                    <button className="icon-button compact" type="button" title={resume.available ? 'Resume transfer' : resume.message} aria-label="Resume transfer" disabled={busy || !resume.available} onClick={() => void run(() => props.onResumeTransfer(resume.id))}>
+                      <Play size={14} />
+                    </button>
+                    <button className="icon-button compact" type="button" title="Discard partial transfer" aria-label="Discard partial transfer" disabled={busy} onClick={() => void run(() => props.onDiscardResume(resume.id))}>
+                      <Trash2 size={14} />
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </>
+          )}
         </div>
       </section>
 
@@ -297,7 +344,11 @@ function formatMode(mode: number): string {
 
 function progressPercent(transfer: Transfer): number {
   if (transfer.state === 'completed') return 100
-  return transfer.total > 0 ? Math.min(100, Math.round((transfer.bytes / transfer.total) * 100)) : 0
+  return progressFromBytes(transfer.bytes, transfer.total)
+}
+
+function progressFromBytes(bytes: number, total: number): number {
+  return total > 0 ? Math.min(100, Math.round((bytes / total) * 100)) : 0
 }
 
 function transferLabel(transfer: Transfer): string {

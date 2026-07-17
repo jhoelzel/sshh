@@ -16,8 +16,8 @@ type RemoteFilesystem interface {
 	Rename(context.Context, string, string) error
 	Remove(context.Context, string) error
 	Chmod(context.Context, string, os.FileMode) error
-	OpenRead(context.Context, string) (io.ReadCloser, int64, error)
-	OpenWrite(context.Context, string) (io.WriteCloser, error)
+	OpenRead(context.Context, string, int64) (io.ReadCloser, int64, error)
+	OpenWrite(context.Context, string, int64) (io.WriteCloser, error)
 	Close() error
 }
 

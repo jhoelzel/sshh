@@ -62,6 +62,7 @@ import type {
   SnippetInput,
   SnippetPreview,
   Transfer,
+  TransferResume,
   TunnelConfig,
   TunnelInput,
   TunnelSnapshot,
@@ -130,6 +131,7 @@ export function App() {
   const [remotePathFavorites, setRemotePathFavorites] = useState<RemotePathFavorite[]>([])
   const [fileLoading, setFileLoading] = useState(false)
   const [transfers, setTransfers] = useState<Transfer[]>([])
+  const [transferResumes, setTransferResumes] = useState<TransferResume[]>([])
   const [tunnelConfigs, setTunnelConfigs] = useState<TunnelConfig[]>([])
   const [tunnelSnapshots, setTunnelSnapshots] = useState<TunnelSnapshot[]>([])
   const [snippets, setSnippets] = useState<Snippet[]>([])
@@ -481,7 +483,10 @@ export function App() {
       const opened = await backend.openSFTP(lease.id, selected.id, credentials)
       try {
         const root = canonicalRemotePath(opened.root)
-        const entries = await backend.listRemoteFiles(lease.id, opened.id, root)
+        const [entries, resumes] = await Promise.all([
+          backend.listRemoteFiles(lease.id, opened.id, root),
+          backend.listTransferResumes(lease.id, opened.id),
+        ])
         if (fileSession) {
           await backend.closeSFTP(lease.id, fileSession.id)
         }
@@ -489,6 +494,7 @@ export function App() {
         setFileProfile(selected)
         setRemotePath(root)
         setRemoteFiles(entries)
+        setTransferResumes(resumes)
         setWorkspaceMode('files')
       } catch (cause) {
         await backend.closeSFTP(lease.id, opened.id).catch(() => undefined)
@@ -733,6 +739,29 @@ export function App() {
     [lease],
   )
 
+  const resumeTransfer = useCallback(
+    async (resumeId: string) => {
+      if (!lease || !fileSession) throw new Error('No remote file session is open')
+      const transfer = await backend.resumeTransfer(lease.id, fileSession.id, resumeId)
+      setTransferResumes((current) => current.filter((resume) => resume.id !== resumeId))
+      setTransfers((current) => upsertTransfer(
+        current.map((item) => item.resumeId === resumeId ? { ...item, resumeId: '' } : item),
+        transfer,
+      ))
+    },
+    [fileSession, lease],
+  )
+
+  const discardTransferResume = useCallback(
+    async (resumeId: string) => {
+      if (!lease || !fileSession) throw new Error('No remote file session is open')
+      await backend.discardTransferResume(lease.id, fileSession.id, resumeId)
+      setTransferResumes((current) => current.filter((resume) => resume.id !== resumeId))
+      setTransfers((current) => current.map((item) => item.resumeId === resumeId ? { ...item, resumeId: '' } : item))
+    },
+    [fileSession, lease],
+  )
+
   const createRemotePathFavorite = useCallback(async (targetPath: string) => {
     if (!fileProfile) throw new Error('No remote file profile is open')
     const created = await backend.createRemotePathFavorite(fileProfile.id, canonicalRemotePath(targetPath))
@@ -752,6 +781,7 @@ export function App() {
     setFileSession(undefined)
     setFileProfile(undefined)
     setRemoteFiles([])
+    setTransferResumes([])
     setRemotePath('')
     setWorkspaceMode('terminals')
   }, [fileSession, lease])
@@ -1429,6 +1459,7 @@ export function App() {
             path={remotePath}
             files={remoteFiles}
             transfers={transfers}
+            resumes={transferResumes}
             favorites={fileFavorites}
             loading={fileLoading}
             onNavigate={navigateRemote}
@@ -1440,6 +1471,8 @@ export function App() {
             onDelete={deleteRemotePath}
             onChmod={chmodRemotePath}
             onCancelTransfer={cancelTransfer}
+            onResumeTransfer={resumeTransfer}
+            onDiscardResume={discardTransferResume}
             onCreateFavorite={createRemotePathFavorite}
             onDeleteFavorite={deleteRemotePathFavorite}
             onClose={closeFileWorkspace}
