@@ -291,6 +291,37 @@ type desktopLifecycle struct {
 	done   chan struct{}
 }
 
+// Dependencies contains the application services exposed through the desktop
+// bridge. It is populated only after the process has won the native
+// single-instance decision.
+type Dependencies struct {
+	Manager       *sessionusecase.Manager
+	Profiles      *profileusecase.Service
+	Remote        *sshconnectionusecase.Service
+	Files         *filetransferusecase.Manager
+	Tunnels       *tunnelusecase.Service
+	Snippets      *snippetusecase.Service
+	Workspaces    *workspaceusecase.Service
+	RemotePaths   *remotepathusecase.Service
+	Notifications *notificationusecase.Service
+	Settings      *settingsusecase.Service
+}
+
+// DesktopController owns host-only bridge initialization. It is deliberately
+// separate from Desktop so these methods are never exposed as Wails commands.
+type DesktopController interface {
+	Prepare(context.Context)
+	Start(context.Context, Dependencies) error
+	Fail(error)
+	DomReady(context.Context)
+	BeforeClose(context.Context) bool
+	Shutdown(context.Context)
+}
+
+type desktopController struct {
+	desktop *Desktop
+}
+
 type Desktop struct {
 	manager       *sessionusecase.Manager
 	profiles      *profileusecase.Service
@@ -314,6 +345,18 @@ type Desktop struct {
 	leaseWake chan struct{}
 
 	allowClose atomic.Bool
+
+	configurationMu sync.Mutex
+	configured      bool
+
+	readyMu   sync.RWMutex
+	readyErr  error
+	ready     chan struct{}
+	readyOnce sync.Once
+
+	activationMu      sync.Mutex
+	pendingActivation bool
+	activateWindow    func(context.Context)
 }
 
 type eventSink struct {
@@ -321,24 +364,136 @@ type eventSink struct {
 }
 
 func NewDesktop(manager *sessionusecase.Manager, profiles *profileusecase.Service, remote *sshconnectionusecase.Service, files *filetransferusecase.Manager, tunnels *tunnelusecase.Service, snippets *snippetusecase.Service, workspaces *workspaceusecase.Service, remotePaths *remotepathusecase.Service, notifications *notificationusecase.Service, settings *settingsusecase.Service) *Desktop {
-	desktop := &Desktop{
-		manager: manager, profiles: profiles, remote: remote, files: files, tunnels: tunnels,
-		snippets: snippets, workspaces: workspaces, remotePaths: remotePaths,
-		notifications: notifications, settings: settings,
-		leaseWake: make(chan struct{}, 1),
+	desktop := newDeferredDesktop()
+	err := desktop.configure(Dependencies{
+		Manager: manager, Profiles: profiles, Remote: remote, Files: files, Tunnels: tunnels,
+		Snippets: snippets, Workspaces: workspaces, RemotePaths: remotePaths,
+		Notifications: notifications, Settings: settings,
+	})
+	if err != nil {
+		panic(err)
 	}
-	sink := &eventSink{desktop: desktop}
-	manager.SetSink(sink)
-	if files != nil {
-		files.SetSink(sink)
-	}
-	if tunnels != nil {
-		tunnels.SetSink(sink)
-	}
+	desktop.completeStartup(nil)
 	return desktop
 }
 
-func (d *Desktop) Startup(ctx context.Context) {
+func NewDeferredDesktop() (*Desktop, DesktopController) {
+	desktop := newDeferredDesktop()
+	return desktop, &desktopController{desktop: desktop}
+}
+
+func newDeferredDesktop() *Desktop {
+	return &Desktop{
+		manager:   sessionusecase.NewManager(nil),
+		leaseWake: make(chan struct{}, 1),
+		ready:     make(chan struct{}),
+		activateWindow: func(ctx context.Context) {
+			wailsruntime.WindowShow(ctx)
+			wailsruntime.WindowUnminimise(ctx)
+		},
+	}
+}
+
+func (d *Desktop) configure(dependencies Dependencies) error {
+	if dependencies.Manager == nil {
+		return apperror.New(apperror.CodeInvalidArgument, "A session manager is required.")
+	}
+
+	d.configurationMu.Lock()
+	defer d.configurationMu.Unlock()
+	if d.configured {
+		return apperror.New(apperror.CodeConflict, "Desktop services are already configured.")
+	}
+
+	d.manager = dependencies.Manager
+	d.profiles = dependencies.Profiles
+	d.remote = dependencies.Remote
+	d.files = dependencies.Files
+	d.tunnels = dependencies.Tunnels
+	d.snippets = dependencies.Snippets
+	d.workspaces = dependencies.Workspaces
+	d.remotePaths = dependencies.RemotePaths
+	d.notifications = dependencies.Notifications
+	d.settings = dependencies.Settings
+	d.configured = true
+
+	sink := &eventSink{desktop: d}
+	d.manager.SetSink(sink)
+	if d.files != nil {
+		d.files.SetSink(sink)
+	}
+	if d.tunnels != nil {
+		d.tunnels.SetSink(sink)
+	}
+	return nil
+}
+
+func (controller *desktopController) Prepare(ctx context.Context) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	desktop := controller.desktop
+	desktop.activationMu.Lock()
+	desktop.setContext(ctx)
+	pending := desktop.pendingActivation
+	desktop.pendingActivation = false
+	activate := desktop.activateWindow
+	desktop.activationMu.Unlock()
+	if pending && activate != nil {
+		activate(ctx)
+	}
+}
+
+func (controller *desktopController) Start(ctx context.Context, dependencies Dependencies) error {
+	if err := controller.desktop.configure(dependencies); err != nil {
+		return err
+	}
+	controller.desktop.startup(ctx)
+	controller.desktop.completeStartup(nil)
+	return nil
+}
+
+func (controller *desktopController) Fail(err error) {
+	if err == nil {
+		err = apperror.New(apperror.CodeInternal, "Application startup failed.")
+	}
+	controller.desktop.completeStartup(err)
+}
+
+func (controller *desktopController) DomReady(ctx context.Context) {
+	controller.desktop.domReady(ctx)
+}
+
+func (controller *desktopController) BeforeClose(ctx context.Context) bool {
+	return controller.desktop.beforeClose(ctx)
+}
+
+func (controller *desktopController) Shutdown(ctx context.Context) {
+	controller.desktop.shutdown(ctx)
+}
+
+func (d *Desktop) completeStartup(err error) {
+	d.readyOnce.Do(func() {
+		d.readyMu.Lock()
+		d.readyErr = err
+		d.readyMu.Unlock()
+		close(d.ready)
+	})
+}
+
+// AwaitReady prevents the frontend from issuing product commands before the
+// native single-instance gate has completed and the bridge is configured.
+func (d *Desktop) AwaitReady() error {
+	if d.ready == nil {
+		return apperror.New(apperror.CodeUnavailable, "Application services are unavailable.")
+	}
+	<-d.ready
+	d.readyMu.RLock()
+	defer d.readyMu.RUnlock()
+	return d.readyErr
+}
+
+func (d *Desktop) startup(ctx context.Context) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -359,9 +514,9 @@ func (d *Desktop) Startup(ctx context.Context) {
 	d.lifecycleMu.Unlock()
 }
 
-func (d *Desktop) DomReady(context.Context) {}
+func (d *Desktop) domReady(context.Context) {}
 
-func (d *Desktop) BeforeClose(context.Context) bool {
+func (d *Desktop) beforeClose(context.Context) bool {
 	if d.allowClose.Load() || d.activeResourceCount() == 0 {
 		d.manager.Shutdown()
 		if d.files != nil {
@@ -376,13 +531,16 @@ func (d *Desktop) BeforeClose(context.Context) bool {
 	return true
 }
 
-func (d *Desktop) Shutdown(context.Context) {
+func (d *Desktop) shutdown(context.Context) {
 	d.manager.Shutdown()
 	if d.files != nil {
 		d.files.Shutdown()
 	}
 	if d.tunnels != nil {
 		d.tunnels.Shutdown()
+	}
+	if d.notifications != nil {
+		d.notifications.Shutdown()
 	}
 	d.lifecycleMu.Lock()
 	d.stopLifecycleLocked()
@@ -395,12 +553,19 @@ func SecondInstanceHandler(desktop *Desktop) func(options.SecondInstanceData) {
 }
 
 func (d *Desktop) handleSecondInstance(options.SecondInstanceData) {
+	d.activationMu.Lock()
 	ctx := d.context()
+	activate := d.activateWindow
 	if ctx == nil {
+		d.pendingActivation = true
+		d.activationMu.Unlock()
 		return
 	}
-	wailsruntime.WindowShow(ctx)
-	wailsruntime.WindowUnminimise(ctx)
+	d.activationMu.Unlock()
+	if activate == nil {
+		return
+	}
+	activate(ctx)
 }
 
 func (d *Desktop) ListProfiles() []ProfileDTO {

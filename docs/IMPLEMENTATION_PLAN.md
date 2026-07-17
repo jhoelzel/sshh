@@ -508,9 +508,16 @@ milestones treat the accepted numbers as regression budgets.
 
 ### 5.4 Lifecycle and Frontend Ownership
 
-- `OnStartup` constructs backend services but does not call window APIs that
-  require a ready frontend.
-- `OnDomReady` marks the host ready for the frontend attachment handshake.
+- `OnStartup` records only the Wails context. It never opens stores, runs
+  migrations, constructs services, or starts runtime-owned goroutines because
+  Wails v2 invokes this hook before its Linux single-instance setup.
+- The first `OnDomReady`, which occurs after native single-instance resolution
+  on every supported platform, composes backend services exactly once and marks
+  the host ready. React waits on the typed `AwaitReady` bridge command before it
+  imports the product application or begins the frontend attachment handshake.
+- Startup failure releases the same readiness wait with a cause-redacted typed
+  error and closes any partially composed runtime. Lifecycle control methods
+  remain on a host-only controller and are not callable through Wails bindings.
 - `OnBeforeClose` owns close interception. With active resources it prevents
   the first close, requests one consolidated frontend decision, and permits a
   programmatic close only after coordinated backend shutdown completes.
@@ -518,8 +525,9 @@ milestones treat the accepted numbers as regression budgets.
   and assertion path, never the first signal on which frontend acknowledgement
   depends.
 - Wails `SingleInstanceLock` is enabled from M0. A secondary instance sends a
-  bounded launch request to the primary instance, focuses it, and exits without
-  opening config stores or runtimes.
+  bounded launch request to the primary instance, focuses it, and exits before
+  DOM-ready, so it cannot open config stores or runtimes. A callback received
+  before primary context preparation is queued and delivered after preparation.
 - A frontend lease is renewed only while sessions, transfers, or tunnels are
   live. Normal bridge traffic also counts as renewal. M1 selects a bounded
   health-check interval and expiry grace using minimized-window, UI-stall, and
@@ -650,8 +658,9 @@ Deliverables:
 - [x] Add build metadata: semantic version, commit, build date, and dirty state.
 - [x] Add a root application context and coordinated shutdown service.
 - [x] Configure `OnStartup`, `OnDomReady`, `OnBeforeClose`, and `OnShutdown` with
-  idempotent ownership, and enable `SingleInstanceLock` before writable config
-  migration begins.
+  idempotent ownership. Keep `OnStartup` inert, resolve `SingleInstanceLock`
+  before one-time DOM-ready composition and writable config migration, and gate
+  React startup on typed backend readiness.
 - [x] Lock bridge origins to embedded content, disable production developer tools
   and the default context menu, block remote navigation, and verify that the
   production build starts no HTTP listener.
@@ -666,8 +675,13 @@ Tests and exit gate:
 - [x] Repeated startup and shutdown leave no lease-monitor goroutine behind.
   Twenty-five in-process lifecycle cycles and repeated-start replacement are
   covered; configuration stores retain no open file handles between operations.
-- [ ] A second application launch focuses the first instance and exits without
-  opening a second writable config store.
+- [x] A second application launch focuses the first instance and exits without
+  opening a second writable config store. Unit coverage proves options and
+  `OnStartup` perform no composition, DOM-ready composition is one-time, and
+  early/direct activation callbacks focus the prepared primary. A packaged
+  arm64 macOS two-process smoke on 2026-07-17 recorded an immediate zero-status
+  secondary exit, one surviving host PID, unchanged config metadata, and the
+  existing `shhh` process restored to the foreground.
 - [ ] React StrictMode's development remount does not duplicate bridge listeners,
   controllers, commands, or backend resources. Listener cleanup now uses Wails'
   subscription-specific disposer, while same-nonce backend attachment is
@@ -1283,7 +1297,7 @@ commitments:
 
 | Milestone | Current status | Expected effort | Release value |
 | --- | --- | ---: | --- |
-| M0 Foundation | Partial; native CI and lifecycle gates open | 4-7 days | Wails migration and honest lifecycle |
+| M0 Foundation | Partial; cross-platform native CI and StrictMode gates open | 4-7 days | Wails migration and honest lifecycle |
 | M1 Terminal proof | Partial; performance and native stress gates open | 7-12 days | Proven PTY/bridge/xterm vertical slice |
 | M2 Local terminal | macOS core implemented; Windows/Linux gates open | 8-14 days | First genuinely usable program |
 | M3 Workspace | Partial; tab-management and Activity work open | 4-7 days | Reliable multi-session desktop UX |

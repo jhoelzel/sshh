@@ -1,6 +1,13 @@
 import { Component, lazy, StrictMode, Suspense, type ErrorInfo, type ReactNode } from 'react'
+import { AwaitReady } from '../../wailsjs/go/bridge/Desktop'
+import { asBackendError } from '../lib/bridge/errors'
 
 const App = lazy(async () => {
+  try {
+    await AwaitReady()
+  } catch (cause) {
+    throw asBackendError(cause)
+  }
   const module = await import('./App')
   return { default: module.App }
 })

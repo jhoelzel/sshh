@@ -1,0 +1,121 @@
+package app
+
+import (
+	"context"
+	"errors"
+	"testing"
+	"testing/fstest"
+	"time"
+
+	"shh-h/internal/apperror"
+	"shh-h/internal/bridge"
+	sessionusecase "shh-h/internal/usecase/session"
+)
+
+func TestApplicationDefersCompositionUntilDomReady(t *testing.T) {
+	composeCalls := 0
+	closeCalls := 0
+	application := newApplication(func() (*runtimeComposition, error) {
+		composeCalls++
+		return &runtimeComposition{
+			dependencies: bridge.Dependencies{Manager: sessionusecase.NewManager(nil)},
+			close: func() error {
+				closeCalls++
+				return nil
+			},
+		}, nil
+	})
+	t.Cleanup(func() { _ = application.close(context.Background()) })
+
+	appOptions := application.options(fstest.MapFS{
+		"index.html": {Data: []byte("<!doctype html>")},
+	})
+	if composeCalls != 0 {
+		t.Fatalf("building Wails options composed services %d times", composeCalls)
+	}
+	if appOptions.SingleInstanceLock == nil || appOptions.SingleInstanceLock.UniqueId != singleInstanceUnique {
+		t.Fatal("Wails single-instance lock is not configured")
+	}
+
+	appOptions.OnStartup(context.Background())
+	if composeCalls != 0 {
+		t.Fatalf("OnStartup composed services %d times before the native instance decision", composeCalls)
+	}
+
+	ready := make(chan error, 1)
+	go func() { ready <- application.desktop.AwaitReady() }()
+	select {
+	case err := <-ready:
+		t.Fatalf("frontend became ready before DOM-ready composition: %v", err)
+	case <-time.After(20 * time.Millisecond):
+	}
+
+	appOptions.OnDomReady(context.Background())
+	if composeCalls != 1 {
+		t.Fatalf("DOM-ready composition calls = %d, want 1", composeCalls)
+	}
+	if err := <-ready; err != nil {
+		t.Fatalf("await application readiness: %v", err)
+	}
+
+	appOptions.OnDomReady(context.Background())
+	if composeCalls != 1 {
+		t.Fatalf("repeated DOM-ready composition calls = %d, want 1", composeCalls)
+	}
+
+	appOptions.OnShutdown(context.Background())
+	appOptions.OnShutdown(context.Background())
+	if closeCalls != 1 {
+		t.Fatalf("runtime close calls = %d, want 1", closeCalls)
+	}
+}
+
+func TestApplicationPublishesCompositionFailureOnce(t *testing.T) {
+	want := errors.New("load settings")
+	composeCalls := 0
+	application := newApplication(func() (*runtimeComposition, error) {
+		composeCalls++
+		return nil, want
+	})
+	t.Cleanup(func() { _ = application.close(context.Background()) })
+
+	first := application.start(context.Background())
+	second := application.start(context.Background())
+	if !errors.Is(first, want) || !errors.Is(second, want) {
+		t.Fatalf("startup errors = (%v, %v), want wrapped %v", first, second, want)
+	}
+	if !apperror.IsCode(first, apperror.CodeUnavailable) {
+		t.Fatalf("startup error code = %q, want %q", apperror.CodeOf(first), apperror.CodeUnavailable)
+	}
+	if composeCalls != 1 {
+		t.Fatalf("failed composition calls = %d, want 1", composeCalls)
+	}
+	if readyErr := application.desktop.AwaitReady(); !errors.Is(readyErr, want) {
+		t.Fatalf("frontend readiness error = %v, want wrapped %v", readyErr, want)
+	}
+}
+
+func TestApplicationClosesCompositionRejectedByDesktop(t *testing.T) {
+	closeCalls := 0
+	application := newApplication(func() (*runtimeComposition, error) {
+		return &runtimeComposition{
+			dependencies: bridge.Dependencies{},
+			close: func() error {
+				closeCalls++
+				return nil
+			},
+		}, nil
+	})
+	t.Cleanup(func() { _ = application.close(context.Background()) })
+
+	err := application.start(context.Background())
+	if !apperror.IsCode(err, apperror.CodeUnavailable) {
+		t.Fatalf("startup error code = %q, want %q", apperror.CodeOf(err), apperror.CodeUnavailable)
+	}
+	if closeCalls != 1 {
+		t.Fatalf("rejected composition close calls = %d, want 1", closeCalls)
+	}
+	if readyErr := application.desktop.AwaitReady(); readyErr == nil {
+		t.Fatal("frontend readiness succeeded after desktop rejected composition")
+	}
+}

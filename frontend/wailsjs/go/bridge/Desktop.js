@@ -14,6 +14,10 @@ export function AttachFrontend(arg1) {
   return window['go']['bridge']['Desktop']['AttachFrontend'](arg1);
 }
 
+export function AwaitReady() {
+  return window['go']['bridge']['Desktop']['AwaitReady']();
+}
+
 export function CancelTransfer(arg1, arg2) {
   return window['go']['bridge']['Desktop']['CancelTransfer'](arg1, arg2);
 }

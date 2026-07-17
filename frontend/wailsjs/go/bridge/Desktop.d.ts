@@ -11,6 +11,8 @@ export function ActivateTerminal(arg1:string,arg2:string,arg3:number):Promise<vo
 
 export function AttachFrontend(arg1:string):Promise<bridge.FrontendLeaseDTO>;
 
+export function AwaitReady():Promise<void>;
+
 export function CancelTransfer(arg1:string,arg2:string):Promise<void>;
 
 export function ChmodRemotePath(arg1:string,arg2:string,arg3:string,arg4:number):Promise<void>;

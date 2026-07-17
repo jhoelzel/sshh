@@ -2,9 +2,12 @@ package bridge
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/wailsapp/wails/v2/pkg/options"
 
 	"shh-h/internal/apperror"
 	profiledomain "shh-h/internal/domain/profile"
@@ -94,10 +97,10 @@ func TestDesktopStartupAndShutdownStopEveryLeaseMonitor(t *testing.T) {
 	desktop := NewDesktop(sessionusecase.NewManager(nil), nil, nil, nil, nil, nil, nil, nil, nil, nil)
 
 	for cycle := 0; cycle < 25; cycle++ {
-		desktop.Startup(context.Background())
+		desktop.startup(context.Background())
 		run := currentDesktopLifecycle(t, desktop)
 
-		desktop.Shutdown(context.Background())
+		desktop.shutdown(context.Background())
 
 		select {
 		case <-run.done:
@@ -115,12 +118,12 @@ func TestDesktopStartupAndShutdownStopEveryLeaseMonitor(t *testing.T) {
 
 func TestRepeatedStartupStopsThePreviousLeaseMonitor(t *testing.T) {
 	desktop := NewDesktop(sessionusecase.NewManager(nil), nil, nil, nil, nil, nil, nil, nil, nil, nil)
-	desktop.Startup(context.Background())
+	desktop.startup(context.Background())
 	first := currentDesktopLifecycle(t, desktop)
 
-	desktop.Startup(context.Background())
+	desktop.startup(context.Background())
 	second := currentDesktopLifecycle(t, desktop)
-	t.Cleanup(func() { desktop.Shutdown(context.Background()) })
+	t.Cleanup(func() { desktop.shutdown(context.Background()) })
 
 	if first == second {
 		t.Fatal("repeated startup reused lifecycle state")
@@ -129,6 +132,74 @@ func TestRepeatedStartupStopsThePreviousLeaseMonitor(t *testing.T) {
 	case <-first.done:
 	case <-time.After(time.Second):
 		t.Fatal("previous lease monitor did not stop")
+	}
+}
+
+func TestDeferredDesktopWaitsForHostInitialization(t *testing.T) {
+	desktop, controller := NewDeferredDesktop()
+	ready := make(chan error, 1)
+	go func() {
+		ready <- desktop.AwaitReady()
+	}()
+
+	select {
+	case err := <-ready:
+		t.Fatalf("deferred desktop became ready before host initialization: %v", err)
+	case <-time.After(20 * time.Millisecond):
+	}
+
+	err := controller.Start(context.Background(), Dependencies{
+		Manager: sessionusecase.NewManager(nil),
+	})
+	if err != nil {
+		t.Fatalf("start deferred desktop: %v", err)
+	}
+	t.Cleanup(func() { desktop.shutdown(context.Background()) })
+
+	select {
+	case err := <-ready:
+		if err != nil {
+			t.Fatalf("await initialized desktop: %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("frontend readiness was not released after host initialization")
+	}
+}
+
+func TestDeferredDesktopReportsHostInitializationFailure(t *testing.T) {
+	desktop, controller := NewDeferredDesktop()
+	want := errors.New("composition failed")
+	controller.Fail(want)
+
+	if err := desktop.AwaitReady(); !errors.Is(err, want) {
+		t.Fatalf("startup failure = %v, want %v", err, want)
+	}
+}
+
+func TestSecondInstanceHandlerActivatesPreparedPrimaryWindow(t *testing.T) {
+	desktop, controller := NewDeferredDesktop()
+	type contextKey string
+	ctx := context.WithValue(context.Background(), contextKey("primary"), true)
+
+	activations := 0
+	desktop.activateWindow = func(received context.Context) {
+		activations++
+		if received != ctx {
+			t.Fatal("second-instance handler used a different Wails context")
+		}
+	}
+
+	SecondInstanceHandler(desktop)(options.SecondInstanceData{})
+	if activations != 0 {
+		t.Fatalf("window activated %d times before Wails context preparation", activations)
+	}
+	controller.Prepare(ctx)
+	if activations != 1 {
+		t.Fatalf("queued window activations = %d, want 1", activations)
+	}
+	SecondInstanceHandler(desktop)(options.SecondInstanceData{})
+	if activations != 2 {
+		t.Fatalf("total window activations = %d, want 2", activations)
 	}
 }
 

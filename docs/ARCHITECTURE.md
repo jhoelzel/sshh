@@ -62,6 +62,39 @@ feature code observes it. Wrapped causes remain available to Go diagnostics but
 are not serialized to the WebView. The code list, retry rules, and authoring
 guidance are documented in `docs/ERROR_HANDLING.md`.
 
+## Application Startup Ownership
+
+`internal/app` creates only an inert bridge and Wails options before entering
+the native event loop. It does not open a config repository, run a migration,
+create an SSH pool, or start a background monitor at that point.
+
+The lifecycle order is intentional:
+
+1. `OnStartup` records the Wails context so an early second-instance request can
+   be queued or can activate the primary window. It performs no composition.
+2. Wails completes its native `SingleInstanceLock` decision before the initial
+   page can become DOM-ready on macOS, Linux, and Windows. This distinction is
+   important because Wails v2 invokes `OnStartup` before its Linux lock setup.
+3. The first `OnDomReady` composes adapters and use cases exactly once, injects
+   them through a host-only desktop controller, and starts the frontend lease
+   monitor. Later DOM-ready notifications cannot create another runtime.
+4. React's lazy bootstrap waits on the sole public `AwaitReady` command before
+   importing the product application. Backend startup failures release the same
+   wait with a typed, cause-redacted error and leave the startup boundary visible.
+5. `OnShutdown` and the fallback after `wails.Run` share one idempotent close
+   path. Desktop-owned sessions, transfers, tunnels, notifications, monitors,
+   and the SSH client pool are closed in ownership order.
+
+The desktop controller is not included in Wails bindings. JavaScript cannot
+configure, start, or shut down backend services. A secondary process exits in
+Wails' native instance setup before DOM-ready and therefore cannot open a
+writable store. Its callback focuses the existing window; callbacks that arrive
+before context preparation are retained and delivered once preparation finishes.
+
+The pinned Wails lifecycle ordering is part of the platform contract. A Wails
+upgrade must re-check all three native frontend implementations and rerun the
+two-process smoke gate before this boundary is considered preserved.
+
 ## Package Boundaries
 
 ### `cmd/shhh`
@@ -72,8 +105,8 @@ free of product logic.
 ### `internal/app`
 
 Composition root and lifecycle coordinator. It embeds the production frontend,
-constructs adapters and services, starts Wails, and closes all resources during
-shutdown.
+starts Wails with an inert bridge, constructs adapters and services only after
+the native instance decision, and closes all resources during shutdown.
 
 ### `internal/domain`, `internal/usecase`, and `internal/port`
 
