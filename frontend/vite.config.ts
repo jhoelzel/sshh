@@ -20,7 +20,7 @@ export default defineConfig(({ command }) => ({
   build: {
     target: 'es2022',
     sourcemap: false,
-    outDir: '../internal/frontendassets/dist',
+    outDir: '../internal/frontendassets/bundle/dist',
     emptyOutDir: true,
   },
   test: {

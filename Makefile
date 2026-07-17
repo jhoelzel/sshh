@@ -52,4 +52,4 @@ tidy:
 	go mod tidy
 
 clean:
-	rm -rf build/bin internal/frontendassets/dist/assets internal/frontendassets/dist/index.html frontend/coverage coverage.out
+	rm -rf build/bin internal/frontendassets/dist internal/frontendassets/bundle/dist frontend/coverage coverage.out
