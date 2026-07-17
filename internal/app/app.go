@@ -19,9 +19,11 @@ import (
 	"shh-h/internal/adapter/sshterminal"
 	"shh-h/internal/adapter/sshtrust"
 	"shh-h/internal/adapter/tunnelstore"
+	"shh-h/internal/adapter/wailsnotification"
 	"shh-h/internal/adapter/workspacestore"
 	"shh-h/internal/bridge"
 	filetransferusecase "shh-h/internal/usecase/filetransfer"
+	notificationusecase "shh-h/internal/usecase/notification"
 	profileusecase "shh-h/internal/usecase/profile"
 	remotepathusecase "shh-h/internal/usecase/remotepath"
 	sessionusecase "shh-h/internal/usecase/session"
@@ -51,6 +53,10 @@ func Run(assets fs.FS) error {
 		return err
 	}
 	settingsService, err := settingsusecase.NewService(settingsRepository)
+	if err != nil {
+		return err
+	}
+	notifications, err := notificationusecase.NewService(wailsnotification.New(), settingsService)
 	if err != nil {
 		return err
 	}
@@ -101,7 +107,7 @@ func Run(assets fs.FS) error {
 		return err
 	}
 	remote := sshconnectionusecase.NewService(profiles, manager, files, trust, sshFactory)
-	desktop := bridge.NewDesktop(manager, profiles, remote, files, tunnels, snippets, workspaces, remotePaths, settingsService)
+	desktop := bridge.NewDesktop(manager, profiles, remote, files, tunnels, snippets, workspaces, remotePaths, notifications, settingsService)
 
 	return wails.Run(&options.App{
 		Title:                    "shh-h",

@@ -2,12 +2,12 @@
 
 ## 1. Implementation Status
 
-The macOS core slices through M8, the productivity and favorites portions of
-M9, and the terminal portion of M10 are implemented. The repository contains a
-Wails v2 host, embedded React and strict TypeScript frontend, xterm.js terminal
-controllers, a real Unix PTY adapter, strict SSH and known-host adapters, SFTP,
-saved tunnel state, and lease-owned runtime managers with bounded bridge flow
-control.
+The macOS core slices through M8, the productivity, favorites, and notification
+portions of M9, and the terminal and notification portions of M10 are
+implemented. The repository contains a Wails v2 host, embedded React and strict
+TypeScript frontend, xterm.js terminal controllers, a real Unix PTY adapter,
+strict SSH and known-host adapters, SFTP, saved tunnel state, and lease-owned
+runtime managers with bounded bridge flow control.
 
 Implemented and verified:
 
@@ -49,6 +49,10 @@ Implemented and verified:
 - Terminal defaults for font, size, spacing, cursor, scrollback, and bell use a
   validated versioned store, apply live to open controllers, and reset
   durably.
+- Native notifications are disabled by default, request OS authorization only
+  from an explicit Settings action, and can report long completed transfers or
+  failed terminal sessions. Preferences migrate through the versioned settings
+  store; payloads are bounded and omit full paths, contents, and credentials.
 - The command palette searches grouped connection, profile, navigation, and
   active-terminal actions. Arrow-key operation and non-conflicting
   `Cmd/Ctrl+Shift` shortcuts work without intercepting ordinary shell input.
@@ -75,7 +79,7 @@ Still required for the complete cross-platform and 1.0 gates:
   harness. macOS launch and frontend attachment are verified today; runtime
   behavior is also exercised below the WebView boundary.
 - Shared reference-counted SSH connection groups, resumable transfer metadata,
-  connection and transfer settings, and notifications.
+  and connection and transfer settings.
 - Signed/notarized macOS releases, Linux packaging validation, Windows WebView2
   and ConPTY implementation, native CI, accessibility review, and long-run
   soak/performance evidence.
@@ -942,7 +946,9 @@ Deliverables:
   profile-scoped canonical path navigation that starts no connection.
 - Add command palette and consistent keyboard shortcuts.
 - Add notifications for long transfer completion and unexpected disconnect,
-  respecting OS and application settings.
+  respecting OS and application settings. Implemented with a native Wails
+  adapter, explicit permission flow, saved category controls, a duration
+  threshold, and bounded privacy-preserving payloads.
 
 Tests and exit gate:
 
@@ -960,7 +966,9 @@ Deliverables:
   paste, bell, and hyperlink policies.
 - Add connection timeout, keepalive, reconnect, proxy, known-hosts, and agent
   settings.
-- Add transfer concurrency, collision, partial-file, and notification settings.
+- Add transfer concurrency, collision, and partial-file settings. Notification
+  enablement, categories, long-transfer threshold, permission status, and test
+  delivery are implemented.
 - Add reset-to-default and per-profile override indicators.
 - Add screen-reader labels, keyboard traversal, visible focus, contrast checks,
   and reduced-motion behavior.

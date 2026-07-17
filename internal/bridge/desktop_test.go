@@ -7,6 +7,7 @@ import (
 
 	profiledomain "shh-h/internal/domain/profile"
 	remotepathdomain "shh-h/internal/domain/remotepath"
+	settingsdomain "shh-h/internal/domain/settings"
 	profileusecase "shh-h/internal/usecase/profile"
 	remotepathusecase "shh-h/internal/usecase/remotepath"
 	sessionusecase "shh-h/internal/usecase/session"
@@ -39,7 +40,7 @@ func (repository *bridgeRemotePathRepository) SaveFavorites(favorites []remotepa
 }
 
 func TestAttachFrontendIsIdempotentForSameInstance(t *testing.T) {
-	desktop := NewDesktop(sessionusecase.NewManager(nil), nil, nil, nil, nil, nil, nil, nil, nil)
+	desktop := NewDesktop(sessionusecase.NewManager(nil), nil, nil, nil, nil, nil, nil, nil, nil, nil)
 
 	first, err := desktop.AttachFrontend("frontend-instance")
 	if err != nil {
@@ -58,7 +59,7 @@ func TestAttachFrontendIsIdempotentForSameInstance(t *testing.T) {
 }
 
 func TestAttachFrontendReplacesPreviousInstance(t *testing.T) {
-	desktop := NewDesktop(sessionusecase.NewManager(nil), nil, nil, nil, nil, nil, nil, nil, nil)
+	desktop := NewDesktop(sessionusecase.NewManager(nil), nil, nil, nil, nil, nil, nil, nil, nil, nil)
 
 	first, err := desktop.AttachFrontend("first-instance")
 	if err != nil {
@@ -80,7 +81,7 @@ func TestAttachFrontendReplacesPreviousInstance(t *testing.T) {
 }
 
 func TestAttachFrontendRejectsInvalidNonce(t *testing.T) {
-	desktop := NewDesktop(sessionusecase.NewManager(nil), nil, nil, nil, nil, nil, nil, nil, nil)
+	desktop := NewDesktop(sessionusecase.NewManager(nil), nil, nil, nil, nil, nil, nil, nil, nil, nil)
 
 	if _, err := desktop.AttachFrontend("  "); err == nil {
 		t.Fatal("expected an empty frontend nonce to be rejected")
@@ -100,6 +101,15 @@ func TestTerminalTextFilenameSanitizesUntrustedTitles(t *testing.T) {
 	}
 }
 
+func TestSettingsDTORoundTripIncludesNotifications(t *testing.T) {
+	settings := settingsdomain.Defaults()
+	settings.Notifications.Enabled = true
+	settings.Notifications.LongTransferSeconds = 75
+	if roundTrip := settingsFromDTO(settingsDTO(settings)); roundTrip != settings {
+		t.Fatalf("settings DTO changed notification preferences: %#v", roundTrip)
+	}
+}
+
 func TestRemotePathFavoritesRequireExistingSSHProfile(t *testing.T) {
 	profiles, err := profileusecase.NewService(&bridgeProfileRepository{profiles: []profiledomain.Profile{
 		{ID: "local", Protocol: profiledomain.ProtocolLocal},
@@ -112,7 +122,7 @@ func TestRemotePathFavoritesRequireExistingSSHProfile(t *testing.T) {
 	if err != nil {
 		t.Fatalf("new remote path service: %v", err)
 	}
-	desktop := NewDesktop(sessionusecase.NewManager(nil), profiles, nil, nil, nil, nil, nil, remotePaths, nil)
+	desktop := NewDesktop(sessionusecase.NewManager(nil), profiles, nil, nil, nil, nil, nil, remotePaths, nil, nil)
 
 	if _, err := desktop.CreateRemotePathFavorite("missing", "/srv/app"); err == nil {
 		t.Fatal("expected missing profile rejection")

@@ -94,6 +94,10 @@ export function ExportTerminalText(arg1, arg2) {
   return window['go']['bridge']['Desktop']['ExportTerminalText'](arg1, arg2);
 }
 
+export function GetNotificationStatus() {
+  return window['go']['bridge']['Desktop']['GetNotificationStatus']();
+}
+
 export function GetSettings() {
   return window['go']['bridge']['Desktop']['GetSettings']();
 }
@@ -178,12 +182,20 @@ export function RenewFrontendLease(arg1) {
   return window['go']['bridge']['Desktop']['RenewFrontendLease'](arg1);
 }
 
+export function RequestNotificationPermission() {
+  return window['go']['bridge']['Desktop']['RequestNotificationPermission']();
+}
+
 export function ResetSettings() {
   return window['go']['bridge']['Desktop']['ResetSettings']();
 }
 
 export function ResizeTerminal(arg1, arg2, arg3, arg4, arg5) {
   return window['go']['bridge']['Desktop']['ResizeTerminal'](arg1, arg2, arg3, arg4, arg5);
+}
+
+export function SendTestNotification() {
+  return window['go']['bridge']['Desktop']['SendTestNotification']();
 }
 
 export function SessionLoggingStatus(arg1, arg2, arg3) {

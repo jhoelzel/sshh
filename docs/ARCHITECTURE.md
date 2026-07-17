@@ -44,8 +44,8 @@ cmd/shhh -> internal/app wires the complete application
 - Domain models use only the Go standard library.
 - Use cases depend on domain models and narrow ports.
 - PTY, SSH, SFTP, session-log, config, settings, workspace-layout,
-  remote-path-favorite, profile-exchange, and secret adapters implement those
-  ports.
+  remote-path-favorite, profile-exchange, native-notification, and secret
+  adapters implement those ports.
 - The Wails bridge maps task-oriented commands and typed events to use cases.
 - React never receives backend objects and never stores terminal output in
   component state.
@@ -87,8 +87,8 @@ secret-store implementations.
 ### `internal/bridge`
 
 The only privileged frontend boundary. It exposes typed commands for profiles,
-sessions, transfers, tunnels, snippets, settings, remote-path favorites, and
-workspace layouts and emits typed lifecycle events. Terminal
+sessions, transfers, tunnels, snippets, settings, notifications, remote-path
+favorites, and workspace layouts and emits typed lifecycle events. Terminal
 output uses ordered byte-safe chunks, per-session generations, bounded queues,
 cumulative byte-credit acknowledgement, fair scheduling, and backpressure.
 Lifecycle and control traffic does not wait behind bulk terminal output.
@@ -145,6 +145,31 @@ live terminal tabs, then creates frontend-only disconnected tabs; it never
 creates a runtime. Connect is a separate user action that resolves the current
 profile and enters the existing host-key and credential workflow. Quick-connect
 targets are transient and are omitted when capturing a layout.
+
+## Notification Ownership
+
+System notifications are an optional presentation side effect, not a runtime
+resource and not a second application event bus. Session and transfer managers
+continue to publish their existing typed state events. The desktop event sink
+passes only failed terminal states and completed transfers to the notification
+use case, which applies the current durable preferences and then delegates to a
+narrow Wails adapter. Delivery runs outside the event publisher so an operating
+system notification failure cannot stall terminal or transfer lifecycle work.
+
+The adapter is initialized with the Wails application context during desktop
+startup and cleaned up during final shutdown. Initialization does not request
+authorization. Permission is requested only by the dedicated bridge command
+invoked from the visible Settings action. Application enablement and operating
+system authorization remain separate states; delivery requires both, and a
+denied or revoked permission does not mutate application preferences.
+
+Notification payloads are bounded and sanitized before crossing the adapter.
+Transfer messages contain only direction, duration, and the source or
+destination basename. Session messages contain the bounded display title and
+failure summary. They never contain credentials, terminal output, file
+contents, full filesystem paths, or profile configuration. Explicit session
+close follows the normal closed state and is not treated as a failed-session
+notification.
 
 ## Session Ownership
 

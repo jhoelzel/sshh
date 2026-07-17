@@ -185,6 +185,7 @@ export interface SessionStateEvent {
   leaseId: string
   sessionId: string
   generation: number
+  title: string
   state: SessionState
   exitCode?: number
   signal?: string
@@ -252,6 +253,20 @@ export interface TerminalSettings {
   bell: boolean
 }
 
+export interface NotificationSettings {
+  enabled: boolean
+  transferCompleted: boolean
+  unexpectedDisconnect: boolean
+  longTransferSeconds: number
+}
+
+export interface NotificationStatus {
+  available: boolean
+  authorized: boolean
+  message: string
+}
+
 export interface AppSettings {
   terminal: TerminalSettings
+  notifications: NotificationSettings
 }

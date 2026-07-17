@@ -51,6 +51,8 @@ export function ExportProfiles():Promise<bridge.ProfileExportDTO>;
 
 export function ExportTerminalText(arg1:string,arg2:string):Promise<bridge.TerminalTextExportDTO>;
 
+export function GetNotificationStatus():Promise<bridge.NotificationStatusDTO>;
+
 export function GetSettings():Promise<bridge.SettingsDTO>;
 
 export function ImportProfiles():Promise<bridge.ProfileImportDTO>;
@@ -93,9 +95,13 @@ export function RenderSnippet(arg1:string,arg2:Record<string, string>):Promise<b
 
 export function RenewFrontendLease(arg1:string):Promise<bridge.FrontendLeaseDTO>;
 
+export function RequestNotificationPermission():Promise<bridge.NotificationStatusDTO>;
+
 export function ResetSettings():Promise<bridge.SettingsDTO>;
 
 export function ResizeTerminal(arg1:string,arg2:string,arg3:number,arg4:number,arg5:number):Promise<void>;
+
+export function SendTestNotification():Promise<void>;
 
 export function SessionLoggingStatus(arg1:string,arg2:string,arg3:number):Promise<session.SessionLogStatus>;
 

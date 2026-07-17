@@ -29,15 +29,29 @@ type Terminal struct {
 	Bell        bool        `json:"bell"`
 }
 
+type Notifications struct {
+	Enabled              bool `json:"enabled"`
+	TransferCompleted    bool `json:"transferCompleted"`
+	UnexpectedDisconnect bool `json:"unexpectedDisconnect"`
+	LongTransferSeconds  int  `json:"longTransferSeconds"`
+}
+
 type Settings struct {
-	Terminal Terminal `json:"terminal"`
+	Terminal      Terminal      `json:"terminal"`
+	Notifications Notifications `json:"notifications"`
 }
 
 func Defaults() Settings {
-	return Settings{Terminal: Terminal{
-		FontFamily: FontSystemMono, FontSize: 13, LineHeight: 1.2,
-		CursorStyle: CursorBlock, CursorBlink: true, Scrollback: 10_000, Bell: true,
-	}}
+	return Settings{
+		Terminal: Terminal{
+			FontFamily: FontSystemMono, FontSize: 13, LineHeight: 1.2,
+			CursorStyle: CursorBlock, CursorBlink: true, Scrollback: 10_000, Bell: true,
+		},
+		Notifications: Notifications{
+			Enabled: false, TransferCompleted: true, UnexpectedDisconnect: true,
+			LongTransferSeconds: 30,
+		},
+	}
 }
 
 func (s Settings) Validate() error {
@@ -59,6 +73,9 @@ func (s Settings) Validate() error {
 	}
 	if s.Terminal.Scrollback < 1_000 || s.Terminal.Scrollback > 100_000 {
 		return errors.New("terminal scrollback must be between 1000 and 100000 lines")
+	}
+	if s.Notifications.LongTransferSeconds < 5 || s.Notifications.LongTransferSeconds > 3_600 {
+		return errors.New("long transfer notification threshold must be between 5 and 3600 seconds")
 	}
 	return nil
 }

@@ -1,22 +1,43 @@
 import { useMemo, useState, type FormEvent } from 'react'
-import { Bell, MousePointer2, RotateCcw, Save, Settings2, Type } from 'lucide-react'
-import type { AppSettings, TerminalCursorStyle, TerminalFontFamily } from '../../lib/bridge/types'
+import { Bell, BellRing, MousePointer2, RotateCcw, Save, Send, Settings2, Type } from 'lucide-react'
+import type { AppSettings, NotificationStatus, TerminalCursorStyle, TerminalFontFamily } from '../../lib/bridge/types'
 
 interface SettingsWorkspaceProps {
   settings: AppSettings
+  notificationStatus?: NotificationStatus
   onSave: (settings: AppSettings) => Promise<AppSettings>
   onReset: () => Promise<AppSettings>
+  onRequestNotificationPermission: () => Promise<NotificationStatus>
+  onSendTestNotification: () => Promise<void>
 }
 
-export function SettingsWorkspace({ settings, onSave, onReset }: SettingsWorkspaceProps) {
+export function SettingsWorkspace({
+  settings,
+  notificationStatus,
+  onSave,
+  onReset,
+  onRequestNotificationPermission,
+  onSendTestNotification,
+}: SettingsWorkspaceProps) {
   const [draft, setDraft] = useState(settings)
   const [busy, setBusy] = useState(false)
+  const [notificationAction, setNotificationAction] = useState<'permission' | 'test'>()
   const [error, setError] = useState<string>()
+  const [notificationNotice, setNotificationNotice] = useState<string>()
 
   const dirty = useMemo(() => JSON.stringify(draft) !== JSON.stringify(settings), [draft, settings])
+  const notificationSettingsSaved = useMemo(
+    () => JSON.stringify(draft.notifications) === JSON.stringify(settings.notifications),
+    [draft.notifications, settings.notifications],
+  )
 
   const setTerminal = <Key extends keyof AppSettings['terminal']>(key: Key, value: AppSettings['terminal'][Key]) => {
     setDraft((current) => ({ ...current, terminal: { ...current.terminal, [key]: value } }))
+  }
+
+  const setNotifications = <Key extends keyof AppSettings['notifications']>(key: Key, value: AppSettings['notifications'][Key]) => {
+    setDraft((current) => ({ ...current, notifications: { ...current.notifications, [key]: value } }))
+    setNotificationNotice(undefined)
   }
 
   const save = async (event: FormEvent) => {
@@ -44,11 +65,38 @@ export function SettingsWorkspace({ settings, onSave, onReset }: SettingsWorkspa
     }
   }
 
+  const requestPermission = async () => {
+    setNotificationAction('permission')
+    setError(undefined)
+    setNotificationNotice(undefined)
+    try {
+      await onRequestNotificationPermission()
+    } catch (cause) {
+      setError(errorMessage(cause))
+    } finally {
+      setNotificationAction(undefined)
+    }
+  }
+
+  const sendTest = async () => {
+    setNotificationAction('test')
+    setError(undefined)
+    setNotificationNotice(undefined)
+    try {
+      await onSendTestNotification()
+      setNotificationNotice('Test notification sent')
+    } catch (cause) {
+      setError(errorMessage(cause))
+    } finally {
+      setNotificationAction(undefined)
+    }
+  }
+
   return (
     <form className="settings-workspace" aria-label="Application settings" onSubmit={(event) => void save(event)}>
       <header className="settings-header">
-        <div className="settings-title"><Settings2 size={18} /><div><strong>Settings</strong><span>Terminal defaults</span></div></div>
-        <button className="secondary-button" type="button" disabled={busy} onClick={() => void reset()}><RotateCcw size={15} /> Reset</button>
+        <div className="settings-title"><Settings2 size={18} /><div><strong>Settings</strong><span>Terminal and notifications</span></div></div>
+        <button className="secondary-button" type="button" disabled={busy || Boolean(notificationAction)} onClick={() => void reset()}><RotateCcw size={15} /> Reset</button>
       </header>
 
       <div className="settings-content">
@@ -104,12 +152,56 @@ export function SettingsWorkspace({ settings, onSave, onReset }: SettingsWorkspa
           </div>
         </section>
 
+        <section className="settings-section" aria-labelledby="notification-settings-title">
+          <header><BellRing size={17} /><h2 id="notification-settings-title">System notifications</h2></header>
+          <div className="notification-permission" role="status">
+            <span>
+              <strong>{notificationStatus?.authorized ? 'Permission granted' : 'Permission status'}</strong>
+              <small>{notificationStatus?.message ?? 'Checking system availability...'}</small>
+            </span>
+            {notificationStatus?.available && !notificationStatus.authorized && (
+              <button className="secondary-button" type="button" disabled={busy || Boolean(notificationAction)} onClick={() => void requestPermission()}>
+                <BellRing size={15} /> {notificationAction === 'permission' ? 'Requesting' : 'Allow notifications'}
+              </button>
+            )}
+          </div>
+          <div className="settings-control-list">
+            <label className="settings-control toggle-control simple-toggle">
+              <span><strong>Enable notifications</strong><small>Allow configured background alerts</small></span>
+              <input aria-label="Enable notifications" type="checkbox" checked={draft.notifications.enabled} onChange={(event) => setNotifications('enabled', event.target.checked)} />
+            </label>
+            <label className="settings-control toggle-control simple-toggle">
+              <span><strong>Completed transfers</strong><small>Notify after long uploads or downloads</small></span>
+              <input aria-label="Completed transfers" type="checkbox" disabled={!draft.notifications.enabled} checked={draft.notifications.transferCompleted} onChange={(event) => setNotifications('transferCompleted', event.target.checked)} />
+            </label>
+            <label className="settings-control number-control">
+              <span><strong>Long transfer threshold</strong><small>Seconds before a transfer qualifies</small></span>
+              <input aria-label="Long transfer threshold" type="number" min={5} max={3600} step={5} disabled={!draft.notifications.enabled || !draft.notifications.transferCompleted} value={draft.notifications.longTransferSeconds} onChange={(event) => setNotifications('longTransferSeconds', Number(event.target.value))} />
+            </label>
+            <label className="settings-control toggle-control simple-toggle">
+              <span><strong>Unexpected disconnects</strong><small>Notify when a terminal session fails</small></span>
+              <input aria-label="Unexpected disconnects" type="checkbox" disabled={!draft.notifications.enabled} checked={draft.notifications.unexpectedDisconnect} onChange={(event) => setNotifications('unexpectedDisconnect', event.target.checked)} />
+            </label>
+          </div>
+          <div className="notification-test-row">
+            <span>{notificationNotice ?? 'Uses the saved notification preferences'}</span>
+            <button
+              className="secondary-button"
+              type="button"
+              disabled={busy || Boolean(notificationAction) || !notificationStatus?.authorized || !draft.notifications.enabled || !notificationSettingsSaved}
+              onClick={() => void sendTest()}
+            >
+              <Send size={15} /> {notificationAction === 'test' ? 'Sending' : 'Send test'}
+            </button>
+          </div>
+        </section>
+
         {error && <div className="settings-error" role="alert">{error}</div>}
       </div>
 
       <footer className="settings-actions">
         <span>{dirty ? 'Unsaved changes' : 'Saved'}</span>
-        <button className="primary-button" type="submit" disabled={busy || !dirty}><Save size={15} /> {busy ? 'Saving' : 'Save settings'}</button>
+        <button className="primary-button" type="submit" disabled={busy || Boolean(notificationAction) || !dirty}><Save size={15} /> {busy ? 'Saving' : 'Save settings'}</button>
       </footer>
     </form>
   )

@@ -14,6 +14,40 @@ export namespace bridge {
 	        this.expiresAt = source["expiresAt"];
 	    }
 	}
+	export class NotificationSettingsDTO {
+	    enabled: boolean;
+	    transferCompleted: boolean;
+	    unexpectedDisconnect: boolean;
+	    longTransferSeconds: number;
+
+	    static createFrom(source: any = {}) {
+	        return new NotificationSettingsDTO(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.enabled = source["enabled"];
+	        this.transferCompleted = source["transferCompleted"];
+	        this.unexpectedDisconnect = source["unexpectedDisconnect"];
+	        this.longTransferSeconds = source["longTransferSeconds"];
+	    }
+	}
+	export class NotificationStatusDTO {
+	    available: boolean;
+	    authorized: boolean;
+	    message: string;
+
+	    static createFrom(source: any = {}) {
+	        return new NotificationStatusDTO(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.available = source["available"];
+	        this.authorized = source["authorized"];
+	        this.message = source["message"];
+	    }
+	}
 	export class ProfileDTO {
 	    id: string;
 	    name: string;
@@ -299,6 +333,7 @@ export namespace bridge {
 	}
 	export class SettingsDTO {
 	    terminal: TerminalSettingsDTO;
+	    notifications: NotificationSettingsDTO;
 
 	    static createFrom(source: any = {}) {
 	        return new SettingsDTO(source);
@@ -307,6 +342,7 @@ export namespace bridge {
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.terminal = this.convertValues(source["terminal"], TerminalSettingsDTO);
+	        this.notifications = this.convertValues(source["notifications"], NotificationSettingsDTO);
 	    }
 
 		convertValues(a: any, classs: any, asMap: boolean = false): any {

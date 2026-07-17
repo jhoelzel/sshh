@@ -44,6 +44,7 @@ import type {
   AppSettings,
   FileSession,
   FrontendLease,
+  NotificationStatus,
   Profile,
   ProfileExchangeResult,
   ProfileInput,
@@ -135,6 +136,7 @@ export function App() {
   const [workspaceLayouts, setWorkspaceLayouts] = useState<WorkspaceLayout[]>([])
   const [sessionLogs, setSessionLogs] = useState<SessionLogStatus[]>([])
   const [settings, setSettings] = useState<AppSettings>()
+  const [notificationStatus, setNotificationStatus] = useState<NotificationStatus>()
   const [loggingSessionId, setLoggingSessionId] = useState<string>()
   const [error, setError] = useState<string>()
   const [notice, setNotice] = useState<string>()
@@ -211,6 +213,22 @@ export function App() {
       cancelled = true
     }
   }, [reportError])
+
+  useEffect(() => {
+    let cancelled = false
+    void backend.getNotificationStatus()
+      .then((status) => {
+        if (!cancelled) setNotificationStatus(status)
+      })
+      .catch((cause) => {
+        if (!cancelled) {
+          setNotificationStatus({ available: false, authorized: false, message: errorMessage(cause) })
+        }
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   useEffect(() => {
     if (!lease) {
@@ -831,6 +849,14 @@ export function App() {
     applySettings(reset)
     return reset
   }, [applySettings])
+
+  const requestNotificationPermission = useCallback(async () => {
+    const status = await backend.requestNotificationPermission()
+    setNotificationStatus(status)
+    return status
+  }, [])
+
+  const sendTestNotification = useCallback(() => backend.sendTestNotification(), [])
 
   const executeSnippet = useCallback(async (text: string, targetIds: string[], submit: boolean) => {
     const targets = targetIds.map((id) => tabs.find((tab) => tab.session?.id === id))
@@ -1465,7 +1491,14 @@ export function App() {
         )}
 
         {workspaceMode === 'settings' && settings && (
-          <SettingsWorkspace settings={settings} onSave={saveSettings} onReset={resetSettings} />
+          <SettingsWorkspace
+            settings={settings}
+            notificationStatus={notificationStatus}
+            onSave={saveSettings}
+            onReset={resetSettings}
+            onRequestNotificationPermission={requestNotificationPermission}
+            onSendTestNotification={sendTestNotification}
+          />
         )}
       </main>
 

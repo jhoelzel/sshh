@@ -13,28 +13,78 @@ const settings = {
     scrollback: 10000,
     bell: true,
   },
+  notifications: {
+    enabled: false,
+    transferCompleted: true,
+    unexpectedDisconnect: true,
+    longTransferSeconds: 30,
+  },
 }
+
+const notificationStatus = { available: true, authorized: false, message: 'Permission is required' }
+
+const renderSettings = (overrides: Partial<React.ComponentProps<typeof SettingsWorkspace>> = {}) => render(
+  <SettingsWorkspace
+    settings={settings}
+    notificationStatus={notificationStatus}
+    onSave={vi.fn()}
+    onReset={vi.fn()}
+    onRequestNotificationPermission={vi.fn()}
+    onSendTestNotification={vi.fn()}
+    {...overrides}
+  />,
+)
 
 afterEach(cleanup)
 
 describe('SettingsWorkspace', () => {
   it('saves a validated terminal settings draft', async () => {
     const save = vi.fn(async (value: AppSettings) => value)
-    render(<SettingsWorkspace settings={settings} onSave={save} onReset={vi.fn()} />)
+    renderSettings({ onSave: save })
 
     fireEvent.change(screen.getByLabelText('Font size'), { target: { value: '16' } })
     fireEvent.click(screen.getByRole('button', { name: 'Bar' }))
     fireEvent.click(screen.getByRole('button', { name: 'Save settings' }))
     await waitFor(() => expect(save).toHaveBeenCalledWith({
       terminal: { ...settings.terminal, fontSize: 16, cursorStyle: 'bar' },
+      notifications: settings.notifications,
     }))
   })
 
   it('resets through the durable settings callback', async () => {
     const reset = vi.fn(async () => settings)
-    render(<SettingsWorkspace settings={settings} onSave={vi.fn()} onReset={reset} />)
+    renderSettings({ onReset: reset })
 
     fireEvent.click(screen.getByRole('button', { name: 'Reset' }))
     await waitFor(() => expect(reset).toHaveBeenCalledOnce())
+  })
+
+  it('requests system permission only from the explicit action', async () => {
+    const requestPermission = vi.fn(async () => ({ ...notificationStatus, authorized: true }))
+    renderSettings({ onRequestNotificationPermission: requestPermission })
+
+    expect(requestPermission).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByRole('button', { name: 'Allow notifications' }))
+    await waitFor(() => expect(requestPermission).toHaveBeenCalledOnce())
+  })
+
+  it('saves notification categories and the long-transfer threshold', async () => {
+    const save = vi.fn(async (value: AppSettings) => value)
+    renderSettings({ onSave: save })
+
+    fireEvent.click(screen.getByLabelText('Enable notifications'))
+    fireEvent.click(screen.getByLabelText('Unexpected disconnects'))
+    fireEvent.change(screen.getByLabelText('Long transfer threshold'), { target: { value: '45' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Save settings' }))
+
+    await waitFor(() => expect(save).toHaveBeenCalledWith({
+      terminal: settings.terminal,
+      notifications: {
+        enabled: true,
+        transferCompleted: true,
+        unexpectedDisconnect: false,
+        longTransferSeconds: 45,
+      },
+    }))
   })
 })

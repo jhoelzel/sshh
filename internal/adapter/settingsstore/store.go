@@ -17,7 +17,7 @@ import (
 
 const (
 	filename      = "settings.json"
-	currentSchema = 1
+	currentSchema = 2
 	directoryMode = 0o700
 	fileMode      = 0o600
 )
@@ -75,7 +75,9 @@ func (s *Store) LoadSettings() (settingsdomain.Settings, error) {
 	if err := decodeSingleJSON(data, &persisted); err != nil {
 		return settingsdomain.Settings{}, fmt.Errorf("decode settings: %w", err)
 	}
-	if persisted.Version != currentSchema {
+	if persisted.Version == 1 {
+		persisted.Settings.Notifications = settingsdomain.Defaults().Notifications
+	} else if persisted.Version != currentSchema {
 		return settingsdomain.Settings{}, fmt.Errorf("unsupported settings schema version %d", persisted.Version)
 	}
 	if err := persisted.Settings.Validate(); err != nil {

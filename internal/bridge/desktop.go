@@ -31,6 +31,7 @@ import (
 	workspacedomain "shh-h/internal/domain/workspace"
 	"shh-h/internal/port"
 	filetransferusecase "shh-h/internal/usecase/filetransfer"
+	notificationusecase "shh-h/internal/usecase/notification"
 	profileusecase "shh-h/internal/usecase/profile"
 	remotepathusecase "shh-h/internal/usecase/remotepath"
 	sessionusecase "shh-h/internal/usecase/session"
@@ -213,7 +214,21 @@ type TerminalSettingsDTO struct {
 }
 
 type SettingsDTO struct {
-	Terminal TerminalSettingsDTO `json:"terminal"`
+	Terminal      TerminalSettingsDTO     `json:"terminal"`
+	Notifications NotificationSettingsDTO `json:"notifications"`
+}
+
+type NotificationSettingsDTO struct {
+	Enabled              bool `json:"enabled"`
+	TransferCompleted    bool `json:"transferCompleted"`
+	UnexpectedDisconnect bool `json:"unexpectedDisconnect"`
+	LongTransferSeconds  int  `json:"longTransferSeconds"`
+}
+
+type NotificationStatusDTO struct {
+	Available  bool   `json:"available"`
+	Authorized bool   `json:"authorized"`
+	Message    string `json:"message"`
 }
 
 type FrontendLeaseDTO struct {
@@ -246,15 +261,16 @@ type frontendLease struct {
 }
 
 type Desktop struct {
-	manager     *sessionusecase.Manager
-	profiles    *profileusecase.Service
-	remote      *sshconnectionusecase.Service
-	files       *filetransferusecase.Manager
-	tunnels     *tunnelusecase.Service
-	snippets    *snippetusecase.Service
-	workspaces  *workspaceusecase.Service
-	remotePaths *remotepathusecase.Service
-	settings    *settingsusecase.Service
+	manager       *sessionusecase.Manager
+	profiles      *profileusecase.Service
+	remote        *sshconnectionusecase.Service
+	files         *filetransferusecase.Manager
+	tunnels       *tunnelusecase.Service
+	snippets      *snippetusecase.Service
+	workspaces    *workspaceusecase.Service
+	remotePaths   *remotepathusecase.Service
+	notifications *notificationusecase.Service
+	settings      *settingsusecase.Service
 
 	ctxMu sync.RWMutex
 	ctx   context.Context
@@ -270,10 +286,11 @@ type eventSink struct {
 	desktop *Desktop
 }
 
-func NewDesktop(manager *sessionusecase.Manager, profiles *profileusecase.Service, remote *sshconnectionusecase.Service, files *filetransferusecase.Manager, tunnels *tunnelusecase.Service, snippets *snippetusecase.Service, workspaces *workspaceusecase.Service, remotePaths *remotepathusecase.Service, settings *settingsusecase.Service) *Desktop {
+func NewDesktop(manager *sessionusecase.Manager, profiles *profileusecase.Service, remote *sshconnectionusecase.Service, files *filetransferusecase.Manager, tunnels *tunnelusecase.Service, snippets *snippetusecase.Service, workspaces *workspaceusecase.Service, remotePaths *remotepathusecase.Service, notifications *notificationusecase.Service, settings *settingsusecase.Service) *Desktop {
 	desktop := &Desktop{
 		manager: manager, profiles: profiles, remote: remote, files: files, tunnels: tunnels,
-		snippets: snippets, workspaces: workspaces, remotePaths: remotePaths, settings: settings,
+		snippets: snippets, workspaces: workspaces, remotePaths: remotePaths,
+		notifications: notifications, settings: settings,
 		leaseWake: make(chan struct{}, 1),
 	}
 	sink := &eventSink{desktop: desktop}
@@ -291,6 +308,9 @@ func (d *Desktop) Startup(ctx context.Context) {
 	d.ctxMu.Lock()
 	d.ctx = ctx
 	d.ctxMu.Unlock()
+	if d.notifications != nil {
+		d.notifications.Startup(ctx)
+	}
 	go d.monitorLease(ctx)
 }
 
@@ -318,6 +338,9 @@ func (d *Desktop) Shutdown(context.Context) {
 	}
 	if d.tunnels != nil {
 		d.tunnels.Shutdown()
+	}
+	if d.notifications != nil {
+		d.notifications.Shutdown()
 	}
 }
 
@@ -666,6 +689,28 @@ func (d *Desktop) ResetSettings() (SettingsDTO, error) {
 		return SettingsDTO{}, err
 	}
 	return settingsDTO(reset), nil
+}
+
+func (d *Desktop) GetNotificationStatus() NotificationStatusDTO {
+	if d.notifications == nil {
+		return NotificationStatusDTO{Message: "Notifications are unavailable"}
+	}
+	return notificationStatusDTO(d.notifications.Status())
+}
+
+func (d *Desktop) RequestNotificationPermission() (NotificationStatusDTO, error) {
+	if d.notifications == nil {
+		return NotificationStatusDTO{}, errors.New("notifications are unavailable")
+	}
+	status, err := d.notifications.RequestAuthorization()
+	return notificationStatusDTO(status), err
+}
+
+func (d *Desktop) SendTestNotification() error {
+	if d.notifications == nil {
+		return errors.New("notifications are unavailable")
+	}
+	return d.notifications.SendTest()
 }
 
 func (d *Desktop) AttachFrontend(instanceNonce string) (FrontendLeaseDTO, error) {
@@ -1078,6 +1123,11 @@ func (s *eventSink) PublishOutput(chunk sessionusecase.OutputChunk) {
 func (s *eventSink) PublishState(event sessionusecase.StateEvent) {
 	d := s.desktop
 	wailsruntime.EventsEmit(d.context(), EventSessionState, event)
+	if event.State == sessionusecase.StateFailed && d.notifications != nil {
+		d.runNotification(func() error {
+			return d.notifications.UnexpectedDisconnect(event.SessionID, event.Title, event.Message)
+		})
+	}
 	notify(d.leaseWake)
 }
 
@@ -1086,8 +1136,12 @@ func (s *eventSink) PublishSessionLog(status sessionusecase.SessionLogStatus) {
 }
 
 func (s *eventSink) PublishTransfer(transfer filedomain.Transfer) {
-	wailsruntime.EventsEmit(s.desktop.context(), EventTransfer, transfer)
-	notify(s.desktop.leaseWake)
+	d := s.desktop
+	wailsruntime.EventsEmit(d.context(), EventTransfer, transfer)
+	if transfer.State == filedomain.TransferCompleted && d.notifications != nil {
+		d.runNotification(func() error { return d.notifications.TransferCompleted(transfer) })
+	}
+	notify(d.leaseWake)
 }
 
 func (s *eventSink) PublishTunnel(snapshot tunneldomain.Snapshot) {
@@ -1196,21 +1250,51 @@ func workspaceLayoutDTO(layout workspacedomain.Layout) WorkspaceLayoutDTO {
 }
 
 func settingsDTO(value settingsdomain.Settings) SettingsDTO {
-	return SettingsDTO{Terminal: TerminalSettingsDTO{
-		FontFamily: value.Terminal.FontFamily, FontSize: value.Terminal.FontSize,
-		LineHeight: value.Terminal.LineHeight, CursorStyle: value.Terminal.CursorStyle,
-		CursorBlink: value.Terminal.CursorBlink, Scrollback: value.Terminal.Scrollback,
-		Bell: value.Terminal.Bell,
-	}}
+	return SettingsDTO{
+		Terminal: TerminalSettingsDTO{
+			FontFamily: value.Terminal.FontFamily, FontSize: value.Terminal.FontSize,
+			LineHeight: value.Terminal.LineHeight, CursorStyle: value.Terminal.CursorStyle,
+			CursorBlink: value.Terminal.CursorBlink, Scrollback: value.Terminal.Scrollback,
+			Bell: value.Terminal.Bell,
+		},
+		Notifications: NotificationSettingsDTO{
+			Enabled: value.Notifications.Enabled, TransferCompleted: value.Notifications.TransferCompleted,
+			UnexpectedDisconnect: value.Notifications.UnexpectedDisconnect,
+			LongTransferSeconds:  value.Notifications.LongTransferSeconds,
+		},
+	}
 }
 
 func settingsFromDTO(value SettingsDTO) settingsdomain.Settings {
-	return settingsdomain.Settings{Terminal: settingsdomain.Terminal{
-		FontFamily: value.Terminal.FontFamily, FontSize: value.Terminal.FontSize,
-		LineHeight: value.Terminal.LineHeight, CursorStyle: value.Terminal.CursorStyle,
-		CursorBlink: value.Terminal.CursorBlink, Scrollback: value.Terminal.Scrollback,
-		Bell: value.Terminal.Bell,
-	}}
+	return settingsdomain.Settings{
+		Terminal: settingsdomain.Terminal{
+			FontFamily: value.Terminal.FontFamily, FontSize: value.Terminal.FontSize,
+			LineHeight: value.Terminal.LineHeight, CursorStyle: value.Terminal.CursorStyle,
+			CursorBlink: value.Terminal.CursorBlink, Scrollback: value.Terminal.Scrollback,
+			Bell: value.Terminal.Bell,
+		},
+		Notifications: settingsdomain.Notifications{
+			Enabled: value.Notifications.Enabled, TransferCompleted: value.Notifications.TransferCompleted,
+			UnexpectedDisconnect: value.Notifications.UnexpectedDisconnect,
+			LongTransferSeconds:  value.Notifications.LongTransferSeconds,
+		},
+	}
+}
+
+func notificationStatusDTO(status notificationusecase.Status) NotificationStatusDTO {
+	return NotificationStatusDTO{
+		Available: status.Available, Authorized: status.Authorized, Message: status.Message,
+	}
+}
+
+func (d *Desktop) runNotification(operation func() error) {
+	go func() {
+		if err := operation(); err != nil {
+			if ctx := d.context(); ctx != nil {
+				wailsruntime.LogWarning(ctx, "notification delivery failed: "+err.Error())
+			}
+		}
+	}()
 }
 
 func (d *Desktop) touchLease(id string) (FrontendLeaseDTO, error) {

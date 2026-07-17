@@ -27,6 +27,8 @@ native desktop application.
   permissions, bounded rotation, visible state, and terminal-owned cleanup.
 - Versioned terminal settings for font, spacing, cursor, scrollback, and bell
   behavior, with live application to open terminals and durable reset support.
+- Opt-in native notifications for long completed transfers and failed terminal
+  sessions, with explicit OS permission, category controls, and a test action.
 - A searchable command palette with grouped actions, disabled-state feedback,
   keyboard navigation, and shell-safe application shortcuts.
 - Terminal viewport copy and exact selection export through native clipboard
@@ -42,7 +44,7 @@ native desktop application.
 
 The current native proof and packaged build target is macOS arm64. Windows
 ConPTY, signed/notarized release automation, SSH connection pooling, resumable
-transfers, connection and transfer preferences, notifications, and remaining
+transfers, connection and transfer preferences, and remaining
 cross-platform UX are still future milestones; see the implementation plan for
 the release gates.
 
@@ -81,6 +83,24 @@ paths for that profile. Favorites are canonical absolute remote paths stored in
 a separate private atomic file; loading them never opens a connection, and
 choosing one uses only the SFTP session that is already visible.
 
+## System Notifications
+
+Notifications are disabled by default. Enable them under Settings, grant the
+operating-system permission through the explicit Allow notifications action,
+and choose whether to report completed long-running transfers, unexpected
+terminal failures, or both. Upload and download notifications use the saved
+duration threshold; short transfers do not produce alerts. The Send test action
+is available after notification preferences are saved.
+
+The application never requests permission at startup. Explicitly closed
+terminals do not produce disconnect alerts, and transfer alerts include only a
+basename, direction, and duration rather than a full local or remote path.
+Credentials, terminal output, and file contents are never notification data.
+Delivery uses the Wails native notification runtime and does not add a helper
+process or sidecar. The macOS bundle uses the stable identifier
+`dev.johannes.shhh` so authorization belongs to a consistent application
+identity.
+
 On macOS, `make build` produces `build/bin/shh-h.app`. The embedded Go
 executable is `build/bin/shh-h.app/Contents/MacOS/shhh`.
 
@@ -89,11 +109,12 @@ executable is `build/bin/shh-h.app/Contents/MacOS/shhh`.
 - `cmd/shhh`: executable entry point and Wails project configuration.
 - `internal/app`: composition root and desktop lifecycle configuration.
 - `internal/domain`: pure profile, transfer, SSH, tunnel, snippet, workspace,
-  remote-path favorite, and settings models.
+  remote-path favorite, settings, and notification models.
 - `internal/port`: terminal, SSH connection, and remote filesystem contracts.
-- `internal/adapter`: PTY, SSH, known-host, SFTP, session-log, profile exchange, and configuration adapters.
+- `internal/adapter`: PTY, SSH, known-host, SFTP, session-log, native
+  notification, profile exchange, and configuration adapters.
 - `internal/usecase`: profile, session, transfer, SSH, tunnel, snippet,
-  remote-path favorite, and workspace orchestration.
+  remote-path favorite, notification, and workspace orchestration.
 - `internal/bridge`: narrow typed Wails command and event boundary.
 - `frontend`: React terminal, profile, file, transfer, tunnel, snippet, layout,
   and settings workspaces.

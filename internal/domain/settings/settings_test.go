@@ -23,6 +23,7 @@ func TestSettingsRejectOutOfRangeTerminalValues(t *testing.T) {
 		{name: "nan height", change: func(value *Settings) { value.Terminal.LineHeight = math.NaN() }},
 		{name: "cursor", change: func(value *Settings) { value.Terminal.CursorStyle = "box" }},
 		{name: "scrollback", change: func(value *Settings) { value.Terminal.Scrollback = 100 }},
+		{name: "transfer notification threshold", change: func(value *Settings) { value.Notifications.LongTransferSeconds = 4 }},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {

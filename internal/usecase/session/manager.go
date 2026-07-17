@@ -61,6 +61,7 @@ type StateEvent struct {
 	LeaseID    string `json:"leaseId"`
 	SessionID  string `json:"sessionId"`
 	Generation uint64 `json:"generation"`
+	Title      string `json:"title"`
 	State      State  `json:"state"`
 	ExitCode   *int   `json:"exitCode,omitempty"`
 	Signal     string `json:"signal,omitempty"`
@@ -579,7 +580,7 @@ func (m *Manager) publishState(runtime *runtimeSession, status *port.ExitStatus,
 	snapshot := runtime.snapshot()
 	event := StateEvent{
 		LeaseID: snapshot.LeaseID, SessionID: snapshot.ID, Generation: snapshot.Generation,
-		State: snapshot.State, Message: message,
+		Title: snapshot.Title, State: snapshot.State, Message: message,
 	}
 	if status != nil {
 		exitCode := status.Code

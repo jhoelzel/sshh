@@ -113,7 +113,10 @@ func TestManagerActivatesBeforePublishingAndAcknowledgesCumulatively(t *testing.
 	if err != nil {
 		t.Fatalf("open local terminal: %v", err)
 	}
-	<-sink.state
+	openedEvent := <-sink.state
+	if openedEvent.Title != "Local" {
+		t.Fatalf("state event omitted the session title: %#v", openedEvent)
+	}
 
 	writeDone := make(chan error, 1)
 	go func() {

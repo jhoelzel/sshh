@@ -2045,6 +2045,28 @@ textarea:focus-visible {
   font-size: 10px;
 }
 
+.number-control input[type="number"] {
+  width: 120px;
+  height: 30px;
+  justify-self: end;
+  padding: 0 8px;
+  border: 1px solid #363d39;
+  border-radius: 4px;
+  outline: 0;
+  background: #0f1210;
+  color: #dce2dc;
+  font-family: SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 10px;
+}
+
+.number-control input[type="number"]:focus {
+  border-color: #5ca586;
+}
+
+.number-control input[type="number"]:disabled {
+  opacity: 0.45;
+}
+
 .range-control {
   grid-template-columns: minmax(170px, 1fr) minmax(180px, 320px) 72px;
 }
@@ -2066,6 +2088,37 @@ textarea:focus-visible {
 
 .settings-segments {
   grid-template-columns: repeat(3, minmax(72px, 1fr));
+}
+
+.notification-permission,
+.notification-test-row {
+  display: flex;
+  min-height: 54px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+}
+
+.notification-permission > span > strong,
+.notification-permission > span > small {
+  display: block;
+}
+
+.notification-permission > span > strong {
+  color: #cdd3ce;
+  font-size: 10px;
+  font-weight: 600;
+}
+
+.notification-permission > span > small,
+.notification-test-row > span {
+  margin-top: 3px;
+  color: #6f7973;
+  font-size: 9px;
+}
+
+.notification-test-row {
+  justify-content: flex-end;
 }
 
 .toggle-control {
@@ -2902,6 +2955,18 @@ textarea:focus-visible {
 
   .range-control output {
     text-align: left;
+  }
+
+  .number-control input[type="number"] {
+    justify-self: start;
+  }
+
+  .notification-permission,
+  .notification-test-row {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 10px;
+    padding: 10px 0;
   }
 
   .toggle-control,
