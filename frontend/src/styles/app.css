@@ -2022,6 +2022,44 @@ textarea:focus-visible {
   border-top: 1px solid #2c322e;
 }
 
+.build-info-list {
+  margin: 0;
+  border-top: 1px solid #2c322e;
+}
+
+.build-info-list > div {
+  display: grid;
+  min-height: 44px;
+  grid-template-columns: minmax(170px, 1fr) minmax(220px, 360px);
+  align-items: center;
+  gap: 18px;
+  border-bottom: 1px solid #252a27;
+}
+
+.build-info-list dt {
+  color: #89938d;
+  font-size: 10px;
+}
+
+.build-info-list dd {
+  min-width: 0;
+  margin: 0;
+  overflow-wrap: anywhere;
+  color: #cdd3ce;
+  font-family: SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 9px;
+}
+
+.build-info-list code {
+  font: inherit;
+}
+
+.build-info-modified {
+  margin-left: 9px;
+  color: #d9a45e;
+  font-family: inherit;
+}
+
 .settings-control {
   display: grid;
   min-height: 54px;
@@ -2963,7 +3001,8 @@ textarea:focus-visible {
   }
 
   .settings-control,
-  .range-control {
+  .range-control,
+  .build-info-list > div {
     grid-template-columns: minmax(0, 1fr);
     gap: 8px;
     padding: 10px 0;

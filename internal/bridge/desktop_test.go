@@ -117,6 +117,16 @@ func TestSettingsDTORoundTripIncludesConnectionNotificationAndTransferPreference
 	}
 }
 
+func TestBuildInfoDTOIsAlwaysPopulated(t *testing.T) {
+	info := (&Desktop{}).GetBuildInfo()
+	if info.Version == "" || info.Commit == "" || info.BuildDate == "" {
+		t.Fatalf("build identity contains empty values: %#v", info)
+	}
+	if info.GoVersion == "" || info.Platform == "" {
+		t.Fatalf("runtime identity contains empty values: %#v", info)
+	}
+}
+
 func TestBoundedDialogTextRemovesControlsAndCapsBytes(t *testing.T) {
 	if got := boundedDialogText(" report\nname.csv ", 160); got != "report name.csv" {
 		t.Fatalf("unexpected dialog text %q", got)

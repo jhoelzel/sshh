@@ -1,5 +1,27 @@
 export namespace bridge {
 
+	export class BuildInfoDTO {
+	    version: string;
+	    commit: string;
+	    buildDate: string;
+	    dirty: boolean;
+	    goVersion: string;
+	    platform: string;
+
+	    static createFrom(source: any = {}) {
+	        return new BuildInfoDTO(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.version = source["version"];
+	        this.commit = source["commit"];
+	        this.buildDate = source["buildDate"];
+	        this.dirty = source["dirty"];
+	        this.goVersion = source["goVersion"];
+	        this.platform = source["platform"];
+	    }
+	}
 	export class ConnectionSettingsDTO {
 	    connectTimeoutSeconds: number;
 	    keepAliveEnabled: boolean;

@@ -42,6 +42,7 @@ import { backend, onCloseRequested, onSessionLog, onSessionState, onTerminalOutp
 import { createDisconnectedTabs } from './workspaces'
 import type {
   AppSettings,
+  BuildInfo,
   FileSession,
   FrontendLease,
   NotificationStatus,
@@ -138,6 +139,7 @@ export function App() {
   const [workspaceLayouts, setWorkspaceLayouts] = useState<WorkspaceLayout[]>([])
   const [sessionLogs, setSessionLogs] = useState<SessionLogStatus[]>([])
   const [settings, setSettings] = useState<AppSettings>()
+  const [buildInfo, setBuildInfo] = useState<BuildInfo>()
   const [notificationStatus, setNotificationStatus] = useState<NotificationStatus>()
   const [loggingSessionId, setLoggingSessionId] = useState<string>()
   const [error, setError] = useState<string>()
@@ -199,7 +201,8 @@ export function App() {
     void Promise.all([
       backend.attachFrontend(frontendNonce), backend.listProfiles(), backend.listTunnels(),
       backend.listSnippets(), backend.listWorkspaceLayouts(), backend.listRemotePathFavorites(), backend.getSettings(),
-    ]).then(([attachedLease, loadedProfiles, loadedTunnels, loadedSnippets, loadedLayouts, loadedPathFavorites, loadedSettings]) => {
+      backend.getBuildInfo(),
+    ]).then(([attachedLease, loadedProfiles, loadedTunnels, loadedSnippets, loadedLayouts, loadedPathFavorites, loadedSettings, loadedBuildInfo]) => {
         if (!cancelled) {
           setLease(attachedLease)
           setProfiles(loadedProfiles)
@@ -208,6 +211,7 @@ export function App() {
           setWorkspaceLayouts(loadedLayouts)
           setRemotePathFavorites(loadedPathFavorites)
           setSettings(loadedSettings)
+          setBuildInfo(loadedBuildInfo)
         }
     })
       .catch(reportError)
@@ -1523,9 +1527,10 @@ export function App() {
           />
         )}
 
-        {workspaceMode === 'settings' && settings && (
+        {workspaceMode === 'settings' && settings && buildInfo && (
           <SettingsWorkspace
             settings={settings}
+            buildInfo={buildInfo}
             notificationStatus={notificationStatus}
             onSave={saveSettings}
             onReset={resetSettings}

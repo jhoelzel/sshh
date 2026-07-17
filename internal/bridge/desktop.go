@@ -21,6 +21,7 @@ import (
 
 	"shh-h/internal/adapter/profileexchange"
 	"shh-h/internal/adapter/textfile"
+	"shh-h/internal/buildinfo"
 	filedomain "shh-h/internal/domain/filetransfer"
 	"shh-h/internal/domain/profile"
 	remotepathdomain "shh-h/internal/domain/remotepath"
@@ -244,6 +245,15 @@ type TransferSettingsDTO struct {
 	Concurrency      int                        `json:"concurrency"`
 	CollisionPolicy  filedomain.CollisionPolicy `json:"collisionPolicy"`
 	KeepPartialFiles bool                       `json:"keepPartialFiles"`
+}
+
+type BuildInfoDTO struct {
+	Version   string `json:"version"`
+	Commit    string `json:"commit"`
+	BuildDate string `json:"buildDate"`
+	Dirty     bool   `json:"dirty"`
+	GoVersion string `json:"goVersion"`
+	Platform  string `json:"platform"`
 }
 
 type FrontendLeaseDTO struct {
@@ -682,6 +692,18 @@ func (d *Desktop) GetSettings() SettingsDTO {
 		return settingsDTO(settingsdomain.Defaults())
 	}
 	return settingsDTO(d.settings.Get())
+}
+
+func (d *Desktop) GetBuildInfo() BuildInfoDTO {
+	info := buildinfo.Current()
+	return BuildInfoDTO{
+		Version:   info.Version,
+		Commit:    info.Commit,
+		BuildDate: info.BuildDate,
+		Dirty:     info.Dirty,
+		GoVersion: info.GoVersion,
+		Platform:  info.Platform,
+	}
 }
 
 func (d *Desktop) UpdateSettings(input SettingsDTO) (SettingsDTO, error) {

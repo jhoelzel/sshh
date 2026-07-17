@@ -23,6 +23,7 @@ import {
   DuplicateProfile,
   ExportProfiles,
   ExportTerminalText,
+  GetBuildInfo,
   GetNotificationStatus,
   GetSettings,
   ListProfiles,
@@ -69,6 +70,7 @@ import { bridge } from '../../../wailsjs/go/models'
 import { ClipboardSetText, EventsOff, EventsOn } from '../../../wailsjs/runtime/runtime'
 import type {
   AppSettings,
+  BuildInfo,
   FrontendLease,
   NotificationStatus,
   FileSession,
@@ -112,6 +114,7 @@ export const events = {
 export const backend = {
   attachFrontend: (nonce: string) => AttachFrontend(nonce) as Promise<FrontendLease>,
   renewFrontendLease: (leaseId: string) => RenewFrontendLease(leaseId) as Promise<FrontendLease>,
+  getBuildInfo: () => GetBuildInfo() as Promise<BuildInfo>,
   listProfiles: async () => normalizeProfiles(await ListProfiles()),
   createProfile: (profile: ProfileInput) => CreateProfile(profile) as Promise<Profile>,
   updateProfile: (profile: ProfileInput) => UpdateProfile(profile) as Promise<Profile>,

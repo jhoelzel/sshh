@@ -81,6 +81,9 @@ Implemented and verified:
   Restore creates disconnected frontend tabs with no process or network
   resource; each tab reconnects explicitly through the normal trust and
   credential workflow.
+- [x] Native builds embed version, source revision, UTC build date, and dirty-tree
+  state. Settings exposes that identity with the Go version and target platform;
+  direct Go builds fall back to embedded VCS metadata.
 - [x] Go race tests cover managers and adapters. Real loopback integration tests
   cover PTY, shared multi-channel SSH terminal lifetime, terminal resize/exit,
   SFTP operations, and bidirectional local, remote, and SOCKS forwarding.
@@ -638,7 +641,7 @@ Deliverables:
 - [ ] Establish automated vulnerability scanning and frontend dependency checks.
   Local `go test`, race, formatting, TypeScript, Vitest, ESLint, vet, frontend
   production, and native macOS build checks are implemented.
-- [ ] Add build metadata: semantic version, commit, build date, and dirty state.
+- [x] Add build metadata: semantic version, commit, build date, and dirty state.
 - [x] Add a root application context and coordinated shutdown service.
 - [x] Configure `OnStartup`, `OnDomReady`, `OnBeforeClose`, and `OnShutdown` with
   idempotent ownership, and enable `SingleInstanceLock` before writable config
@@ -1055,8 +1058,10 @@ Deliverables:
 - [ ] Add the distributable dependency-license inventory.
 - [ ] Promote the native CI jobs introduced in M0/M2 into the complete release
   matrix for macOS arm64/amd64, Linux amd64, and Windows amd64.
-- [ ] Build release-mode binaries with version metadata and stripped debug
-  symbols.
+- [x] Embed version, commit, build date, and dirty state in native development
+  packages and expose them through the Settings workspace.
+- [ ] Build final release-mode binaries with stripped debug symbols and validate
+  their supplied release metadata.
 - [x] Build and launch a local macOS arm64 development `.app` with embedded
   frontend assets.
 - [ ] Package release builds as macOS `.app`, Windows GUI `.exe`, and Linux
@@ -1277,7 +1282,7 @@ commitments:
 | M8 Tunnels | Implemented; two integration fixtures open | 6-10 days | Network workflow |
 | M9 Productivity | Implemented | 6-10 days | Operator efficiency |
 | M10 UX/settings | Partial | 5-9 days | Product completeness |
-| M11 Packaging | macOS arm64 development bundle only | 5-10 days | Installable native releases |
+| M11 Packaging | macOS arm64 development bundle with identity only | 5-10 days | Installable native releases |
 | M12 Hardening | In progress; release gates open | 7-14 days | 1.0 release confidence |
 
 A credible core 1.0 is roughly 16-27 focused engineering weeks for one person,

@@ -303,3 +303,12 @@ export interface AppSettings {
   notifications: NotificationSettings
   transfers: TransferSettings
 }
+
+export interface BuildInfo {
+  version: string
+  commit: string
+  buildDate: string
+  dirty: boolean
+  goVersion: string
+  platform: string
+}

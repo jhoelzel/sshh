@@ -67,11 +67,30 @@ Node and npm are build-time dependencies only.
 ## Commands
 
 ```sh
-make run       # Wails development mode
+make run       # foreground Wails development mode; Ctrl+C stops it
 make test      # Go and frontend unit/integration tests
 make lint      # ESLint and go vet
-make build     # production native package
+make build     # native package with embedded build identity
 ```
+
+## Build Identity
+
+`make build` embeds version, source revision, UTC build date, and dirty-tree
+state into the Go executable. Settings displays those fields together with the
+Go version and target platform, which makes development packages and future
+release diagnostics identifiable without a helper process or network call.
+
+The default development version is `0.1.0-dev`; commit, build date, and dirty
+state are read from the current checkout. Release automation can provide
+repeatable values explicitly:
+
+```sh
+make build VERSION=1.0.0 COMMIT=0123456789ab \
+  BUILD_DATE=2026-07-17T18:00:00Z DIRTY=false
+```
+
+Direct Go builds fall back to Go's embedded VCS revision and modified flag.
+Their build date remains `unknown` unless supplied through the linker.
 
 ## Terminal Text Actions
 
@@ -180,6 +199,7 @@ executable is `build/bin/shh-h.app/Contents/MacOS/shhh`.
 
 - `cmd/shhh`: executable entry point and Wails project configuration.
 - `internal/app`: composition root and desktop lifecycle configuration.
+- `internal/buildinfo`: linker-provided and Go VCS build identity.
 - `internal/domain`: pure profile, transfer, SSH, tunnel, snippet, workspace,
   remote-path favorite, settings, and notification models.
 - `internal/port`: terminal, SSH connection, and remote filesystem contracts.

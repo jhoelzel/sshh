@@ -98,6 +98,10 @@ export function ExportTerminalText(arg1, arg2) {
   return window['go']['bridge']['Desktop']['ExportTerminalText'](arg1, arg2);
 }
 
+export function GetBuildInfo() {
+  return window['go']['bridge']['Desktop']['GetBuildInfo']();
+}
+
 export function GetNotificationStatus() {
   return window['go']['bridge']['Desktop']['GetNotificationStatus']();
 }

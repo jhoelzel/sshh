@@ -1,9 +1,10 @@
 import { useMemo, useState, type FormEvent } from 'react'
-import { ArrowLeftRight, Bell, BellRing, MousePointer2, Network, RotateCcw, Save, Send, Settings2, Type } from 'lucide-react'
-import type { AppSettings, NotificationStatus, TerminalCursorStyle, TerminalFontFamily, TransferCollisionPolicy } from '../../lib/bridge/types'
+import { ArrowLeftRight, Bell, BellRing, Info, MousePointer2, Network, RotateCcw, Save, Send, Settings2, Type } from 'lucide-react'
+import type { AppSettings, BuildInfo, NotificationStatus, TerminalCursorStyle, TerminalFontFamily, TransferCollisionPolicy } from '../../lib/bridge/types'
 
 interface SettingsWorkspaceProps {
   settings: AppSettings
+  buildInfo: BuildInfo
   notificationStatus?: NotificationStatus
   onSave: (settings: AppSettings) => Promise<AppSettings>
   onReset: () => Promise<AppSettings>
@@ -13,6 +14,7 @@ interface SettingsWorkspaceProps {
 
 export function SettingsWorkspace({
   settings,
+  buildInfo,
   notificationStatus,
   onSave,
   onReset,
@@ -250,6 +252,31 @@ export function SettingsWorkspace({
           </div>
         </section>
 
+        <section className="settings-section" aria-labelledby="build-info-title">
+          <header><Info size={17} /><h2 id="build-info-title">Build identity</h2></header>
+          <dl className="build-info-list">
+            <div>
+              <dt>Version</dt>
+              <dd>{buildInfo.version}</dd>
+            </div>
+            <div>
+              <dt>Source revision</dt>
+              <dd title={buildInfo.commit}>
+                <code>{shortCommit(buildInfo.commit)}</code>
+                {buildInfo.dirty && <span className="build-info-modified">Modified source</span>}
+              </dd>
+            </div>
+            <div>
+              <dt>Build date</dt>
+              <dd>{buildInfo.buildDate === 'unknown' ? 'Not recorded' : buildInfo.buildDate}</dd>
+            </div>
+            <div>
+              <dt>Runtime</dt>
+              <dd>{buildInfo.goVersion} · {buildInfo.platform}</dd>
+            </div>
+          </dl>
+        </section>
+
         {error && <div className="settings-error" role="alert">{error}</div>}
       </div>
 
@@ -263,6 +290,10 @@ export function SettingsWorkspace({
 
 function cursorLabel(value: TerminalCursorStyle): string {
   return value.charAt(0).toUpperCase() + value.slice(1)
+}
+
+function shortCommit(value: string): string {
+  return value === 'unknown' ? value : value.slice(0, 12)
 }
 
 function errorMessage(cause: unknown): string {

@@ -53,6 +53,8 @@ export function ExportProfiles():Promise<bridge.ProfileExportDTO>;
 
 export function ExportTerminalText(arg1:string,arg2:string):Promise<bridge.TerminalTextExportDTO>;
 
+export function GetBuildInfo():Promise<bridge.BuildInfoDTO>;
+
 export function GetNotificationStatus():Promise<bridge.NotificationStatusDTO>;
 
 export function GetSettings():Promise<bridge.SettingsDTO>;

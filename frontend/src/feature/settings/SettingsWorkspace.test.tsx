@@ -34,9 +34,19 @@ const settings = {
 
 const notificationStatus = { available: true, authorized: false, message: 'Permission is required' }
 
+const buildInfo = {
+  version: '0.1.0-dev',
+  commit: '1234567890abcdef',
+  buildDate: '2026-07-17T15:30:00Z',
+  dirty: true,
+  goVersion: 'go1.26.5',
+  platform: 'darwin/arm64',
+}
+
 const renderSettings = (overrides: Partial<React.ComponentProps<typeof SettingsWorkspace>> = {}) => render(
   <SettingsWorkspace
     settings={settings}
+    buildInfo={buildInfo}
     notificationStatus={notificationStatus}
     onSave={vi.fn()}
     onReset={vi.fn()}
@@ -140,5 +150,15 @@ describe('SettingsWorkspace', () => {
       notifications: settings.notifications,
       transfers: settings.transfers,
     }))
+  })
+
+  it('shows the immutable build identity', () => {
+    renderSettings()
+
+    expect(screen.getByText('0.1.0-dev')).toBeTruthy()
+    expect(screen.getByText('1234567890ab')).toBeTruthy()
+    expect(screen.getByText('Modified source')).toBeTruthy()
+    expect(screen.getByText('2026-07-17T15:30:00Z')).toBeTruthy()
+    expect(screen.getByText('go1.26.5 · darwin/arm64')).toBeTruthy()
   })
 })
