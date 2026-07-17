@@ -682,10 +682,13 @@ Tests and exit gate:
   arm64 macOS two-process smoke on 2026-07-17 recorded an immediate zero-status
   secondary exit, one surviving host PID, unchanged config metadata, and the
   existing `shhh` process restored to the foreground.
-- [ ] React StrictMode's development remount does not duplicate bridge listeners,
-  controllers, commands, or backend resources. Listener cleanup now uses Wails'
-  subscription-specific disposer, while same-nonce backend attachment is
-  idempotent; a full rendered StrictMode/native interaction gate remains.
+- [x] React StrictMode's development effect replay does not duplicate bridge
+  listeners, controllers, commands, or backend resources. Nonce-scoped
+  in-flight loaders coalesce startup commands, listeners use Wails'
+  subscription-specific disposers, and same-nonce backend attachment is
+  idempotent. A rendered whole-App gate proves one startup command set, one
+  active listener set, one terminal command and controller per keyboard action,
+  complete cleanup, and a fresh single command set on a genuine later remount.
 - [x] The Wails application builds and launches as an arm64 `.app` on the current
   Mac using the system WKWebView.
 - [ ] Native macOS, Linux, and Windows CI jobs build the desktop shell, using
@@ -1297,7 +1300,7 @@ commitments:
 
 | Milestone | Current status | Expected effort | Release value |
 | --- | --- | ---: | --- |
-| M0 Foundation | Partial; cross-platform native CI and StrictMode gates open | 4-7 days | Wails migration and honest lifecycle |
+| M0 Foundation | Partial; cross-platform native CI gate open | 4-7 days | Wails migration and honest lifecycle |
 | M1 Terminal proof | Partial; performance and native stress gates open | 7-12 days | Proven PTY/bridge/xterm vertical slice |
 | M2 Local terminal | macOS core implemented; Windows/Linux gates open | 8-14 days | First genuinely usable program |
 | M3 Workspace | Partial; tab-management and Activity work open | 4-7 days | Reliable multi-session desktop UX |

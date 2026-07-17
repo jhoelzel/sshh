@@ -39,6 +39,7 @@ import { TerminalPane } from '../feature/terminal/TerminalPane'
 import { TunnelWorkspace } from '../feature/tunnels/TunnelWorkspace'
 import { WorkspaceLayoutWorkspace } from '../feature/workspaces/WorkspaceLayoutWorkspace'
 import { backend, onCloseRequested, onSessionLog, onSessionState, onTerminalOutput, onTransfer, onTunnel } from '../lib/bridge/client'
+import { loadFrontendBootstrap, loadFrontendNotificationStatus } from './frontendBootstrap'
 import { createDisconnectedTabs } from './workspaces'
 import type {
   AppSettings,
@@ -198,23 +199,21 @@ export function App() {
 
   useEffect(() => {
     let cancelled = false
-    void Promise.all([
-      backend.attachFrontend(frontendNonce), backend.listProfiles(), backend.listTunnels(),
-      backend.listSnippets(), backend.listWorkspaceLayouts(), backend.listRemotePathFavorites(), backend.getSettings(),
-      backend.getBuildInfo(),
-    ]).then(([attachedLease, loadedProfiles, loadedTunnels, loadedSnippets, loadedLayouts, loadedPathFavorites, loadedSettings, loadedBuildInfo]) => {
-        if (!cancelled) {
-          setLease(attachedLease)
-          setProfiles(loadedProfiles)
-          setTunnelConfigs(loadedTunnels)
-          setSnippets(loadedSnippets)
-          setWorkspaceLayouts(loadedLayouts)
-          setRemotePathFavorites(loadedPathFavorites)
-          setSettings(loadedSettings)
-          setBuildInfo(loadedBuildInfo)
-        }
+    void loadFrontendBootstrap(frontendNonce).then((snapshot) => {
+      if (!cancelled) {
+        setLease(snapshot.lease)
+        setProfiles(snapshot.profiles)
+        setTunnelConfigs(snapshot.tunnels)
+        setSnippets(snapshot.snippets)
+        setWorkspaceLayouts(snapshot.workspaceLayouts)
+        setRemotePathFavorites(snapshot.remotePathFavorites)
+        setSettings(snapshot.settings)
+        setBuildInfo(snapshot.buildInfo)
+      }
     })
-      .catch(reportError)
+      .catch((cause: unknown) => {
+        if (!cancelled) reportError(cause)
+      })
     return () => {
       cancelled = true
     }
@@ -222,15 +221,9 @@ export function App() {
 
   useEffect(() => {
     let cancelled = false
-    void backend.getNotificationStatus()
-      .then((status) => {
-        if (!cancelled) setNotificationStatus(status)
-      })
-      .catch((cause) => {
-        if (!cancelled) {
-          setNotificationStatus({ available: false, authorized: false, message: errorMessage(cause) })
-        }
-      })
+    void loadFrontendNotificationStatus(frontendNonce).then((status) => {
+      if (!cancelled) setNotificationStatus(status)
+    })
     return () => {
       cancelled = true
     }

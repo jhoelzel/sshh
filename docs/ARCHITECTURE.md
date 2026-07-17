@@ -52,6 +52,13 @@ cmd/shhh -> internal/app wires the complete application
 - One non-React terminal controller owns each xterm.js instance.
 - React StrictMode remains enabled in development. Component mount effects may
   attach terminal hosts and listeners but never create backend resources.
+- The main bootstrap and independent notification-status query each share a
+  nonce-scoped promise while in flight, so StrictMode's effect replay cannot
+  duplicate either command group. Settled data is not cached: a genuine later
+  root mount refreshes its data and lease.
+- Every bridge subscription owns its Wails disposer, and terminal-controller
+  disposal is idempotent. Unmounting therefore removes only that mount's
+  listeners and controllers.
 
 ## Error Contract
 
