@@ -11,12 +11,14 @@ import (
 	"net"
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"testing"
 	"time"
 
 	"golang.org/x/crypto/ssh"
 
+	"shh-h/internal/adapter/sshclient"
 	"shh-h/internal/domain/profile"
 	"shh-h/internal/port"
 )
@@ -35,7 +37,9 @@ func TestFactoryInteractiveTerminalRoundTrip(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	factory := NewFactory(fixedHostKey{key: server.hostKey}, nil)
+	clients := sshclient.NewPool(NewDialer(fixedHostKey{key: server.hostKey}), nil)
+	defer clients.Shutdown()
+	factory := NewFactory(clients)
 	terminal, err := factory.OpenSSH(ctx, port.SSHTerminalSpec{
 		Host: host, Port: sshPort, Username: "tester",
 		Authentication: profile.AuthenticationPassword,
@@ -82,6 +86,70 @@ func TestFactoryInteractiveTerminalRoundTrip(t *testing.T) {
 	}
 }
 
+func TestFactoryTerminalLeasesShareConnection(t *testing.T) {
+	server := newTestSSHServer(t)
+	defer server.Close()
+	host, portText, err := net.SplitHostPort(server.Address())
+	if err != nil {
+		t.Fatalf("split server address: %v", err)
+	}
+	sshPort, err := strconv.Atoi(portText)
+	if err != nil {
+		t.Fatalf("parse server port: %v", err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	clients := sshclient.NewPool(NewDialer(fixedHostKey{key: server.hostKey}), nil)
+	defer clients.Shutdown()
+	factory := NewFactory(clients)
+	spec := port.SSHTerminalSpec{
+		ProfileID: "shared", Host: host, Port: sshPort, Username: "tester",
+		Authentication: profile.AuthenticationPassword,
+		Credentials:    port.SSHCredentials{Password: []byte("secret")},
+		Columns:        100, Rows: 30,
+	}
+
+	first, err := factory.OpenSSH(ctx, spec)
+	if err != nil {
+		t.Fatalf("open first terminal: %v", err)
+	}
+	second, err := factory.OpenSSH(ctx, spec)
+	if err != nil {
+		_ = first.Close()
+		t.Fatalf("open second terminal: %v", err)
+	}
+	if connections := server.connections.Load(); connections != 1 {
+		t.Fatalf("expected one authenticated connection, got %d", connections)
+	}
+
+	if err := first.Close(); err != nil {
+		t.Fatalf("close first terminal: %v", err)
+	}
+	if _, err := second.Write([]byte("still-open\n")); err != nil {
+		t.Fatalf("write second terminal after closing first: %v", err)
+	}
+	output := make([]byte, len("still-open\n"))
+	if _, err := io.ReadFull(second, output); err != nil {
+		t.Fatalf("read second terminal after closing first: %v", err)
+	}
+	if string(output) != "still-open\n" {
+		t.Fatalf("unexpected second terminal output %q", output)
+	}
+	if _, err := second.Write([]byte("exit\n")); err != nil {
+		t.Fatalf("request second terminal exit: %v", err)
+	}
+	status, err := second.Wait()
+	if err != nil {
+		t.Fatalf("wait for second terminal: %v", err)
+	}
+	if status.Code != 7 {
+		t.Fatalf("unexpected second terminal status: %#v", status)
+	}
+	if err := second.Close(); err != nil {
+		t.Fatalf("close second terminal: %v", err)
+	}
+}
+
 type fixedHostKey struct {
 	key ssh.PublicKey
 }
@@ -96,12 +164,13 @@ func (f fixedHostKey) HostKeyCallback(string, int) ssh.HostKeyCallback {
 }
 
 type testSSHServer struct {
-	listener net.Listener
-	hostKey  ssh.PublicKey
-	config   *ssh.ServerConfig
-	resize   chan [2]uint32
-	done     chan struct{}
-	once     sync.Once
+	listener    net.Listener
+	hostKey     ssh.PublicKey
+	config      *ssh.ServerConfig
+	resize      chan [2]uint32
+	done        chan struct{}
+	once        sync.Once
+	connections atomic.Int32
 }
 
 func newTestSSHServer(t *testing.T) *testSSHServer {
@@ -161,6 +230,7 @@ func (s *testSSHServer) serve() {
 	if err != nil {
 		return
 	}
+	s.connections.Add(1)
 	defer raw.Close()
 	connection, channels, requests, err := ssh.NewServerConn(raw, s.config)
 	if err != nil {
@@ -168,6 +238,7 @@ func (s *testSSHServer) serve() {
 	}
 	defer connection.Close()
 	go ssh.DiscardRequests(requests)
+	var sessions sync.WaitGroup
 	for incoming := range channels {
 		if incoming.ChannelType() != "session" {
 			_ = incoming.Reject(ssh.UnknownChannelType, "session required")
@@ -177,8 +248,13 @@ func (s *testSSHServer) serve() {
 		if err != nil {
 			continue
 		}
-		s.handleSession(channel, channelRequests)
+		sessions.Add(1)
+		go func() {
+			defer sessions.Done()
+			s.handleSession(channel, channelRequests)
+		}()
 	}
+	sessions.Wait()
 }
 
 func (s *testSSHServer) handleSession(channel ssh.Channel, requests <-chan *ssh.Request) {

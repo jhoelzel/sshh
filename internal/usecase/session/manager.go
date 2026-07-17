@@ -217,7 +217,7 @@ func (m *Manager) OpenSSH(ctx context.Context, leaseID string, selected profile.
 	}
 	runtimeCtx, cancel := context.WithCancel(ctx)
 	transport, err := factory.OpenSSH(runtimeCtx, port.SSHTerminalSpec{
-		Host: selected.Host, Port: selected.Port, Username: selected.Username,
+		ProfileID: selected.ID, Host: selected.Host, Port: selected.Port, Username: selected.Username,
 		Authentication: selected.Authentication, IdentityFile: selected.IdentityFile,
 		Credentials: credentials, Columns: columns, Rows: rows,
 	})

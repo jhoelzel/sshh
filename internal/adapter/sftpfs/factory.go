@@ -12,45 +12,53 @@ import (
 	"time"
 
 	"github.com/pkg/sftp"
-	"golang.org/x/crypto/ssh"
 
+	"shh-h/internal/adapter/sshclient"
 	"shh-h/internal/domain/filetransfer"
 	"shh-h/internal/port"
 )
 
-type sshDialer interface {
-	DialSSH(context.Context, port.SSHTerminalSpec) (*ssh.Client, error)
+type clientAcquirer interface {
+	Acquire(context.Context, port.SSHTerminalSpec) (*sshclient.Lease, error)
 }
 
 type Factory struct {
-	dialer sshDialer
+	clients clientAcquirer
 }
 
-func NewFactory(dialer sshDialer) *Factory {
-	return &Factory{dialer: dialer}
+func NewFactory(clients clientAcquirer) *Factory {
+	return &Factory{clients: clients}
 }
 
 func (f *Factory) OpenRemoteFilesystem(ctx context.Context, spec port.SSHTerminalSpec) (port.RemoteFilesystem, error) {
-	client, err := f.dialer.DialSSH(ctx, spec)
+	if f.clients == nil {
+		return nil, errors.New("SSH client pool is unavailable")
+	}
+	lease, err := f.clients.Acquire(ctx, spec)
 	if err != nil {
 		return nil, err
 	}
+	client := lease.Client()
+	if client == nil {
+		_ = lease.Close()
+		return nil, errors.New("SSH client is unavailable")
+	}
 	remote, err := sftp.NewClient(client)
 	if err != nil {
-		_ = client.Close()
+		_ = lease.Close()
 		return nil, fmt.Errorf("start sftp subsystem: %w", err)
 	}
 	workingDirectory, err := remote.Getwd()
 	if err != nil {
 		_ = remote.Close()
-		_ = client.Close()
+		_ = lease.Close()
 		return nil, fmt.Errorf("resolve remote working directory: %w", err)
 	}
-	return &filesystem{ssh: client, client: remote, workingDirectory: workingDirectory}, nil
+	return &filesystem{lease: lease, client: remote, workingDirectory: workingDirectory}, nil
 }
 
 type filesystem struct {
-	ssh              *ssh.Client
+	lease            *sshclient.Lease
 	client           *sftp.Client
 	workingDirectory string
 	closeOnce        sync.Once
@@ -190,7 +198,7 @@ func (f *filesystem) OpenWrite(ctx context.Context, remotePath string) (io.Write
 
 func (f *filesystem) Close() error {
 	f.closeOnce.Do(func() {
-		f.closeErr = errors.Join(meaningfulCloseError(f.client.Close()), meaningfulCloseError(f.ssh.Close()))
+		f.closeErr = errors.Join(meaningfulCloseError(f.client.Close()), meaningfulCloseError(f.lease.Close()))
 	})
 	return f.closeErr
 }

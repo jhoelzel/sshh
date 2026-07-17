@@ -19,6 +19,7 @@ import (
 	"github.com/pkg/sftp"
 	"golang.org/x/crypto/ssh"
 
+	"shh-h/internal/adapter/sshclient"
 	"shh-h/internal/adapter/sshterminal"
 	"shh-h/internal/domain/profile"
 	"shh-h/internal/port"
@@ -35,8 +36,10 @@ func TestFactoryRemoteFilesystemOperations(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parse server port: %v", err)
 	}
-	dialer := sshterminal.NewFactory(fixedVerifier{key: server.hostKey}, nil)
-	filesystem, err := NewFactory(dialer).OpenRemoteFilesystem(context.Background(), port.SSHTerminalSpec{
+	dialer := sshterminal.NewDialer(fixedVerifier{key: server.hostKey})
+	clients := sshclient.NewPool(dialer, nil)
+	defer clients.Shutdown()
+	filesystem, err := NewFactory(clients).OpenRemoteFilesystem(context.Background(), port.SSHTerminalSpec{
 		Host: host, Port: sshPort, Username: "tester",
 		Authentication: profile.AuthenticationPassword,
 		Credentials:    port.SSHCredentials{Password: []byte("secret")},

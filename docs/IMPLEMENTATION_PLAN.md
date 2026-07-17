@@ -35,8 +35,12 @@ Implemented and verified:
   password, and keyboard-interactive authentication without persisting secrets.
 - Connection policy uses a migrated validated settings schema. Configurable
   deadlines bound host-key probes, TCP connection, and SSH handshake setup;
-  context-owned keepalives detect unanswered transports for terminals, SFTP,
-  and tunnels without opening any connection at application startup.
+  connection-group-owned keepalives detect unanswered transports for terminals,
+  SFTP, and tunnels without opening any connection at application startup.
+- Reference-counted SSH connection groups share one authenticated client across
+  overlapping terminal, SFTP, and tunnel leases. Concurrent first opens use one
+  dial, feature closes remain isolated, and the final lease closes the client,
+  keepalive coordinator, and connection waiter.
 - SFTP operations stream through a live-configurable bounded worker pool and
   atomic partial files. Ask, overwrite, skip, and keep-both collision policies
   are enforced by the backend with in-flight destination reservations; the file
@@ -73,9 +77,9 @@ Implemented and verified:
   resource; each tab reconnects explicitly through the normal trust and
   credential workflow.
 - Go race tests cover managers and adapters. Real loopback integration tests
-  cover PTY, SSH terminal resize/exit, SFTP operations, and bidirectional local,
-  remote, and SOCKS forwarding. TypeScript, ESLint, Vitest, vet, and production
-  builds pass.
+  cover PTY, shared multi-channel SSH terminal lifetime, terminal resize/exit,
+  SFTP operations, and bidirectional local, remote, and SOCKS forwarding.
+  TypeScript, ESLint, Vitest, vet, and production builds pass.
 
 Still required for the complete cross-platform and 1.0 gates:
 
@@ -85,8 +89,8 @@ Still required for the complete cross-platform and 1.0 gates:
 - Accessibility-driven native interaction automation or a dedicated Wails E2E
   harness. macOS launch and frontend attachment are verified today; runtime
   behavior is also exercised below the WebView boundary.
-- Shared reference-counted SSH connection groups, resumable transfer metadata,
-  and remaining reconnect, proxy, known-hosts, and agent settings.
+- Resumable transfer metadata and remaining reconnect, proxy, known-hosts, and
+  agent settings.
 - Signed/notarized macOS releases, Linux packaging validation, Windows WebView2
   and ConPTY implementation, native CI, accessibility review, and long-run
   soak/performance evidence.
@@ -871,7 +875,9 @@ Deliverables:
 - Add optional agent forwarding with a prominent per-profile opt-in.
 - Make disconnect reasons and remote exit status visible.
 - Introduce SSH connection groups and leases for terminal, SFTP, and tunnel
-  reuse.
+  reuse. Implemented with keyed concurrent-dial serialization, per-feature
+  close signals, final-reference teardown, remote-close eviction, and bounded
+  application shutdown.
 
 Tests and exit gate:
 

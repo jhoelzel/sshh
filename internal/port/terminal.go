@@ -49,6 +49,7 @@ type SSHCredentials struct {
 }
 
 type SSHTerminalSpec struct {
+	ProfileID      string
 	Host           string
 	Port           int
 	Username       string

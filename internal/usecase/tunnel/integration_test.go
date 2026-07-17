@@ -17,6 +17,7 @@ import (
 
 	"golang.org/x/crypto/ssh"
 
+	"shh-h/internal/adapter/sshclient"
 	"shh-h/internal/adapter/sshterminal"
 	"shh-h/internal/domain/profile"
 	tunneldomain "shh-h/internal/domain/tunnel"
@@ -49,7 +50,9 @@ func TestRealSSHTunnelForwarding(t *testing.T) {
 		ID: "ssh", Name: "SSH", Protocol: profile.ProtocolSSH,
 		Host: host, Port: sshPort, Username: "tester", Authentication: profile.AuthenticationPassword,
 	}
-	factory := sshterminal.NewFactory(integrationHostKey{key: server.hostKey}, nil)
+	dialer := sshterminal.NewDialer(integrationHostKey{key: server.hostKey})
+	clients := sshclient.NewPool(dialer, nil)
+	defer clients.Shutdown()
 
 	tests := []struct {
 		name   string
@@ -63,7 +66,7 @@ func TestRealSSHTunnelForwarding(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			repo := &integrationRepository{configs: []tunneldomain.Config{test.config}}
-			service, err := tunnelusecase.NewService(repo, integrationProfiles{selected: selected}, factory)
+			service, err := tunnelusecase.NewService(repo, integrationProfiles{selected: selected}, clients)
 			if err != nil {
 				t.Fatalf("create tunnel service: %v", err)
 			}

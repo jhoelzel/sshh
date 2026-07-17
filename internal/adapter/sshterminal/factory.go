@@ -16,6 +16,7 @@ import (
 	"golang.org/x/crypto/ssh"
 	"golang.org/x/crypto/ssh/agent"
 
+	"shh-h/internal/adapter/sshclient"
 	"shh-h/internal/domain/profile"
 	settingsdomain "shh-h/internal/domain/settings"
 	"shh-h/internal/domain/sshconnection"
@@ -23,9 +24,8 @@ import (
 )
 
 const (
-	keepAliveRequest = "keepalive@openssh.com"
-	maximumKeySize   = 4 * 1024 * 1024
-	defaultTerminal  = "xterm-256color"
+	maximumKeySize  = 4 * 1024 * 1024
+	defaultTerminal = "xterm-256color"
 )
 
 var (
@@ -38,17 +38,24 @@ type hostKeyVerifier interface {
 	HostKeyCallback(host string, port int) ssh.HostKeyCallback
 }
 
-type connectionSettingsSource interface {
-	ConnectionSettings() settingsdomain.Connection
+type clientAcquirer interface {
+	Acquire(context.Context, port.SSHTerminalSpec) (*sshclient.Lease, error)
 }
 
 type Factory struct {
-	trust    hostKeyVerifier
-	settings connectionSettingsSource
+	clients clientAcquirer
 }
 
-func NewFactory(trust hostKeyVerifier, settings connectionSettingsSource) *Factory {
-	return &Factory{trust: trust, settings: settings}
+type Dialer struct {
+	trust hostKeyVerifier
+}
+
+func NewFactory(clients clientAcquirer) *Factory {
+	return &Factory{clients: clients}
+}
+
+func NewDialer(trust hostKeyVerifier) *Dialer {
+	return &Dialer{trust: trust}
 }
 
 func InspectAuthentication(selected profile.Profile) (sshconnection.AuthenticationInfo, error) {
@@ -87,14 +94,26 @@ func (f *Factory) InspectAuthentication(selected profile.Profile) (sshconnection
 	return InspectAuthentication(selected)
 }
 
+func (d *Dialer) InspectAuthentication(selected profile.Profile) (sshconnection.AuthenticationInfo, error) {
+	return InspectAuthentication(selected)
+}
+
 func (f *Factory) OpenSSH(ctx context.Context, spec port.SSHTerminalSpec) (port.TerminalTransport, error) {
-	client, err := f.DialSSH(ctx, spec)
+	if f.clients == nil {
+		return nil, errors.New("SSH client pool is unavailable")
+	}
+	lease, err := f.clients.Acquire(ctx, spec)
 	if err != nil {
 		return nil, err
 	}
+	client := lease.Client()
+	if client == nil {
+		_ = lease.Close()
+		return nil, errors.New("SSH client is unavailable")
+	}
 	session, err := client.NewSession()
 	if err != nil {
-		_ = client.Close()
+		_ = lease.Close()
 		return nil, fmt.Errorf("open ssh session: %w", err)
 	}
 
@@ -105,7 +124,7 @@ func (f *Factory) OpenSSH(ctx context.Context, spec port.SSHTerminalSpec) (port.
 	input, err := session.StdinPipe()
 	if err != nil {
 		_ = session.Close()
-		_ = client.Close()
+		_ = lease.Close()
 		_ = reader.Close()
 		_ = outputWriter.Close()
 		return nil, fmt.Errorf("open ssh terminal input: %w", err)
@@ -115,21 +134,21 @@ func (f *Factory) OpenSSH(ctx context.Context, spec port.SSHTerminalSpec) (port.
 	}
 	if err := session.RequestPty(defaultTerminal, int(spec.Rows), int(spec.Columns), modes); err != nil {
 		_ = session.Close()
-		_ = client.Close()
+		_ = lease.Close()
 		_ = reader.Close()
 		_ = outputWriter.Close()
 		return nil, fmt.Errorf("request ssh terminal: %w", err)
 	}
 	if err := session.Shell(); err != nil {
 		_ = session.Close()
-		_ = client.Close()
+		_ = lease.Close()
 		_ = reader.Close()
 		_ = outputWriter.Close()
 		return nil, fmt.Errorf("start ssh shell: %w", err)
 	}
 
 	result := &transport{
-		client: client, session: session, input: input,
+		lease: lease, session: session, input: input,
 		output: reader, outputWriter: outputWriter,
 	}
 	go func() {
@@ -139,8 +158,8 @@ func (f *Factory) OpenSSH(ctx context.Context, spec port.SSHTerminalSpec) (port.
 	return result, nil
 }
 
-func (f *Factory) DialSSH(ctx context.Context, spec port.SSHTerminalSpec) (*ssh.Client, error) {
-	if f.trust == nil {
+func (d *Dialer) DialSSH(ctx context.Context, spec port.SSHTerminalSpec, connectionSettings settingsdomain.Connection) (*ssh.Client, error) {
+	if d.trust == nil {
 		return nil, errors.New("ssh host-key verifier is unavailable")
 	}
 	if err := ctx.Err(); err != nil {
@@ -157,7 +176,6 @@ func (f *Factory) DialSSH(ctx context.Context, spec port.SSHTerminalSpec) (*ssh.
 	}
 	defer closeAll(authClosers)
 
-	connectionSettings := f.connectionSettings()
 	connectTimeout := time.Duration(connectionSettings.ConnectTimeoutSeconds) * time.Second
 	address := net.JoinHostPort(strings.Trim(spec.Host, "[]"), fmt.Sprintf("%d", spec.Port))
 	dialContext, cancel := context.WithTimeout(ctx, connectTimeout)
@@ -173,7 +191,7 @@ func (f *Factory) DialSSH(ctx context.Context, spec port.SSHTerminalSpec) (*ssh.
 
 	config := &ssh.ClientConfig{
 		User: username, Auth: authMethods,
-		HostKeyCallback: f.trust.HostKeyCallback(spec.Host, spec.Port),
+		HostKeyCallback: d.trust.HostKeyCallback(spec.Host, spec.Port),
 		Timeout:         connectTimeout,
 	}
 	connection, channels, requests, err := establishClientConnection(dialContext, rawConnection, address, config)
@@ -182,80 +200,11 @@ func (f *Factory) DialSSH(ctx context.Context, spec port.SSHTerminalSpec) (*ssh.
 		return nil, classifyHandshakeError(err)
 	}
 	client := ssh.NewClient(connection, channels, requests)
-	go maintainConnection(ctx, client, connectionSettings)
 	return client, nil
 }
 
-func (f *Factory) OpenSSHConnection(ctx context.Context, spec port.SSHTerminalSpec) (port.SSHConnection, error) {
-	return f.DialSSH(ctx, spec)
-}
-
-func (f *Factory) connectionSettings() settingsdomain.Connection {
-	if f.settings == nil {
-		return settingsdomain.Defaults().Connection
-	}
-	return f.settings.ConnectionSettings()
-}
-
-type maintainedSSHClient interface {
-	SendRequest(name string, wantReply bool, payload []byte) (bool, []byte, error)
-	Close() error
-}
-
-func maintainConnection(ctx context.Context, client maintainedSSHClient, settings settingsdomain.Connection) {
-	maintainConnectionAtInterval(
-		ctx,
-		client,
-		settings.KeepAliveEnabled,
-		time.Duration(settings.KeepAliveIntervalSeconds)*time.Second,
-		settings.KeepAliveMaxFailures,
-	)
-}
-
-func maintainConnectionAtInterval(ctx context.Context, client maintainedSSHClient, enabled bool, interval time.Duration, maxFailures int) {
-	if !enabled {
-		<-ctx.Done()
-		_ = client.Close()
-		return
-	}
-
-	ticker := time.NewTicker(interval)
-	defer ticker.Stop()
-	results := make(chan error, maxFailures)
-	pending := 0
-
-	for {
-		select {
-		case <-ctx.Done():
-			_ = client.Close()
-			return
-		case err := <-results:
-			if pending > 0 {
-				pending--
-			}
-			if err != nil {
-				_ = client.Close()
-				return
-			}
-		case <-ticker.C:
-			if pending >= maxFailures {
-				_ = client.Close()
-				return
-			}
-			pending++
-			go func() {
-				_, _, err := client.SendRequest(keepAliveRequest, true, nil)
-				select {
-				case results <- err:
-				case <-ctx.Done():
-				}
-			}()
-		}
-	}
-}
-
 type transport struct {
-	client       *ssh.Client
+	lease        *sshclient.Lease
 	session      *ssh.Session
 	input        io.WriteCloser
 	output       *io.PipeReader
@@ -332,7 +281,7 @@ func (t *transport) Close() error {
 		var failures []error
 		failures = append(failures, meaningfulCloseError(t.input.Close()))
 		failures = append(failures, meaningfulCloseError(t.session.Close()))
-		failures = append(failures, meaningfulCloseError(t.client.Close()))
+		failures = append(failures, meaningfulCloseError(t.lease.Close()))
 		failures = append(failures, meaningfulCloseError(t.outputWriter.Close()))
 		failures = append(failures, meaningfulCloseError(t.output.Close()))
 		t.closeErr = errors.Join(failures...)

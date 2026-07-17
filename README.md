@@ -30,6 +30,9 @@ native desktop application.
   behavior, with live application to open terminals and durable reset support.
 - Versioned SSH connection settings for bounded connect/handshake deadlines and
   application-level keepalives with a configurable unanswered-probe threshold.
+- Shared reference-counted SSH connection groups let terminals, SFTP
+  workspaces, and tunnels reuse one authenticated transport without closing
+  each other's active channels.
 - Versioned transfer settings for concurrency, destination collisions, and
   failed partial-file retention, with live application to queued work.
 - Opt-in native notifications for long completed transfers and failed terminal
@@ -48,8 +51,8 @@ native desktop application.
   or sidecar process required at runtime.
 
 The current native proof and packaged build target is macOS arm64. Windows
-ConPTY, signed/notarized release automation, SSH connection pooling, resumable
-transfers, advanced reconnect/proxy preferences, and remaining
+ConPTY, signed/notarized release automation, resumable transfers, advanced
+reconnect/proxy preferences, and remaining
 cross-platform UX are still future milestones; see the implementation plan for
 the release gates.
 
@@ -95,6 +98,22 @@ Keepalives can be disabled or configured from 5 through 300 seconds with a
 threshold from one through ten. Saved changes are captured by newly opened SSH
 connections; existing connections retain the policy with which they were
 opened.
+
+## SSH Connection Sharing
+
+Terminals, SFTP workspaces, and tunnels opened for the same effective SSH
+profile share one authenticated client while their work overlaps. Each feature
+owns a separate reference-counted lease, so closing a terminal closes only its
+channel when an SFTP workspace or tunnel still needs the connection. Closing
+the final lease immediately closes the SSH client and its waiter and keepalive
+work; there is no idle background connection cache.
+
+Connection keys contain profile and SSH identity fields, but never credentials
+or terminal dimensions. Credentials are used only by the caller that performs
+the first dial and are cleared by the owning use case. Concurrent first opens
+wait for that one dial, and a dead connection is removed before the next open
+redials. Starting the application or restoring a workspace still opens no
+network connection.
 
 ## Remote Path Favorites
 

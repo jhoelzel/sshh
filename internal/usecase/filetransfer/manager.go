@@ -107,7 +107,7 @@ func (m *Manager) Open(ctx context.Context, leaseID string, selected profile.Pro
 
 	runtimeContext, cancel := context.WithCancel(ctx)
 	filesystem, err := m.factory.OpenRemoteFilesystem(runtimeContext, port.SSHTerminalSpec{
-		Host: selected.Host, Port: selected.Port, Username: selected.Username,
+		ProfileID: selected.ID, Host: selected.Host, Port: selected.Port, Username: selected.Username,
 		Authentication: selected.Authentication, IdentityFile: selected.IdentityFile,
 		Credentials: credentials,
 	})

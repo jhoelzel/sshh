@@ -188,14 +188,41 @@ through one derived context. The same deadline path is used for saved profiles,
 quick connections, host-key probes, SFTP, and tunnels. This avoids divergent
 network behavior between trust and authenticated workflows.
 
-When enabled, each authenticated SSH client owns one context-bound keepalive
-coordinator. It sends `keepalive@openssh.com` global requests, treats either a
-positive or negative protocol reply as proof of transport liveness, bounds
-outstanding requests by the configured failure threshold, and closes the client
-after that threshold remains unanswered. Cancellation always closes the client
-and releases blocked keepalive requests. The connection settings store is
-schema-versioned; older documents migrate to conservative defaults before
-validation.
+When enabled, each authenticated SSH connection group owns one context-bound
+keepalive coordinator. It sends `keepalive@openssh.com` global requests, treats
+either a positive or negative protocol reply as proof of transport liveness,
+bounds outstanding requests by the configured failure threshold, and closes
+the client after that threshold remains unanswered. The group context ends only
+after transport failure, final-lease release, or application shutdown; closing
+one feature context cannot stop keepalives needed by another active lease. The
+connection settings store is schema-versioned; older documents migrate to
+conservative defaults before validation.
+
+## SSH Connection Ownership
+
+`internal/adapter/sshclient.Pool` owns authenticated `ssh.Client` instances.
+Terminals, SFTP filesystems, and tunnel attempts acquire independent leases;
+their adapters own only feature-specific channels, subsystems, listeners, and
+relay connections. Closing a terminal therefore closes its session before
+releasing its lease, while closing an SFTP workspace closes its SFTP client
+before releasing the same kind of lease.
+
+Groups are keyed by saved or deterministic quick-profile ID plus normalized
+host, port, username, authentication mode, and identity file. Credentials and
+terminal dimensions are intentionally excluded: secrets are supplied only to
+the first dial and are never retained by the pool. Editing connection fields
+while an old group is active creates a distinct group. Concurrent first
+acquisitions wait for one bounded dial instead of racing duplicate handshakes.
+
+Each group has exactly one connection waiter and at most one keepalive
+coordinator. A lease waiter also observes that lease's own close signal, so a
+tunnel can stop without leaving a goroutine blocked on a connection retained by
+another feature. Remote closure evicts the group before a later acquisition
+redials. Final-lease release removes the group, cancels maintenance, closes the
+client, and waits for the connection waiter within a fixed bound. Application
+shutdown cancels in-flight dials and defensively closes all remaining groups.
+There is deliberately no idle reuse timeout yet, so zero references means zero
+background SSH connections.
 
 ## Notification Ownership
 

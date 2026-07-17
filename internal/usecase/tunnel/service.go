@@ -324,7 +324,7 @@ func (s *Service) run(runtime *runtimeTunnel, selected profile.Profile, credenti
 			return
 		}
 		spec := port.SSHTerminalSpec{
-			Host: selected.Host, Port: selected.Port, Username: selected.Username,
+			ProfileID: selected.ID, Host: selected.Host, Port: selected.Port, Username: selected.Username,
 			Authentication: selected.Authentication, IdentityFile: selected.IdentityFile,
 			Credentials: port.SSHCredentials{
 				Password: append([]byte{}, credentials.Password...), Passphrase: append([]byte{}, credentials.Passphrase...),

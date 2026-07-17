@@ -16,6 +16,7 @@ import (
 	"shh-h/internal/adapter/settingsstore"
 	"shh-h/internal/adapter/sftpfs"
 	"shh-h/internal/adapter/snippetstore"
+	"shh-h/internal/adapter/sshclient"
 	"shh-h/internal/adapter/sshterminal"
 	"shh-h/internal/adapter/sshtrust"
 	"shh-h/internal/adapter/tunnelstore"
@@ -71,9 +72,12 @@ func Run(assets fs.FS) error {
 	if err != nil {
 		return err
 	}
-	sshFactory := sshterminal.NewFactory(trust, settingsService)
+	sshDialer := sshterminal.NewDialer(trust)
+	sshClients := sshclient.NewPool(sshDialer, settingsService)
+	defer func() { _ = sshClients.Shutdown() }()
+	sshFactory := sshterminal.NewFactory(sshClients)
 	manager.SetSSHFactory(sshFactory)
-	files := filetransferusecase.NewManager(sftpfs.NewFactory(sshFactory))
+	files := filetransferusecase.NewManager(sftpfs.NewFactory(sshClients))
 	if err := files.SetConcurrency(settingsService.Get().Transfers.Concurrency); err != nil {
 		return err
 	}
@@ -81,7 +85,7 @@ func Run(assets fs.FS) error {
 	if err != nil {
 		return err
 	}
-	tunnels, err := tunnelusecase.NewService(tunnelRepository, profiles, sshFactory)
+	tunnels, err := tunnelusecase.NewService(tunnelRepository, profiles, sshClients)
 	if err != nil {
 		return err
 	}
@@ -109,7 +113,7 @@ func Run(assets fs.FS) error {
 	if err != nil {
 		return err
 	}
-	remote := sshconnectionusecase.NewService(profiles, manager, files, trust, sshFactory)
+	remote := sshconnectionusecase.NewService(profiles, manager, files, trust, sshDialer)
 	desktop := bridge.NewDesktop(manager, profiles, remote, files, tunnels, snippets, workspaces, remotePaths, notifications, settingsService)
 
 	return wails.Run(&options.App{

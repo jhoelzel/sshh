@@ -8,9 +8,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
-	"sync"
 	"testing"
-	"time"
 
 	"golang.org/x/crypto/ssh"
 
@@ -77,102 +75,4 @@ func TestBuildAuthMethodsRequiresCredentials(t *testing.T) {
 
 func sshSpec(authentication profile.Authentication) port.SSHTerminalSpec {
 	return port.SSHTerminalSpec{Authentication: authentication}
-}
-
-func TestConnectionMaintenanceClosesAfterUnansweredKeepalives(t *testing.T) {
-	client := newMaintenanceClient(nil)
-	done := make(chan struct{})
-	go func() {
-		maintainConnectionAtInterval(context.Background(), client, true, 5*time.Millisecond, 2)
-		close(done)
-	}()
-
-	select {
-	case <-client.closed:
-	case <-time.After(200 * time.Millisecond):
-		t.Fatal("connection was not closed after unanswered keepalives")
-	}
-	select {
-	case <-done:
-	case <-time.After(100 * time.Millisecond):
-		t.Fatal("connection maintenance did not stop")
-	}
-	if requests := client.requestCount(); requests != 2 {
-		t.Fatalf("unexpected keepalive request count: %d", requests)
-	}
-}
-
-func TestConnectionMaintenanceResetsFailureCountOnReplies(t *testing.T) {
-	client := newMaintenanceClient(func() error { return nil })
-	ctx, cancel := context.WithCancel(context.Background())
-	done := make(chan struct{})
-	go func() {
-		maintainConnectionAtInterval(ctx, client, true, 5*time.Millisecond, 2)
-		close(done)
-	}()
-
-	for range 3 {
-		select {
-		case <-client.requested:
-		case <-time.After(100 * time.Millisecond):
-			t.Fatal("timed out waiting for keepalive request")
-		}
-	}
-	select {
-	case <-client.closed:
-		t.Fatal("responsive connection was closed")
-	default:
-	}
-	cancel()
-	select {
-	case <-done:
-	case <-time.After(100 * time.Millisecond):
-		t.Fatal("connection maintenance ignored cancellation")
-	}
-	if client.requestCount() < 2 {
-		t.Fatalf("expected repeated keepalives, got %d", client.requestCount())
-	}
-}
-
-type maintenanceClient struct {
-	mu        sync.Mutex
-	requests  int
-	respond   func() error
-	closed    chan struct{}
-	requested chan struct{}
-	closeOnce sync.Once
-}
-
-func newMaintenanceClient(respond func() error) *maintenanceClient {
-	return &maintenanceClient{respond: respond, closed: make(chan struct{}), requested: make(chan struct{}, 16)}
-}
-
-func (c *maintenanceClient) SendRequest(name string, wantReply bool, _ []byte) (bool, []byte, error) {
-	if name != keepAliveRequest || !wantReply {
-		return false, nil, errors.New("unexpected keepalive request")
-	}
-	c.mu.Lock()
-	c.requests++
-	respond := c.respond
-	c.mu.Unlock()
-	select {
-	case c.requested <- struct{}{}:
-	default:
-	}
-	if respond != nil {
-		return false, nil, respond()
-	}
-	<-c.closed
-	return false, nil, errors.New("closed")
-}
-
-func (c *maintenanceClient) Close() error {
-	c.closeOnce.Do(func() { close(c.closed) })
-	return nil
-}
-
-func (c *maintenanceClient) requestCount() int {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	return c.requests
 }
