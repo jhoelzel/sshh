@@ -100,7 +100,9 @@ React application, feature views, shared components, styles, and terminal
 controllers. xterm.js receives terminal bytes directly from the bridge;
 terminal data does not pass through React rendering. One persistent host and
 controller exists per open tab. `onData` and `onBinary` feed one ordered input
-queue; resize is coalesced without losing the final dimensions.
+queue; resize is coalesced without losing the final dimensions. Palette and
+shortcut actions call the same React workflow callbacks as visible controls;
+they do not add a second bridge path or create backend resources on their own.
 
 ## Session Ownership
 

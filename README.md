@@ -26,6 +26,8 @@ native desktop application.
   permissions, bounded rotation, visible state, and terminal-owned cleanup.
 - Versioned terminal settings for font, spacing, cursor, scrollback, and bell
   behavior, with live application to open terminals and durable reset support.
+- A searchable command palette with grouped actions, disabled-state feedback,
+  keyboard navigation, and shell-safe application shortcuts.
 - Explicit session ownership, activation, ordered input/output, bounded output
   flow control, frontend leases, and deterministic shutdown of terminals,
   transfers, SFTP clients, and tunnels.
@@ -36,7 +38,7 @@ native desktop application.
 The current native proof and packaged build target is macOS arm64. Windows
 ConPTY, signed/notarized release automation, SSH connection pooling, resumable
 transfers, connection and transfer preferences, workspace
-restoration, command palette, notifications, and remaining cross-platform UX
+restoration, notifications, and remaining cross-platform UX
 are still future milestones; see the implementation plan for the release gates.
 
 ## Prerequisites

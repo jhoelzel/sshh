@@ -21,6 +21,7 @@ import {
   Zap,
   X,
 } from 'lucide-react'
+import { CommandPalette, type PaletteCommand } from '../feature/commands/CommandPalette'
 import { FileBrowser } from '../feature/files/FileBrowser'
 import { ProfileEditor } from '../feature/profile/ProfileEditor'
 import { ProfileExchangeDialog } from '../feature/profile/ProfileExchangeDialog'
@@ -61,6 +62,8 @@ import type {
 const frontendNonce = crypto.randomUUID()
 const initialColumns = 100
 const initialRows = 30
+const isMacOS = navigator.userAgent.includes('Macintosh')
+const shortcutPrefix = isMacOS ? 'Cmd Shift' : 'Ctrl Shift'
 
 interface TabModel {
   session: Session
@@ -97,6 +100,7 @@ export function App() {
   const [profileExchange, setProfileExchange] = useState<ProfileExchangeResult>()
   const [profileExchangeAction, setProfileExchangeAction] = useState<'import' | 'export'>()
   const [quickConnectOpen, setQuickConnectOpen] = useState(false)
+  const [commandPaletteOpen, setCommandPaletteOpen] = useState(false)
   const [sshPrompt, setSSHPrompt] = useState<SSHPrompt>()
   const [profileFilter, setProfileFilter] = useState('')
   const [confirmation, setConfirmation] = useState<Confirmation>()
@@ -795,6 +799,112 @@ export function App() {
   }, [closeTab, confirmation, lease, reportError])
 
   const activeController = activeTab?.controller
+  const blockingOverlayOpen = Boolean(
+    sshPrompt || profileEditor || profileExchange || quickConnectOpen || loggingSessionId || confirmation,
+  )
+  const canOpenLocalTerminal = Boolean(
+    lease && settings && localProfiles.length > 0 && !openingProfile,
+  )
+
+  const openLocalTerminal = useCallback(() => {
+    const selected = localProfiles[0]
+    if (canOpenLocalTerminal && selected) void connectProfile(selected)
+  }, [canOpenLocalTerminal, connectProfile, localProfiles])
+
+  const paletteCommands = useMemo<PaletteCommand[]>(() => [
+    {
+      id: 'quick-connect', label: 'Quick connect', group: 'Connections', icon: Zap,
+      keywords: ['ssh', 'host'], disabled: !lease || !settings || Boolean(openingProfile),
+      run: () => setQuickConnectOpen(true),
+    },
+    {
+      id: 'local-terminal', label: 'New local terminal', group: 'Connections', icon: TerminalSquare,
+      keywords: ['shell', 'tab'], disabled: !canOpenLocalTerminal,
+      run: openLocalTerminal,
+    },
+    {
+      id: 'new-profile', label: 'New profile', group: 'Profiles', icon: Plus,
+      keywords: ['connection', 'ssh'], run: () => setProfileEditor({}),
+    },
+    {
+      id: 'import-profiles', label: 'Import profiles', group: 'Profiles', icon: FileUp,
+      keywords: ['openssh', 'json'], disabled: Boolean(profileExchangeAction),
+      run: () => void importProfiles(),
+    },
+    {
+      id: 'export-profiles', label: 'Export profiles', group: 'Profiles', icon: FileDown,
+      keywords: ['backup', 'json'], disabled: Boolean(profileExchangeAction),
+      run: () => void exportProfiles(),
+    },
+    {
+      id: 'show-terminals', label: 'Go to terminals', group: 'Navigation', icon: TerminalSquare,
+      keywords: ['sessions', 'shells'], run: () => setWorkspaceMode('terminals'),
+    },
+    {
+      id: 'show-files', label: 'Go to files', group: 'Navigation', icon: FolderOpen,
+      keywords: ['sftp', 'transfers'], run: () => setWorkspaceMode('files'),
+    },
+    {
+      id: 'show-tunnels', label: 'Go to tunnels', group: 'Navigation', icon: Network,
+      keywords: ['forwarding', 'socks'], run: () => setWorkspaceMode('tunnels'),
+    },
+    {
+      id: 'show-snippets', label: 'Go to snippets', group: 'Navigation', icon: Braces,
+      keywords: ['commands'], run: () => setWorkspaceMode('snippets'),
+    },
+    {
+      id: 'show-settings', label: 'Go to settings', group: 'Navigation', icon: Settings2,
+      keywords: ['preferences', 'terminal'], run: () => setWorkspaceMode('settings'),
+    },
+    {
+      id: 'search-terminal', label: 'Search terminal output', group: 'Active terminal', icon: Search,
+      disabled: !activeController,
+      run: () => {
+        setWorkspaceMode('terminals')
+        setSearchOpen(true)
+      },
+    },
+    {
+      id: 'toggle-logging', label: activeLog ? 'Stop session logging' : 'Start session logging',
+      group: 'Active terminal', icon: FileText, keywords: ['record', 'capture'],
+      disabled: !activeTab || activeTab.state !== 'running', run: () => void toggleSessionLogging(),
+    },
+    {
+      id: 'close-terminal', label: 'Close active terminal', group: 'Active terminal', icon: X,
+      keywords: ['tab', 'session'], disabled: !activeId,
+      run: () => {
+        if (activeId) void closeTab(activeId)
+      },
+    },
+  ], [
+    activeController, activeId, activeLog, activeTab, canOpenLocalTerminal, closeTab, exportProfiles,
+    importProfiles, lease, openLocalTerminal, openingProfile, profileExchangeAction, settings,
+    toggleSessionLogging,
+  ])
+
+  useEffect(() => {
+    const handleShortcut = (event: KeyboardEvent) => {
+      const modifier = isMacOS ? event.metaKey : event.ctrlKey
+      if (!modifier || !event.shiftKey || event.altKey || event.repeat) return
+      const key = event.key.toLocaleLowerCase()
+      if (key === 'p') {
+        event.preventDefault()
+        if (!blockingOverlayOpen) setCommandPaletteOpen(true)
+        return
+      }
+      if (blockingOverlayOpen || commandPaletteOpen) return
+      if (key === 't' && canOpenLocalTerminal) {
+        event.preventDefault()
+        openLocalTerminal()
+      } else if (key === 'f' && activeController) {
+        event.preventDefault()
+        setWorkspaceMode('terminals')
+        setSearchOpen(true)
+      }
+    }
+    document.addEventListener('keydown', handleShortcut)
+    return () => document.removeEventListener('keydown', handleShortcut)
+  }, [activeController, blockingOverlayOpen, canOpenLocalTerminal, commandPaletteOpen, openLocalTerminal])
 
   return (
     <div className="app-shell">
@@ -806,6 +916,9 @@ export function App() {
             <div className="brand-meta">LOCAL WORKSPACE</div>
           </div>
           <div className="brand-actions">
+            <button className="icon-button" type="button" title={`Command palette (${shortcutPrefix} P)`} aria-label="Open command palette" disabled={blockingOverlayOpen} onClick={() => setCommandPaletteOpen(true)}>
+              <Command size={16} />
+            </button>
             <button className="icon-button" type="button" title="Quick connect" aria-label="Quick connect" disabled={!lease || !settings || Boolean(openingProfile)} onClick={() => setQuickConnectOpen(true)}>
               <Zap size={16} />
             </button>
@@ -947,8 +1060,8 @@ export function App() {
               type="button"
               title="New local terminal"
               aria-label="New local terminal"
-              disabled={!lease || localProfiles.length === 0 || Boolean(openingProfile)}
-              onClick={() => localProfiles[0] && void connectProfile(localProfiles[0])}
+              disabled={!canOpenLocalTerminal}
+              onClick={openLocalTerminal}
             >
               <Plus size={17} />
             </button>
@@ -1001,8 +1114,8 @@ export function App() {
               <button
                 className="primary-button"
                 type="button"
-                disabled={!lease || localProfiles.length === 0 || Boolean(openingProfile)}
-                onClick={() => localProfiles[0] && void connectProfile(localProfiles[0])}
+                disabled={!canOpenLocalTerminal}
+                onClick={openLocalTerminal}
               >
                 {openingProfile ? <LoaderCircle className="spin" size={16} /> : <Plus size={16} />}
                 Open local terminal
@@ -1099,6 +1212,10 @@ export function App() {
             <X size={15} />
           </button>
         </div>
+      )}
+
+      {commandPaletteOpen && (
+        <CommandPalette commands={paletteCommands} onClose={() => setCommandPaletteOpen(false)} />
       )}
 
       {sshPrompt?.kind === 'trust' && (

@@ -46,6 +46,9 @@ Implemented and verified:
 - Terminal defaults for font, size, spacing, cursor, scrollback, and bell use a
   validated versioned store, apply live to open controllers, and reset
   durably.
+- The command palette searches grouped connection, profile, navigation, and
+  active-terminal actions. Arrow-key operation and non-conflicting
+  `Cmd/Ctrl+Shift` shortcuts work without intercepting ordinary shell input.
 - Go race tests cover managers and adapters. Real loopback integration tests
   cover PTY, SSH terminal resize/exit, SFTP operations, and bidirectional local,
   remote, and SOCKS forwarding. TypeScript, ESLint, Vitest, vet, and production
@@ -61,7 +64,7 @@ Still required for the complete cross-platform and 1.0 gates:
   behavior is also exercised below the WebView boundary.
 - Shared reference-counted SSH connection groups, resumable transfer metadata,
   connection and transfer settings, saved workspace
-  layouts, command palette, notifications, and the remaining productivity
+  layouts, notifications, and the remaining productivity
   actions.
 - Signed/notarized macOS releases, Linux packaging validation, Windows WebView2
   and ConPTY implementation, native CI, accessibility review, and long-run
