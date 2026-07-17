@@ -74,6 +74,9 @@ func Run(assets fs.FS) error {
 	sshFactory := sshterminal.NewFactory(trust)
 	manager.SetSSHFactory(sshFactory)
 	files := filetransferusecase.NewManager(sftpfs.NewFactory(sshFactory))
+	if err := files.SetConcurrency(settingsService.Get().Transfers.Concurrency); err != nil {
+		return err
+	}
 	tunnelRepository, err := tunnelstore.New(appID)
 	if err != nil {
 		return err

@@ -1,7 +1,7 @@
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { ComponentProps } from 'react'
-import type { FileSession, Profile, RemotePathFavorite } from '../../lib/bridge/types'
+import type { FileSession, Profile, RemotePathFavorite, Transfer } from '../../lib/bridge/types'
 import { FileBrowser } from './FileBrowser'
 
 const profile: Profile = {
@@ -40,6 +40,19 @@ describe('FileBrowser remote path favorites', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Remove current path from favorites' }))
     await waitFor(() => expect(deleteFavorite).toHaveBeenCalledWith(favorite.id))
+  })
+
+  it('keeps policy-skipped transfers visible', () => {
+    const skipped: Transfer = {
+      id: 'transfer-1', leaseId: session.leaseId, sessionId: session.id,
+      direction: 'upload', source: '/tmp/report.csv', destination: '/srv/app/report.csv',
+      bytes: 0, total: 120, state: 'skipped', message: 'Destination already exists',
+      startedAt: '2026-07-17T12:00:00Z', finishedAt: '2026-07-17T12:00:00Z',
+    }
+    render(<FileBrowser {...props({ transfers: [skipped] })} />)
+
+    expect(screen.getByText('report.csv')).toBeTruthy()
+    expect(screen.getByText('Skipped')).toBeTruthy()
   })
 })
 

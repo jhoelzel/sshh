@@ -146,6 +146,35 @@ creates a runtime. Connect is a separate user action that resolves the current
 profile and enters the existing host-key and credential workflow. Quick-connect
 targets are transient and are omitted when capturing a layout.
 
+## Transfer Policy Ownership
+
+Transfer preferences are durable application settings, while each transfer
+captures the active policy when it starts. The bridge owns native path and
+conflict dialogs. The transfer manager owns collision resolution, destination
+reservations, queue admission, partial-file lifecycle, progress, cancellation,
+and final publication. React displays typed transfer states and never performs
+filesystem collision checks itself.
+
+The worker limiter is wakeable rather than a fixed-capacity channel. Increasing
+the configured limit admits queued work immediately. Decreasing it prevents new
+admission until active work drops below the new limit and never cancels work
+already running. The limit remains bounded from one through eight.
+
+Ask, overwrite, skip, and keep-both policies apply to both local download
+destinations and remote upload destinations. Ask returns control to the bridge
+for a native Replace, Keep Both, or Cancel decision. Skip creates a visible
+terminal transfer state. Keep Both reserves its numbered destination before
+queueing, so concurrent requests cannot select the same candidate before either
+file exists. Filesystem state is checked again before non-overwriting final
+renames to fail safely if an external process wins a race.
+
+Every transfer writes a generated hidden `.shhh-part-<transfer-id>` path and
+renames it only after a successful close and, for local downloads, sync. Failed
+partials are removed by default or retained according to the captured setting.
+Remote cleanup is best effort after transport loss because the SFTP client may
+already be unavailable. Retained files are manual recovery artifacts; they are
+not treated as verified resumable-transfer metadata.
+
 ## Notification Ownership
 
 System notifications are an optional presentation side effect, not a runtime

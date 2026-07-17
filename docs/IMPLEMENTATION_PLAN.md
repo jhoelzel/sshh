@@ -3,11 +3,11 @@
 ## 1. Implementation Status
 
 The macOS core slices through M8, the productivity, favorites, and notification
-portions of M9, and the terminal and notification portions of M10 are
-implemented. The repository contains a Wails v2 host, embedded React and strict
-TypeScript frontend, xterm.js terminal controllers, a real Unix PTY adapter,
-strict SSH and known-host adapters, SFTP, saved tunnel state, and lease-owned
-runtime managers with bounded bridge flow control.
+portions of M9, and the terminal, transfer-policy, and notification portions of
+M10 are implemented. The repository contains a Wails v2 host, embedded React
+and strict TypeScript frontend, xterm.js terminal controllers, a real Unix PTY
+adapter, strict SSH and known-host adapters, SFTP, saved tunnel state, and
+lease-owned runtime managers with bounded bridge flow control.
 
 Implemented and verified:
 
@@ -32,7 +32,9 @@ Implemented and verified:
   without writing profile configuration.
 - SSH supports explicit first-use trust, changed-key rejection, agent, key,
   password, and keyboard-interactive authentication without persisting secrets.
-- SFTP operations stream through bounded workers and partial files; the file
+- SFTP operations stream through a live-configurable bounded worker pool and
+  atomic partial files. Ask, overwrite, skip, and keep-both collision policies
+  are enforced by the backend with in-flight destination reservations; the file
   workspace exposes navigation, upload, download, rename, delete, mkdir, chmod,
   progress, and cancellation.
 - Profile favorites sort saved connections first. Remote-path favorites use a
@@ -79,7 +81,7 @@ Still required for the complete cross-platform and 1.0 gates:
   harness. macOS launch and frontend attachment are verified today; runtime
   behavior is also exercised below the WebView boundary.
 - Shared reference-counted SSH connection groups, resumable transfer metadata,
-  and connection and transfer settings.
+  and connection settings.
 - Signed/notarized macOS releases, Linux packaging validation, Windows WebView2
   and ConPTY implementation, native CI, accessibility review, and long-run
   soak/performance evidence.
@@ -896,8 +898,9 @@ Tests and exit gate:
 - In-process or container-backed SFTP tests cover listing, Unicode names,
   rename, permissions, symlinks, interruption, resume, cancellation, and
   checksum comparison.
-- Local destination collision policies are explicit: ask, overwrite, skip, or
-  rename.
+- Local and remote destination collision policies are explicit: ask, overwrite,
+  skip, or rename. Implemented with native ask dialogs, visible skipped states,
+  and deterministic numbered destination reservations.
 - Transfer queue memory is bounded and large files are streamed, never loaded
   fully into memory.
 - Disconnecting during transfer produces a resumable failed item, not a false
@@ -966,9 +969,10 @@ Deliverables:
   paste, bell, and hyperlink policies.
 - Add connection timeout, keepalive, reconnect, proxy, known-hosts, and agent
   settings.
-- Add transfer concurrency, collision, and partial-file settings. Notification
-  enablement, categories, long-transfer threshold, permission status, and test
-  delivery are implemented.
+- Add transfer concurrency, collision, and partial-file settings. Implemented
+  with a live bounded limiter, backend-owned collision resolution, and explicit
+  failed-partial retention. Notification enablement, categories, long-transfer
+  threshold, permission status, and test delivery are implemented.
 - Add reset-to-default and per-profile override indicators.
 - Add screen-reader labels, keyboard traversal, visible focus, contrast checks,
   and reduced-motion behavior.

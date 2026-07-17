@@ -3,6 +3,7 @@ package filetransfer
 import (
 	"bytes"
 	"context"
+	"errors"
 	"io"
 	"os"
 	"path/filepath"
@@ -24,9 +25,10 @@ func (f *fakeFactory) OpenRemoteFilesystem(context.Context, port.SSHTerminalSpec
 }
 
 type fakeFilesystem struct {
-	mu     sync.Mutex
-	files  map[string][]byte
-	closed bool
+	mu      sync.Mutex
+	files   map[string][]byte
+	closed  bool
+	readErr error
 }
 
 func newFakeFilesystem() *fakeFilesystem {
@@ -80,7 +82,11 @@ func (f *fakeFilesystem) OpenRead(_ context.Context, path string) (io.ReadCloser
 		return nil, 0, os.ErrNotExist
 	}
 	copyData := append([]byte(nil), data...)
-	return io.NopCloser(bytes.NewReader(copyData)), int64(len(copyData)), nil
+	reader := io.Reader(bytes.NewReader(copyData))
+	if f.readErr != nil {
+		reader = io.MultiReader(reader, errorReader{err: f.readErr})
+	}
+	return io.NopCloser(reader), int64(len(copyData)), nil
 }
 
 func (f *fakeFilesystem) OpenWrite(_ context.Context, path string) (io.WriteCloser, error) {
@@ -107,6 +113,10 @@ type fakeRemoteWriter struct {
 	once       sync.Once
 }
 
+type errorReader struct{ err error }
+
+func (reader errorReader) Read([]byte) (int, error) { return 0, reader.err }
+
 func (w *fakeRemoteWriter) Write(data []byte) (int, error) { return w.buffer.Write(data) }
 
 func (w *fakeRemoteWriter) Close() error {
@@ -125,7 +135,7 @@ func TestManagerStreamsDownloadThroughPartialFile(t *testing.T) {
 	session := openTestSession(t, manager)
 	destination := filepath.Join(t.TempDir(), "source.txt")
 
-	transfer, err := manager.StartDownload("lease", session.ID, "/remote/source.txt", destination, false)
+	transfer, err := manager.StartDownload("lease", session.ID, "/remote/source.txt", destination, filedomain.CollisionAsk, false)
 	if err != nil {
 		t.Fatalf("start download: %v", err)
 	}
@@ -151,7 +161,7 @@ func TestManagerStreamsUploadThroughRemotePartialFile(t *testing.T) {
 		t.Fatalf("write upload fixture: %v", err)
 	}
 
-	transfer, err := manager.StartUpload("lease", session.ID, localPath, "/remote/upload.txt", false)
+	transfer, err := manager.StartUpload("lease", session.ID, localPath, "/remote/upload.txt", filedomain.CollisionAsk, false)
 	if err != nil {
 		t.Fatalf("start upload: %v", err)
 	}
@@ -161,6 +171,175 @@ func TestManagerStreamsUploadThroughRemotePartialFile(t *testing.T) {
 	}
 	if got := string(filesystem.file("/remote/upload.txt")); got != "uploaded content" {
 		t.Fatalf("unexpected uploaded content %q", got)
+	}
+}
+
+func TestManagerAppliesDownloadCollisionPolicies(t *testing.T) {
+	filesystem := newFakeFilesystem()
+	filesystem.files["/remote/source.txt"] = []byte("new content")
+	manager := NewManager(&fakeFactory{filesystem: filesystem})
+	session := openTestSession(t, manager)
+	directory := t.TempDir()
+	destination := filepath.Join(directory, "source.txt")
+	if err := os.WriteFile(destination, []byte("old content"), 0o600); err != nil {
+		t.Fatalf("write collision fixture: %v", err)
+	}
+
+	if _, err := manager.StartDownload("lease", session.ID, "/remote/source.txt", destination, filedomain.CollisionAsk, false); !errors.Is(err, ErrDestinationExists) {
+		t.Fatalf("expected ask collision, got %v", err)
+	}
+	skipped, err := manager.StartDownload("lease", session.ID, "/remote/source.txt", destination, filedomain.CollisionSkip, false)
+	if err != nil || skipped.State != filedomain.TransferSkipped || skipped.Message == "" {
+		t.Fatalf("unexpected skipped transfer: transfer=%#v err=%v", skipped, err)
+	}
+	renamed, err := manager.StartDownload("lease", session.ID, "/remote/source.txt", destination, filedomain.CollisionRename, false)
+	if err != nil {
+		t.Fatalf("start renamed download: %v", err)
+	}
+	completed := waitForTransfer(t, manager, renamed.ID)
+	if completed.State != filedomain.TransferCompleted || filepath.Base(completed.Destination) != "source (1).txt" {
+		t.Fatalf("unexpected renamed download: %#v", completed)
+	}
+	if old, err := os.ReadFile(destination); err != nil || string(old) != "old content" {
+		t.Fatalf("original destination changed: content=%q err=%v", old, err)
+	}
+}
+
+func TestManagerAppliesUploadRenameAndOverwritePolicies(t *testing.T) {
+	filesystem := newFakeFilesystem()
+	filesystem.files["/remote/upload.txt"] = []byte("old content")
+	manager := NewManager(&fakeFactory{filesystem: filesystem})
+	session := openTestSession(t, manager)
+	localPath := filepath.Join(t.TempDir(), "upload.txt")
+	if err := os.WriteFile(localPath, []byte("new content"), 0o600); err != nil {
+		t.Fatalf("write upload fixture: %v", err)
+	}
+
+	renamed, err := manager.StartUpload("lease", session.ID, localPath, "/remote/upload.txt", filedomain.CollisionRename, false)
+	if err != nil {
+		t.Fatalf("start renamed upload: %v", err)
+	}
+	if completed := waitForTransfer(t, manager, renamed.ID); completed.Destination != "/remote/upload (1).txt" {
+		t.Fatalf("unexpected renamed upload: %#v", completed)
+	}
+	overwritten, err := manager.StartUpload("lease", session.ID, localPath, "/remote/upload.txt", filedomain.CollisionOverwrite, false)
+	if err != nil {
+		t.Fatalf("start overwrite upload: %v", err)
+	}
+	if completed := waitForTransfer(t, manager, overwritten.ID); completed.State != filedomain.TransferCompleted {
+		t.Fatalf("unexpected overwritten upload: %#v", completed)
+	}
+	if got := string(filesystem.file("/remote/upload.txt")); got != "new content" {
+		t.Fatalf("upload did not replace destination: %q", got)
+	}
+}
+
+func TestManagerKeepsDownloadPartialOnlyWhenConfigured(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		keep bool
+		want bool
+	}{{name: "remove", keep: false, want: false}, {name: "keep", keep: true, want: true}} {
+		t.Run(test.name, func(t *testing.T) {
+			filesystem := newFakeFilesystem()
+			filesystem.files["/remote/source.txt"] = []byte("partial content")
+			filesystem.readErr = errors.New("connection lost")
+			manager := NewManager(&fakeFactory{filesystem: filesystem})
+			session := openTestSession(t, manager)
+			destination := filepath.Join(t.TempDir(), "source.txt")
+			transfer, err := manager.StartDownload("lease", session.ID, "/remote/source.txt", destination, filedomain.CollisionOverwrite, test.keep)
+			if err != nil {
+				t.Fatalf("start failed download: %v", err)
+			}
+			if failed := waitForTransfer(t, manager, transfer.ID); failed.State != filedomain.TransferFailed {
+				t.Fatalf("unexpected failed download: %#v", failed)
+			}
+			partial := filepath.Join(filepath.Dir(destination), "."+filepath.Base(destination)+".shhh-part-"+transfer.ID)
+			_, statErr := os.Stat(partial)
+			if exists := statErr == nil; exists != test.want {
+				t.Fatalf("partial existence=%t, want %t (err=%v)", exists, test.want, statErr)
+			}
+		})
+	}
+}
+
+func TestManagerConcurrencyCanIncreaseWhileWorkIsQueued(t *testing.T) {
+	manager := NewManager(nil)
+	if err := manager.SetConcurrency(1); err != nil {
+		t.Fatalf("set initial concurrency: %v", err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	if !manager.acquireWorker(ctx) {
+		t.Fatal("first worker was not acquired")
+	}
+	second := make(chan bool, 1)
+	go func() { second <- manager.acquireWorker(ctx) }()
+	select {
+	case <-second:
+		t.Fatal("second worker bypassed the configured limit")
+	case <-time.After(25 * time.Millisecond):
+	}
+	if err := manager.SetConcurrency(2); err != nil {
+		t.Fatalf("increase concurrency: %v", err)
+	}
+	select {
+	case acquired := <-second:
+		if !acquired {
+			t.Fatal("queued worker was cancelled")
+		}
+	case <-time.After(time.Second):
+		t.Fatal("queued worker did not start after increasing concurrency")
+	}
+	if err := manager.SetConcurrency(1); err != nil {
+		t.Fatalf("lower concurrency: %v", err)
+	}
+	third := make(chan bool, 1)
+	go func() { third <- manager.acquireWorker(ctx) }()
+	manager.releaseWorker()
+	select {
+	case <-third:
+		t.Fatal("lowered limit admitted work before active workers drained")
+	case <-time.After(25 * time.Millisecond):
+	}
+	manager.releaseWorker()
+	select {
+	case acquired := <-third:
+		if !acquired {
+			t.Fatal("third worker was cancelled")
+		}
+	case <-time.After(time.Second):
+		t.Fatal("lowered limit did not admit work after active workers drained")
+	}
+	manager.releaseWorker()
+	if err := manager.SetConcurrency(filedomain.MaxConcurrency + 1); err == nil {
+		t.Fatal("expected invalid concurrency to fail")
+	}
+}
+
+func TestKeepBothReservesDistinctQueuedDestinations(t *testing.T) {
+	manager := NewManager(nil)
+	runtime := &runtimeSession{snapshot: filedomain.Session{ID: "files"}}
+	destination := filepath.Join(t.TempDir(), "report.txt")
+	if err := os.WriteFile(destination, []byte("existing"), 0o600); err != nil {
+		t.Fatalf("write collision fixture: %v", err)
+	}
+	first, skipped, err := manager.resolveLocalCollision(runtime, destination, filedomain.CollisionRename)
+	if err != nil || skipped {
+		t.Fatalf("reserve first destination: path=%q skipped=%t err=%v", first, skipped, err)
+	}
+	otherRuntime := &runtimeSession{snapshot: filedomain.Session{ID: "other-files"}}
+	second, skipped, err := manager.resolveLocalCollision(otherRuntime, destination, filedomain.CollisionRename)
+	if err != nil || skipped {
+		t.Fatalf("reserve second destination: path=%q skipped=%t err=%v", second, skipped, err)
+	}
+	if filepath.Base(first) != "report (1).txt" || filepath.Base(second) != "report (2).txt" {
+		t.Fatalf("queued destinations collided: first=%q second=%q", first, second)
+	}
+	manager.releaseDestination(filedomain.DirectionDownload, runtime.snapshot.ID, first)
+	manager.releaseDestination(filedomain.DirectionDownload, otherRuntime.snapshot.ID, second)
+	if _, _, err := manager.resolveLocalCollision(runtime, filepath.Join(t.TempDir(), "new.txt"), "invalid"); err == nil {
+		t.Fatal("expected invalid collision policy to fail without an existing file")
 	}
 }
 

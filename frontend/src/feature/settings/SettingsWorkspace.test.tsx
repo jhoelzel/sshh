@@ -19,6 +19,11 @@ const settings = {
     unexpectedDisconnect: true,
     longTransferSeconds: 30,
   },
+  transfers: {
+    concurrency: 2,
+    collisionPolicy: 'ask' as const,
+    keepPartialFiles: false,
+  },
 }
 
 const notificationStatus = { available: true, authorized: false, message: 'Permission is required' }
@@ -48,6 +53,7 @@ describe('SettingsWorkspace', () => {
     await waitFor(() => expect(save).toHaveBeenCalledWith({
       terminal: { ...settings.terminal, fontSize: 16, cursorStyle: 'bar' },
       notifications: settings.notifications,
+      transfers: settings.transfers,
     }))
   })
 
@@ -85,6 +91,23 @@ describe('SettingsWorkspace', () => {
         unexpectedDisconnect: false,
         longTransferSeconds: 45,
       },
+      transfers: settings.transfers,
+    }))
+  })
+
+  it('saves concurrency, collision, and partial-file preferences', async () => {
+    const save = vi.fn(async (value: AppSettings) => value)
+    renderSettings({ onSave: save })
+
+    fireEvent.change(screen.getByLabelText('Concurrent transfers'), { target: { value: '4' } })
+    fireEvent.change(screen.getByLabelText('Destination collisions'), { target: { value: 'rename' } })
+    fireEvent.click(screen.getByLabelText('Keep partial files'))
+    fireEvent.click(screen.getByRole('button', { name: 'Save settings' }))
+
+    await waitFor(() => expect(save).toHaveBeenCalledWith({
+      terminal: settings.terminal,
+      notifications: settings.notifications,
+      transfers: { concurrency: 4, collisionPolicy: 'rename', keepPartialFiles: true },
     }))
   })
 })

@@ -100,7 +100,7 @@ export interface RemotePathFavorite {
   createdAt: string
 }
 
-export type TransferState = 'queued' | 'running' | 'completed' | 'failed' | 'cancelled'
+export type TransferState = 'queued' | 'running' | 'completed' | 'failed' | 'cancelled' | 'skipped'
 
 export interface Transfer {
   id: string
@@ -266,7 +266,16 @@ export interface NotificationStatus {
   message: string
 }
 
+export type TransferCollisionPolicy = 'ask' | 'overwrite' | 'skip' | 'rename'
+
+export interface TransferSettings {
+  concurrency: number
+  collisionPolicy: TransferCollisionPolicy
+  keepPartialFiles: boolean
+}
+
 export interface AppSettings {
   terminal: TerminalSettings
   notifications: NotificationSettings
+  transfers: TransferSettings
 }

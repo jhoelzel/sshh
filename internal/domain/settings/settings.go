@@ -4,6 +4,8 @@ import (
 	"errors"
 	"fmt"
 	"math"
+
+	filedomain "shh-h/internal/domain/filetransfer"
 )
 
 type FontFamily string
@@ -36,9 +38,16 @@ type Notifications struct {
 	LongTransferSeconds  int  `json:"longTransferSeconds"`
 }
 
+type Transfers struct {
+	Concurrency      int                        `json:"concurrency"`
+	CollisionPolicy  filedomain.CollisionPolicy `json:"collisionPolicy"`
+	KeepPartialFiles bool                       `json:"keepPartialFiles"`
+}
+
 type Settings struct {
 	Terminal      Terminal      `json:"terminal"`
 	Notifications Notifications `json:"notifications"`
+	Transfers     Transfers     `json:"transfers"`
 }
 
 func Defaults() Settings {
@@ -50,6 +59,9 @@ func Defaults() Settings {
 		Notifications: Notifications{
 			Enabled: false, TransferCompleted: true, UnexpectedDisconnect: true,
 			LongTransferSeconds: 30,
+		},
+		Transfers: Transfers{
+			Concurrency: 2, CollisionPolicy: filedomain.CollisionAsk, KeepPartialFiles: false,
 		},
 	}
 }
@@ -76,6 +88,14 @@ func (s Settings) Validate() error {
 	}
 	if s.Notifications.LongTransferSeconds < 5 || s.Notifications.LongTransferSeconds > 3_600 {
 		return errors.New("long transfer notification threshold must be between 5 and 3600 seconds")
+	}
+	if s.Transfers.Concurrency < filedomain.MinConcurrency || s.Transfers.Concurrency > filedomain.MaxConcurrency {
+		return fmt.Errorf("transfer concurrency must be between %d and %d", filedomain.MinConcurrency, filedomain.MaxConcurrency)
+	}
+	switch s.Transfers.CollisionPolicy {
+	case filedomain.CollisionAsk, filedomain.CollisionOverwrite, filedomain.CollisionSkip, filedomain.CollisionRename:
+	default:
+		return fmt.Errorf("unsupported transfer collision policy %q", s.Transfers.CollisionPolicy)
 	}
 	return nil
 }

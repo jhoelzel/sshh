@@ -53,7 +53,7 @@ func TestStoreRejectsExternalChangesAndUnknownFields(t *testing.T) {
 	}
 
 	unknownPath := filepath.Join(t.TempDir(), "unknown.json")
-	fixture := []byte(`{"version":2,"revision":1,"settings":{"terminal":{"fontFamily":"system-mono","fontSize":13,"lineHeight":1.2,"cursorStyle":"block","cursorBlink":true,"scrollback":10000,"bell":true,"extra":1},"notifications":{"enabled":false,"transferCompleted":true,"unexpectedDisconnect":true,"longTransferSeconds":30}}}`)
+	fixture := []byte(`{"version":3,"revision":1,"settings":{"terminal":{"fontFamily":"system-mono","fontSize":13,"lineHeight":1.2,"cursorStyle":"block","cursorBlink":true,"scrollback":10000,"bell":true,"extra":1},"notifications":{"enabled":false,"transferCompleted":true,"unexpectedDisconnect":true,"longTransferSeconds":30},"transfers":{"concurrency":2,"collisionPolicy":"ask","keepPartialFiles":false}}}`)
 	if err := os.WriteFile(unknownPath, fixture, 0o600); err != nil {
 		t.Fatalf("write fixture: %v", err)
 	}
@@ -76,6 +76,9 @@ func TestStoreMigratesVersionOneNotificationDefaults(t *testing.T) {
 	if loaded.Notifications != settingsdomain.Defaults().Notifications {
 		t.Fatalf("unexpected migrated notifications: %#v", loaded.Notifications)
 	}
+	if loaded.Transfers != settingsdomain.Defaults().Transfers {
+		t.Fatalf("unexpected migrated transfers: %#v", loaded.Transfers)
+	}
 	loaded.Notifications.Enabled = true
 	if err := store.SaveSettings(loaded); err != nil {
 		t.Fatalf("save migrated settings: %v", err)
@@ -84,7 +87,25 @@ func TestStoreMigratesVersionOneNotificationDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read migrated settings: %v", err)
 	}
-	if !bytes.Contains(data, []byte(`"version": 2`)) {
-		t.Fatalf("settings were not upgraded to version 2: %s", data)
+	if !bytes.Contains(data, []byte(`"version": 3`)) {
+		t.Fatalf("settings were not upgraded to version 3: %s", data)
+	}
+}
+
+func TestStoreMigratesVersionTwoTransferDefaults(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "settings.json")
+	fixture := []byte(`{"version":2,"revision":9,"settings":{"terminal":{"fontFamily":"system-mono","fontSize":13,"lineHeight":1.2,"cursorStyle":"block","cursorBlink":true,"scrollback":10000,"bell":true},"notifications":{"enabled":true,"transferCompleted":false,"unexpectedDisconnect":true,"longTransferSeconds":45}}}`)
+	if err := os.WriteFile(path, fixture, 0o600); err != nil {
+		t.Fatalf("write version two fixture: %v", err)
+	}
+	loaded, err := NewAt(path).LoadSettings()
+	if err != nil {
+		t.Fatalf("load version two settings: %v", err)
+	}
+	if loaded.Transfers != settingsdomain.Defaults().Transfers {
+		t.Fatalf("unexpected migrated transfers: %#v", loaded.Transfers)
+	}
+	if !loaded.Notifications.Enabled || loaded.Notifications.TransferCompleted || loaded.Notifications.LongTransferSeconds != 45 {
+		t.Fatalf("version two notification preferences changed: %#v", loaded.Notifications)
 	}
 }

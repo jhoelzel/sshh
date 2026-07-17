@@ -101,12 +101,27 @@ func TestTerminalTextFilenameSanitizesUntrustedTitles(t *testing.T) {
 	}
 }
 
-func TestSettingsDTORoundTripIncludesNotifications(t *testing.T) {
+func TestSettingsDTORoundTripIncludesNotificationAndTransferPreferences(t *testing.T) {
 	settings := settingsdomain.Defaults()
 	settings.Notifications.Enabled = true
 	settings.Notifications.LongTransferSeconds = 75
+	settings.Transfers.Concurrency = 5
+	settings.Transfers.CollisionPolicy = "rename"
+	settings.Transfers.KeepPartialFiles = true
 	if roundTrip := settingsFromDTO(settingsDTO(settings)); roundTrip != settings {
-		t.Fatalf("settings DTO changed notification preferences: %#v", roundTrip)
+		t.Fatalf("settings DTO changed preferences: %#v", roundTrip)
+	}
+}
+
+func TestBoundedDialogTextRemovesControlsAndCapsBytes(t *testing.T) {
+	if got := boundedDialogText(" report\nname.csv ", 160); got != "report name.csv" {
+		t.Fatalf("unexpected dialog text %q", got)
+	}
+	if got := boundedDialogText("\n\t", 160); got != "The selected file" {
+		t.Fatalf("unexpected empty fallback %q", got)
+	}
+	if got := boundedDialogText(strings.Repeat("界", 100), 20); len(got) > 20 {
+		t.Fatalf("dialog text exceeds byte budget: %d", len(got))
 	}
 }
 

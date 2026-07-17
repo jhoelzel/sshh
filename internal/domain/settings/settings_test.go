@@ -24,6 +24,8 @@ func TestSettingsRejectOutOfRangeTerminalValues(t *testing.T) {
 		{name: "cursor", change: func(value *Settings) { value.Terminal.CursorStyle = "box" }},
 		{name: "scrollback", change: func(value *Settings) { value.Terminal.Scrollback = 100 }},
 		{name: "transfer notification threshold", change: func(value *Settings) { value.Notifications.LongTransferSeconds = 4 }},
+		{name: "transfer concurrency", change: func(value *Settings) { value.Transfers.Concurrency = 0 }},
+		{name: "collision policy", change: func(value *Settings) { value.Transfers.CollisionPolicy = "replace-maybe" }},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {

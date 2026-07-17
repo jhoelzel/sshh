@@ -216,6 +216,7 @@ type TerminalSettingsDTO struct {
 type SettingsDTO struct {
 	Terminal      TerminalSettingsDTO     `json:"terminal"`
 	Notifications NotificationSettingsDTO `json:"notifications"`
+	Transfers     TransferSettingsDTO     `json:"transfers"`
 }
 
 type NotificationSettingsDTO struct {
@@ -229,6 +230,12 @@ type NotificationStatusDTO struct {
 	Available  bool   `json:"available"`
 	Authorized bool   `json:"authorized"`
 	Message    string `json:"message"`
+}
+
+type TransferSettingsDTO struct {
+	Concurrency      int                        `json:"concurrency"`
+	CollisionPolicy  filedomain.CollisionPolicy `json:"collisionPolicy"`
+	KeepPartialFiles bool                       `json:"keepPartialFiles"`
 }
 
 type FrontendLeaseDTO struct {
@@ -677,6 +684,11 @@ func (d *Desktop) UpdateSettings(input SettingsDTO) (SettingsDTO, error) {
 	if err != nil {
 		return SettingsDTO{}, err
 	}
+	if d.files != nil {
+		if err := d.files.SetConcurrency(updated.Transfers.Concurrency); err != nil {
+			return SettingsDTO{}, err
+		}
+	}
 	return settingsDTO(updated), nil
 }
 
@@ -687,6 +699,11 @@ func (d *Desktop) ResetSettings() (SettingsDTO, error) {
 	reset, err := d.settings.Reset()
 	if err != nil {
 		return SettingsDTO{}, err
+	}
+	if d.files != nil {
+		if err := d.files.SetConcurrency(reset.Transfers.Concurrency); err != nil {
+			return SettingsDTO{}, err
+		}
 	}
 	return settingsDTO(reset), nil
 }
@@ -938,17 +955,29 @@ func (d *Desktop) StartDownload(leaseID, sessionID, remotePath string) (filedoma
 	if _, err := d.touchLease(leaseID); err != nil {
 		return filedomain.Transfer{}, err
 	}
-	localPath, err := wailsruntime.SaveFileDialog(d.context(), wailsruntime.SaveDialogOptions{
-		Title: "Download remote file", DefaultFilename: path.Base(remotePath),
-		CanCreateDirectories: true, ShowHiddenFiles: true,
+	directory, err := wailsruntime.OpenDirectoryDialog(d.context(), wailsruntime.OpenDialogOptions{
+		Title: "Choose download folder", CanCreateDirectories: true, ShowHiddenFiles: true,
 	})
 	if err != nil {
 		return filedomain.Transfer{}, err
 	}
-	if localPath == "" {
+	if directory == "" {
 		return filedomain.Transfer{}, nil
 	}
-	return d.files.StartDownload(leaseID, sessionID, remotePath, localPath, true)
+	preferences := d.transferPreferences()
+	localPath := filepath.Join(directory, path.Base(remotePath))
+	transfer, err := d.files.StartDownload(
+		leaseID, sessionID, remotePath, localPath,
+		preferences.CollisionPolicy, preferences.KeepPartialFiles,
+	)
+	if !errors.Is(err, filetransferusecase.ErrDestinationExists) {
+		return transfer, err
+	}
+	policy, proceed, err := d.resolveTransferCollision(path.Base(remotePath))
+	if err != nil || !proceed {
+		return filedomain.Transfer{}, err
+	}
+	return d.files.StartDownload(leaseID, sessionID, remotePath, localPath, policy, preferences.KeepPartialFiles)
 }
 
 func (d *Desktop) StartUpload(leaseID, sessionID, remoteDirectory string) (filedomain.Transfer, error) {
@@ -965,7 +994,19 @@ func (d *Desktop) StartUpload(leaseID, sessionID, remoteDirectory string) (filed
 		return filedomain.Transfer{}, nil
 	}
 	remotePath := path.Join(remoteDirectory, filepath.Base(localPath))
-	return d.files.StartUpload(leaseID, sessionID, localPath, remotePath, false)
+	preferences := d.transferPreferences()
+	transfer, err := d.files.StartUpload(
+		leaseID, sessionID, localPath, remotePath,
+		preferences.CollisionPolicy, preferences.KeepPartialFiles,
+	)
+	if !errors.Is(err, filetransferusecase.ErrDestinationExists) {
+		return transfer, err
+	}
+	policy, proceed, err := d.resolveTransferCollision(filepath.Base(localPath))
+	if err != nil || !proceed {
+		return filedomain.Transfer{}, err
+	}
+	return d.files.StartUpload(leaseID, sessionID, localPath, remotePath, policy, preferences.KeepPartialFiles)
 }
 
 func (d *Desktop) ListTransfers(leaseID string) ([]filedomain.Transfer, error) {
@@ -1262,6 +1303,10 @@ func settingsDTO(value settingsdomain.Settings) SettingsDTO {
 			UnexpectedDisconnect: value.Notifications.UnexpectedDisconnect,
 			LongTransferSeconds:  value.Notifications.LongTransferSeconds,
 		},
+		Transfers: TransferSettingsDTO{
+			Concurrency: value.Transfers.Concurrency, CollisionPolicy: value.Transfers.CollisionPolicy,
+			KeepPartialFiles: value.Transfers.KeepPartialFiles,
+		},
 	}
 }
 
@@ -1278,6 +1323,36 @@ func settingsFromDTO(value SettingsDTO) settingsdomain.Settings {
 			UnexpectedDisconnect: value.Notifications.UnexpectedDisconnect,
 			LongTransferSeconds:  value.Notifications.LongTransferSeconds,
 		},
+		Transfers: settingsdomain.Transfers{
+			Concurrency: value.Transfers.Concurrency, CollisionPolicy: value.Transfers.CollisionPolicy,
+			KeepPartialFiles: value.Transfers.KeepPartialFiles,
+		},
+	}
+}
+
+func (d *Desktop) transferPreferences() settingsdomain.Transfers {
+	if d.settings == nil {
+		return settingsdomain.Defaults().Transfers
+	}
+	return d.settings.Get().Transfers
+}
+
+func (d *Desktop) resolveTransferCollision(filename string) (filedomain.CollisionPolicy, bool, error) {
+	response, err := wailsruntime.MessageDialog(d.context(), wailsruntime.MessageDialogOptions{
+		Type: wailsruntime.QuestionDialog, Title: "Destination already exists",
+		Message: fmt.Sprintf("%s already exists at the destination.", boundedDialogText(filename, 160)),
+		Buttons: []string{"Replace", "Keep Both", "Cancel"}, DefaultButton: "Keep Both", CancelButton: "Cancel",
+	})
+	if err != nil {
+		return "", false, err
+	}
+	switch response {
+	case "Replace":
+		return filedomain.CollisionOverwrite, true, nil
+	case "Keep Both":
+		return filedomain.CollisionRename, true, nil
+	default:
+		return "", false, nil
 	}
 }
 
@@ -1369,6 +1444,25 @@ func randomID() (string, error) {
 
 func leaseDTO(lease *frontendLease) FrontendLeaseDTO {
 	return FrontendLeaseDTO{ID: lease.id, ExpiresAt: lease.expiresAt.UTC().Format(time.RFC3339Nano)}
+}
+
+func boundedDialogText(value string, maxBytes int) string {
+	value = strings.TrimSpace(value)
+	var result strings.Builder
+	for _, character := range value {
+		if unicode.IsControl(character) {
+			character = ' '
+		}
+		if result.Len()+utf8.RuneLen(character) > maxBytes {
+			break
+		}
+		result.WriteRune(character)
+	}
+	cleaned := strings.Join(strings.Fields(result.String()), " ")
+	if cleaned == "" {
+		return "The selected file"
+	}
+	return cleaned
 }
 
 func terminalTextFilename(title string) string {

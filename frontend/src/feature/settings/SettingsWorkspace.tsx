@@ -1,6 +1,6 @@
 import { useMemo, useState, type FormEvent } from 'react'
-import { Bell, BellRing, MousePointer2, RotateCcw, Save, Send, Settings2, Type } from 'lucide-react'
-import type { AppSettings, NotificationStatus, TerminalCursorStyle, TerminalFontFamily } from '../../lib/bridge/types'
+import { ArrowLeftRight, Bell, BellRing, MousePointer2, RotateCcw, Save, Send, Settings2, Type } from 'lucide-react'
+import type { AppSettings, NotificationStatus, TerminalCursorStyle, TerminalFontFamily, TransferCollisionPolicy } from '../../lib/bridge/types'
 
 interface SettingsWorkspaceProps {
   settings: AppSettings
@@ -38,6 +38,10 @@ export function SettingsWorkspace({
   const setNotifications = <Key extends keyof AppSettings['notifications']>(key: Key, value: AppSettings['notifications'][Key]) => {
     setDraft((current) => ({ ...current, notifications: { ...current.notifications, [key]: value } }))
     setNotificationNotice(undefined)
+  }
+
+  const setTransfers = <Key extends keyof AppSettings['transfers']>(key: Key, value: AppSettings['transfers'][Key]) => {
+    setDraft((current) => ({ ...current, transfers: { ...current.transfers, [key]: value } }))
   }
 
   const save = async (event: FormEvent) => {
@@ -95,7 +99,7 @@ export function SettingsWorkspace({
   return (
     <form className="settings-workspace" aria-label="Application settings" onSubmit={(event) => void save(event)}>
       <header className="settings-header">
-        <div className="settings-title"><Settings2 size={18} /><div><strong>Settings</strong><span>Terminal and notifications</span></div></div>
+        <div className="settings-title"><Settings2 size={18} /><div><strong>Settings</strong><span>Terminal, transfers, and notifications</span></div></div>
         <button className="secondary-button" type="button" disabled={busy || Boolean(notificationAction)} onClick={() => void reset()}><RotateCcw size={15} /> Reset</button>
       </header>
 
@@ -148,6 +152,30 @@ export function SettingsWorkspace({
               <span><strong>Bell attention</strong><small>Mark inactive tabs on terminal bell</small></span>
               <Bell size={15} />
               <input type="checkbox" checked={draft.terminal.bell} onChange={(event) => setTerminal('bell', event.target.checked)} />
+            </label>
+          </div>
+        </section>
+
+        <section className="settings-section" aria-labelledby="transfer-settings-title">
+          <header><ArrowLeftRight size={17} /><h2 id="transfer-settings-title">File transfers</h2></header>
+          <div className="settings-control-list">
+            <label className="settings-control range-control">
+              <span><strong>Concurrent transfers</strong><small>Uploads and downloads allowed to run</small></span>
+              <input aria-label="Concurrent transfers" type="range" min={1} max={8} step={1} value={draft.transfers.concurrency} onChange={(event) => setTransfers('concurrency', Number(event.target.value))} />
+              <output>{draft.transfers.concurrency}</output>
+            </label>
+            <label className="settings-control">
+              <span><strong>Destination collisions</strong><small>When a file with the same name exists</small></span>
+              <select aria-label="Destination collisions" value={draft.transfers.collisionPolicy} onChange={(event) => setTransfers('collisionPolicy', event.target.value as TransferCollisionPolicy)}>
+                <option value="ask">Ask every time</option>
+                <option value="overwrite">Overwrite existing</option>
+                <option value="skip">Skip transfer</option>
+                <option value="rename">Keep both</option>
+              </select>
+            </label>
+            <label className="settings-control toggle-control simple-toggle">
+              <span><strong>Keep partial files</strong><small>Retain hidden .shhh-part files after failures</small></span>
+              <input aria-label="Keep partial files" type="checkbox" checked={draft.transfers.keepPartialFiles} onChange={(event) => setTransfers('keepPartialFiles', event.target.checked)} />
             </label>
           </div>
         </section>

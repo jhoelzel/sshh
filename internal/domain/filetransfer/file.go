@@ -19,10 +19,19 @@ type Session struct {
 }
 
 type Direction string
+type CollisionPolicy string
 
 const (
 	DirectionDownload Direction = "download"
 	DirectionUpload   Direction = "upload"
+
+	CollisionAsk       CollisionPolicy = "ask"
+	CollisionOverwrite CollisionPolicy = "overwrite"
+	CollisionSkip      CollisionPolicy = "skip"
+	CollisionRename    CollisionPolicy = "rename"
+
+	MinConcurrency = 1
+	MaxConcurrency = 8
 )
 
 type TransferState string
@@ -33,6 +42,7 @@ const (
 	TransferCompleted TransferState = "completed"
 	TransferFailed    TransferState = "failed"
 	TransferCancelled TransferState = "cancelled"
+	TransferSkipped   TransferState = "skipped"
 )
 
 type Transfer struct {

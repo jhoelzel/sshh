@@ -307,6 +307,22 @@ export namespace bridge {
 	    }
 	}
 
+	export class TransferSettingsDTO {
+	    concurrency: number;
+	    collisionPolicy: string;
+	    keepPartialFiles: boolean;
+
+	    static createFrom(source: any = {}) {
+	        return new TransferSettingsDTO(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.concurrency = source["concurrency"];
+	        this.collisionPolicy = source["collisionPolicy"];
+	        this.keepPartialFiles = source["keepPartialFiles"];
+	    }
+	}
 	export class TerminalSettingsDTO {
 	    fontFamily: string;
 	    fontSize: number;
@@ -334,6 +350,7 @@ export namespace bridge {
 	export class SettingsDTO {
 	    terminal: TerminalSettingsDTO;
 	    notifications: NotificationSettingsDTO;
+	    transfers: TransferSettingsDTO;
 
 	    static createFrom(source: any = {}) {
 	        return new SettingsDTO(source);
@@ -343,6 +360,7 @@ export namespace bridge {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.terminal = this.convertValues(source["terminal"], TerminalSettingsDTO);
 	        this.notifications = this.convertValues(source["notifications"], NotificationSettingsDTO);
+	        this.transfers = this.convertValues(source["transfers"], TransferSettingsDTO);
 	    }
 
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
@@ -440,6 +458,7 @@ export namespace bridge {
 	        this.bytes = source["bytes"];
 	    }
 	}
+
 	export class TunnelInputDTO {
 	    id: string;
 	    name: string;

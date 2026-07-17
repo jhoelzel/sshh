@@ -1287,6 +1287,10 @@ textarea:focus-visible {
   color: #7acb78;
 }
 
+.transfer-state.state-skipped {
+  color: #d9b86c;
+}
+
 .transfer-empty {
   display: grid;
   height: 100%;

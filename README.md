@@ -16,9 +16,10 @@ native desktop application.
   host-key verification and credential handling as saved profiles.
 - Interactive SSH terminals with strict known-host verification, explicit
   first-use trust, agent, key, password, and keyboard-interactive authentication.
-- An SFTP browser with streamed upload/download, bounded concurrency, progress,
-  cancellation, atomic partial files, directory operations, permissions, and
-  profile-scoped remote-path favorites.
+- An SFTP browser with streamed upload/download, configurable bounded
+  concurrency, explicit collision policies, progress, cancellation, atomic
+  partial files, directory operations, permissions, and profile-scoped
+  remote-path favorites.
 - Saved local, remote, and dynamic SOCKS5 SSH tunnels with explicit lifecycle,
   actual bound addresses, retry policy, auto-start policy, and loopback defaults.
 - Saved command snippets with strict variables, backend-rendered previews, and
@@ -27,6 +28,8 @@ native desktop application.
   permissions, bounded rotation, visible state, and terminal-owned cleanup.
 - Versioned terminal settings for font, spacing, cursor, scrollback, and bell
   behavior, with live application to open terminals and durable reset support.
+- Versioned transfer settings for concurrency, destination collisions, and
+  failed partial-file retention, with live application to queued work.
 - Opt-in native notifications for long completed transfers and failed terminal
   sessions, with explicit OS permission, category controls, and a test action.
 - A searchable command palette with grouped actions, disabled-state feedback,
@@ -44,7 +47,7 @@ native desktop application.
 
 The current native proof and packaged build target is macOS arm64. Windows
 ConPTY, signed/notarized release automation, SSH connection pooling, resumable
-transfers, connection and transfer preferences, and remaining
+transfers, connection preferences, and remaining
 cross-platform UX are still future milestones; see the implementation plan for
 the release gates.
 
@@ -82,6 +85,27 @@ remove the current directory. The adjacent Favorites menu navigates to saved
 paths for that profile. Favorites are canonical absolute remote paths stored in
 a separate private atomic file; loading them never opens a connection, and
 choosing one uses only the SFTP session that is already visible.
+
+## Transfer Policies
+
+Transfer settings default to two active uploads or downloads, asking before a
+destination is replaced, and removing failed partial files. The concurrency
+limit can be changed from one to eight while work is queued. Raising it wakes
+queued transfers immediately; lowering it waits for active work to finish and
+does not cancel an in-progress transfer.
+
+Collision behavior can ask, overwrite, skip, or keep both. Ask uses a native
+dialog with Keep Both as the safe default. Skips remain visible in the transfer
+list, and Keep Both reserves numbered names such as `report (1).csv` across
+both existing files and concurrently queued transfers. Downloads choose a
+destination folder and retain the remote basename.
+
+Uploads and downloads always write a hidden `.shhh-part-<transfer-id>` file and
+publish the destination only after success. By default failed and cancelled
+partials are removed; remote cleanup is necessarily best effort if the SFTP
+transport itself has already been lost. Enabling Keep partial files retains
+those artifacts for manual recovery. Retained partials are not yet automatic
+resume metadata.
 
 ## System Notifications
 
