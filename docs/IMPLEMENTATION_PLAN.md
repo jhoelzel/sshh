@@ -85,9 +85,9 @@ Implemented and verified:
   state. Settings exposes that identity with the Go version and target platform;
   direct Go builds fall back to embedded VCS metadata.
 - [x] Read-only GitHub Actions run Go and frontend quality gates, race tests,
-  call-graph and npm vulnerability scans, and a native macOS Wails compile.
-  Actions are pinned to immutable SHAs and dependencies receive weekly update
-  checks.
+  call-graph and npm vulnerability scans, and native macOS, Linux, and Windows
+  Wails compiles. Actions are pinned to immutable SHAs and dependencies receive
+  weekly update checks.
 - [x] Go race tests cover managers and adapters. Real loopback integration tests
   cover PTY, shared multi-channel SSH terminal lifetime, terminal resize/exit,
   SFTP operations, and bidirectional local, remote, and SOCKS forwarding.
@@ -103,7 +103,7 @@ Still required for the complete cross-platform and 1.0 gates:
   behavior is also exercised below the WebView boundary.
 - [ ] Remaining reconnect, proxy, known-hosts, and agent settings.
 - [ ] Signed/notarized macOS releases, Linux packaging validation, Windows WebView2
-  and ConPTY implementation, native CI, accessibility review, and long-run
+  runtime and ConPTY implementation, accessibility review, and long-run
   soak/performance evidence.
 
 ## 2. Product Definition
@@ -630,6 +630,11 @@ Progress notation:
 - [ ] Outstanding, only partially implemented, or still missing its stated exit
   evidence. A milestone remains open until every required native gate passes.
 
+Checklist reconciliation rule: every implementation slice updates its matching
+deliverable, exit-gate evidence, implementation snapshot, and milestone status
+in the same change. A box stays open when any clause or required evidence is
+still incomplete.
+
 ### M0: Foundation and Engineering Gates
 
 Deliverables:
@@ -654,7 +659,7 @@ Deliverables:
   human-readable messages.
 - [x] Establish automated `govulncheck`, high-severity npm audit, weekly Go/npm/
   Actions dependency updates, Go test/race/vet, TypeScript, Vitest, ESLint,
-  frontend production, and native macOS build checks.
+  frontend production, and native macOS, Linux, and Windows build checks.
 - [x] Add build metadata: semantic version, commit, build date, and dirty state.
 - [x] Add a root application context and coordinated shutdown service.
 - [x] Configure `OnStartup`, `OnDomReady`, `OnBeforeClose`, and `OnShutdown` with
@@ -691,8 +696,10 @@ Tests and exit gate:
   complete cleanup, and a fresh single command set on a genuine later remount.
 - [x] The Wails application builds and launches as an arm64 `.app` on the current
   Mac using the system WKWebView.
-- [ ] Native macOS, Linux, and Windows CI jobs build the desktop shell, using
-  temporary stubs only for platform adapters not reached by the UI.
+- [x] Native macOS, Linux, and Windows CI jobs build the desktop shell. Ubuntu
+  uses WebKitGTK 4.1 through Wails' `webkit2_41` build tag, while Windows keeps
+  the explicit unsupported ConPTY adapter until M2; no stub can report a
+  successful terminal operation.
 - [x] Production assets load from the embedded filesystem without a runtime Node
   process or local HTTP server.
 
@@ -1101,7 +1108,7 @@ Deliverables:
   paths on every OS.
 - [ ] Verify WebView prerequisites and failure messages on supported Windows and
   Linux versions.
-- [ ] Document explicitly that `make run` is a foreground developer command
+- [x] Document explicitly that `make run` is a foreground developer command
   while packaged apps launch through the desktop environment.
 
 Tests and exit gate:
@@ -1300,7 +1307,7 @@ commitments:
 
 | Milestone | Current status | Expected effort | Release value |
 | --- | --- | ---: | --- |
-| M0 Foundation | Partial; cross-platform native CI gate open | 4-7 days | Wails migration and honest lifecycle |
+| M0 Foundation | Complete | 4-7 days | Wails migration and honest lifecycle |
 | M1 Terminal proof | Partial; performance and native stress gates open | 7-12 days | Proven PTY/bridge/xterm vertical slice |
 | M2 Local terminal | macOS core implemented; Windows/Linux gates open | 8-14 days | First genuinely usable program |
 | M3 Workspace | Partial; tab-management and Activity work open | 4-7 days | Reliable multi-session desktop UX |

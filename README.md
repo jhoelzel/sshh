@@ -74,6 +74,10 @@ make build     # native package with embedded build identity
 make check-bindings # regenerate, normalize, and verify Wails bridge contracts
 ```
 
+`make run` is intentionally a foreground developer command and exits with its
+terminal. Packaged applications launch through Finder or the target operating
+system's desktop application launcher and do not require a parent terminal.
+
 ## Build Identity
 
 `make build` embeds version, source revision, UTC build date, and dirty-tree

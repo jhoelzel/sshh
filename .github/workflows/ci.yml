@@ -105,3 +105,61 @@ jobs:
           cache-dependency-path: frontend/package-lock.json
       - name: Regenerate bindings and compile native host
         run: make check-bindings
+
+  native-linux:
+    name: Linux desktop build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Check out source
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - name: Set up Go
+        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
+      - name: Set up Node.js
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install Linux desktop dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends --yes libgtk-3-dev libwebkit2gtk-4.1-dev
+      - name: Install Wails CLI
+        run: go install github.com/wailsapp/wails/v2/cmd/wails@v2.13.0
+      - name: Compile Linux desktop host
+        working-directory: cmd/shhh
+        run: '"$(go env GOPATH)/bin/wails" build -clean -nopackage -trimpath -tags "webkit2_41" -o shhh-linux'
+
+  native-windows:
+    name: Windows desktop build
+    runs-on: windows-2025
+    timeout-minutes: 30
+    steps:
+      - name: Check out source
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - name: Set up Go
+        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
+      - name: Set up Node.js
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install Wails CLI
+        run: go install github.com/wailsapp/wails/v2/cmd/wails@v2.13.0
+      - name: Compile Windows desktop host
+        working-directory: cmd/shhh
+        run: |
+          $wails = Join-Path (go env GOPATH) 'bin/wails.exe'
+          & $wails build -clean -nopackage -trimpath -webview2 error -o shhh-windows.exe
