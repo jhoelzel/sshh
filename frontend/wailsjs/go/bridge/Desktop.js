@@ -42,6 +42,10 @@ export function CreateRemoteDirectory(arg1, arg2, arg3) {
   return window['go']['bridge']['Desktop']['CreateRemoteDirectory'](arg1, arg2, arg3);
 }
 
+export function CreateRemotePathFavorite(arg1, arg2) {
+  return window['go']['bridge']['Desktop']['CreateRemotePathFavorite'](arg1, arg2);
+}
+
 export function CreateSnippet(arg1) {
   return window['go']['bridge']['Desktop']['CreateSnippet'](arg1);
 }
@@ -60,6 +64,10 @@ export function DeleteProfile(arg1) {
 
 export function DeleteRemotePath(arg1, arg2, arg3) {
   return window['go']['bridge']['Desktop']['DeleteRemotePath'](arg1, arg2, arg3);
+}
+
+export function DeleteRemotePathFavorite(arg1) {
+  return window['go']['bridge']['Desktop']['DeleteRemotePathFavorite'](arg1);
 }
 
 export function DeleteSnippet(arg1) {
@@ -108,6 +116,10 @@ export function ListProfiles() {
 
 export function ListRemoteFiles(arg1, arg2, arg3) {
   return window['go']['bridge']['Desktop']['ListRemoteFiles'](arg1, arg2, arg3);
+}
+
+export function ListRemotePathFavorites() {
+  return window['go']['bridge']['Desktop']['ListRemotePathFavorites']();
 }
 
 export function ListSnippets() {

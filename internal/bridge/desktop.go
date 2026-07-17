@@ -23,6 +23,7 @@ import (
 	"shh-h/internal/adapter/textfile"
 	filedomain "shh-h/internal/domain/filetransfer"
 	"shh-h/internal/domain/profile"
+	remotepathdomain "shh-h/internal/domain/remotepath"
 	settingsdomain "shh-h/internal/domain/settings"
 	snippetdomain "shh-h/internal/domain/snippet"
 	sshconnectiondomain "shh-h/internal/domain/sshconnection"
@@ -31,6 +32,7 @@ import (
 	"shh-h/internal/port"
 	filetransferusecase "shh-h/internal/usecase/filetransfer"
 	profileusecase "shh-h/internal/usecase/profile"
+	remotepathusecase "shh-h/internal/usecase/remotepath"
 	sessionusecase "shh-h/internal/usecase/session"
 	settingsusecase "shh-h/internal/usecase/settings"
 	snippetusecase "shh-h/internal/usecase/snippet"
@@ -193,6 +195,13 @@ type WorkspaceLayoutDTO struct {
 	UpdatedAt string            `json:"updatedAt"`
 }
 
+type RemotePathFavoriteDTO struct {
+	ID        string `json:"id"`
+	ProfileID string `json:"profileId"`
+	Path      string `json:"path"`
+	CreatedAt string `json:"createdAt"`
+}
+
 type TerminalSettingsDTO struct {
 	FontFamily  settingsdomain.FontFamily  `json:"fontFamily"`
 	FontSize    int                        `json:"fontSize"`
@@ -237,14 +246,15 @@ type frontendLease struct {
 }
 
 type Desktop struct {
-	manager    *sessionusecase.Manager
-	profiles   *profileusecase.Service
-	remote     *sshconnectionusecase.Service
-	files      *filetransferusecase.Manager
-	tunnels    *tunnelusecase.Service
-	snippets   *snippetusecase.Service
-	workspaces *workspaceusecase.Service
-	settings   *settingsusecase.Service
+	manager     *sessionusecase.Manager
+	profiles    *profileusecase.Service
+	remote      *sshconnectionusecase.Service
+	files       *filetransferusecase.Manager
+	tunnels     *tunnelusecase.Service
+	snippets    *snippetusecase.Service
+	workspaces  *workspaceusecase.Service
+	remotePaths *remotepathusecase.Service
+	settings    *settingsusecase.Service
 
 	ctxMu sync.RWMutex
 	ctx   context.Context
@@ -260,10 +270,10 @@ type eventSink struct {
 	desktop *Desktop
 }
 
-func NewDesktop(manager *sessionusecase.Manager, profiles *profileusecase.Service, remote *sshconnectionusecase.Service, files *filetransferusecase.Manager, tunnels *tunnelusecase.Service, snippets *snippetusecase.Service, workspaces *workspaceusecase.Service, settings *settingsusecase.Service) *Desktop {
+func NewDesktop(manager *sessionusecase.Manager, profiles *profileusecase.Service, remote *sshconnectionusecase.Service, files *filetransferusecase.Manager, tunnels *tunnelusecase.Service, snippets *snippetusecase.Service, workspaces *workspaceusecase.Service, remotePaths *remotepathusecase.Service, settings *settingsusecase.Service) *Desktop {
 	desktop := &Desktop{
 		manager: manager, profiles: profiles, remote: remote, files: files, tunnels: tunnels,
-		snippets: snippets, workspaces: workspaces, settings: settings,
+		snippets: snippets, workspaces: workspaces, remotePaths: remotePaths, settings: settings,
 		leaseWake: make(chan struct{}, 1),
 	}
 	sink := &eventSink{desktop: desktop}
@@ -465,6 +475,43 @@ func (d *Desktop) ExportTerminalText(title, text string) (TerminalTextExportDTO,
 		return TerminalTextExportDTO{}, err
 	}
 	return TerminalTextExportDTO{Filename: filepath.Base(filename), Bytes: len(data)}, nil
+}
+
+func (d *Desktop) ListRemotePathFavorites() []RemotePathFavoriteDTO {
+	if d.remotePaths == nil {
+		return []RemotePathFavoriteDTO{}
+	}
+	favorites := d.remotePaths.List()
+	result := make([]RemotePathFavoriteDTO, 0, len(favorites))
+	for _, favorite := range favorites {
+		result = append(result, remotePathFavoriteDTO(favorite))
+	}
+	return result
+}
+
+func (d *Desktop) CreateRemotePathFavorite(profileID, remotePath string) (RemotePathFavoriteDTO, error) {
+	if d.remotePaths == nil || d.profiles == nil {
+		return RemotePathFavoriteDTO{}, errors.New("remote path favorites are unavailable")
+	}
+	selected, exists := d.profiles.Find(strings.TrimSpace(profileID))
+	if !exists {
+		return RemotePathFavoriteDTO{}, errors.New("profile not found")
+	}
+	if selected.Protocol != profile.ProtocolSSH {
+		return RemotePathFavoriteDTO{}, errors.New("remote path favorites require an SSH profile")
+	}
+	created, err := d.remotePaths.Create(selected.ID, remotePath)
+	if err != nil {
+		return RemotePathFavoriteDTO{}, err
+	}
+	return remotePathFavoriteDTO(created), nil
+}
+
+func (d *Desktop) DeleteRemotePathFavorite(favoriteID string) error {
+	if d.remotePaths == nil {
+		return errors.New("remote path favorites are unavailable")
+	}
+	return d.remotePaths.Delete(favoriteID)
 }
 
 func (d *Desktop) ListTunnels() []tunneldomain.Config {
@@ -1258,6 +1305,13 @@ func terminalTextFilename(title string) string {
 		base = "terminal"
 	}
 	return base + "-selection.txt"
+}
+
+func remotePathFavoriteDTO(favorite remotepathdomain.Favorite) RemotePathFavoriteDTO {
+	return RemotePathFavoriteDTO{
+		ID: favorite.ID, ProfileID: favorite.ProfileID, Path: favorite.Path,
+		CreatedAt: favorite.CreatedAt.UTC().Format(time.RFC3339Nano),
+	}
 }
 
 func notify(channel chan struct{}) {

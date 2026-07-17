@@ -2,12 +2,12 @@
 
 ## 1. Implementation Status
 
-The macOS core slices through M8, the workspace-layout and command-productivity
-portions of M9, and the terminal portion of M10 are implemented. The repository
-contains a Wails v2 host, embedded React and strict TypeScript frontend,
-xterm.js terminal controllers, a real Unix PTY adapter, strict SSH and
-known-host adapters, SFTP, saved tunnel state, and lease-owned runtime managers
-with bounded bridge flow control.
+The macOS core slices through M8, the productivity and favorites portions of
+M9, and the terminal portion of M10 are implemented. The repository contains a
+Wails v2 host, embedded React and strict TypeScript frontend, xterm.js terminal
+controllers, a real Unix PTY adapter, strict SSH and known-host adapters, SFTP,
+saved tunnel state, and lease-owned runtime managers with bounded bridge flow
+control.
 
 Implemented and verified:
 
@@ -35,6 +35,9 @@ Implemented and verified:
 - SFTP operations stream through bounded workers and partial files; the file
   workspace exposes navigation, upload, download, rename, delete, mkdir, chmod,
   progress, and cancellation.
+- Profile favorites sort saved connections first. Remote-path favorites use a
+  separate strict private store keyed by saved SSH profile and expose explicit
+  star-toggle and quick-navigation controls inside an open SFTP workspace.
 - Local, remote, and SOCKS5 tunnels have saved independent models, loopback
   defaults, guarded public binds, lifecycle events, bounded relays, cancellation,
   retry, and explicitly enabled auto-start.
@@ -72,8 +75,7 @@ Still required for the complete cross-platform and 1.0 gates:
   harness. macOS launch and frontend attachment are verified today; runtime
   behavior is also exercised below the WebView boundary.
 - Shared reference-counted SSH connection groups, resumable transfer metadata,
-  connection and transfer settings, notifications, and the remaining
-  productivity actions.
+  connection and transfer settings, and notifications.
 - Signed/notarized macOS releases, Linux packaging validation, Windows WebView2
   and ConPTY implementation, native CI, accessibility review, and long-run
   soak/performance evidence.
@@ -936,7 +938,8 @@ Deliverables:
   Implemented for the active terminal through the toolbar and command palette.
 - Add saved workspace layouts that restore profile tabs as disconnected tabs;
   reconnection remains explicit. Implemented for saved-profile terminal tabs.
-- Add profile and remote-path favorites.
+- Add profile and remote-path favorites. Implemented with profile sorting and
+  profile-scoped canonical path navigation that starts no connection.
 - Add command palette and consistent keyboard shortcuts.
 - Add notifications for long transfer completion and unexpected disconnect,
   respecting OS and application settings.

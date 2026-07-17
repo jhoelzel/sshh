@@ -5,11 +5,41 @@ import (
 	"testing"
 	"time"
 
+	profiledomain "shh-h/internal/domain/profile"
+	remotepathdomain "shh-h/internal/domain/remotepath"
+	profileusecase "shh-h/internal/usecase/profile"
+	remotepathusecase "shh-h/internal/usecase/remotepath"
 	sessionusecase "shh-h/internal/usecase/session"
 )
 
+type bridgeProfileRepository struct {
+	profiles []profiledomain.Profile
+}
+
+func (repository *bridgeProfileRepository) LoadProfiles() ([]profiledomain.Profile, error) {
+	return repository.profiles, nil
+}
+
+func (repository *bridgeProfileRepository) SaveProfiles(profiles []profiledomain.Profile) error {
+	repository.profiles = profiles
+	return nil
+}
+
+type bridgeRemotePathRepository struct {
+	favorites []remotepathdomain.Favorite
+}
+
+func (repository *bridgeRemotePathRepository) LoadFavorites() ([]remotepathdomain.Favorite, error) {
+	return repository.favorites, nil
+}
+
+func (repository *bridgeRemotePathRepository) SaveFavorites(favorites []remotepathdomain.Favorite) error {
+	repository.favorites = favorites
+	return nil
+}
+
 func TestAttachFrontendIsIdempotentForSameInstance(t *testing.T) {
-	desktop := NewDesktop(sessionusecase.NewManager(nil), nil, nil, nil, nil, nil, nil, nil)
+	desktop := NewDesktop(sessionusecase.NewManager(nil), nil, nil, nil, nil, nil, nil, nil, nil)
 
 	first, err := desktop.AttachFrontend("frontend-instance")
 	if err != nil {
@@ -28,7 +58,7 @@ func TestAttachFrontendIsIdempotentForSameInstance(t *testing.T) {
 }
 
 func TestAttachFrontendReplacesPreviousInstance(t *testing.T) {
-	desktop := NewDesktop(sessionusecase.NewManager(nil), nil, nil, nil, nil, nil, nil, nil)
+	desktop := NewDesktop(sessionusecase.NewManager(nil), nil, nil, nil, nil, nil, nil, nil, nil)
 
 	first, err := desktop.AttachFrontend("first-instance")
 	if err != nil {
@@ -50,7 +80,7 @@ func TestAttachFrontendReplacesPreviousInstance(t *testing.T) {
 }
 
 func TestAttachFrontendRejectsInvalidNonce(t *testing.T) {
-	desktop := NewDesktop(sessionusecase.NewManager(nil), nil, nil, nil, nil, nil, nil, nil)
+	desktop := NewDesktop(sessionusecase.NewManager(nil), nil, nil, nil, nil, nil, nil, nil, nil)
 
 	if _, err := desktop.AttachFrontend("  "); err == nil {
 		t.Fatal("expected an empty frontend nonce to be rejected")
@@ -67,5 +97,34 @@ func TestTerminalTextFilenameSanitizesUntrustedTitles(t *testing.T) {
 	}
 	if long := terminalTextFilename(strings.Repeat("界", 100)); len(long) > 100 {
 		t.Fatalf("suggested filename exceeds byte budget: %d", len(long))
+	}
+}
+
+func TestRemotePathFavoritesRequireExistingSSHProfile(t *testing.T) {
+	profiles, err := profileusecase.NewService(&bridgeProfileRepository{profiles: []profiledomain.Profile{
+		{ID: "local", Protocol: profiledomain.ProtocolLocal},
+		{ID: "ssh", Protocol: profiledomain.ProtocolSSH},
+	}})
+	if err != nil {
+		t.Fatalf("new profile service: %v", err)
+	}
+	remotePaths, err := remotepathusecase.NewService(&bridgeRemotePathRepository{})
+	if err != nil {
+		t.Fatalf("new remote path service: %v", err)
+	}
+	desktop := NewDesktop(sessionusecase.NewManager(nil), profiles, nil, nil, nil, nil, nil, remotePaths, nil)
+
+	if _, err := desktop.CreateRemotePathFavorite("missing", "/srv/app"); err == nil {
+		t.Fatal("expected missing profile rejection")
+	}
+	if _, err := desktop.CreateRemotePathFavorite("local", "/srv/app"); err == nil {
+		t.Fatal("expected local profile rejection")
+	}
+	created, err := desktop.CreateRemotePathFavorite("ssh", "/srv/app/../logs")
+	if err != nil {
+		t.Fatalf("create SSH favorite: %v", err)
+	}
+	if created.ProfileID != "ssh" || created.Path != "/srv/logs" || len(desktop.ListRemotePathFavorites()) != 1 {
+		t.Fatalf("unexpected remote path favorite: %#v", created)
 	}
 }

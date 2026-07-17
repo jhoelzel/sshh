@@ -11,6 +11,7 @@ import (
 
 	"shh-h/internal/adapter/configstore"
 	"shh-h/internal/adapter/localpty"
+	"shh-h/internal/adapter/remotepathstore"
 	"shh-h/internal/adapter/sessionlog"
 	"shh-h/internal/adapter/settingsstore"
 	"shh-h/internal/adapter/sftpfs"
@@ -22,6 +23,7 @@ import (
 	"shh-h/internal/bridge"
 	filetransferusecase "shh-h/internal/usecase/filetransfer"
 	profileusecase "shh-h/internal/usecase/profile"
+	remotepathusecase "shh-h/internal/usecase/remotepath"
 	sessionusecase "shh-h/internal/usecase/session"
 	settingsusecase "shh-h/internal/usecase/settings"
 	snippetusecase "shh-h/internal/usecase/snippet"
@@ -90,8 +92,16 @@ func Run(assets fs.FS) error {
 	if err != nil {
 		return err
 	}
+	remotePathRepository, err := remotepathstore.New(appID)
+	if err != nil {
+		return err
+	}
+	remotePaths, err := remotepathusecase.NewService(remotePathRepository)
+	if err != nil {
+		return err
+	}
 	remote := sshconnectionusecase.NewService(profiles, manager, files, trust, sshFactory)
-	desktop := bridge.NewDesktop(manager, profiles, remote, files, tunnels, snippets, workspaces, settingsService)
+	desktop := bridge.NewDesktop(manager, profiles, remote, files, tunnels, snippets, workspaces, remotePaths, settingsService)
 
 	return wails.Run(&options.App{
 		Title:                    "shh-h",

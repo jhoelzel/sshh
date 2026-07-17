@@ -44,7 +44,8 @@ cmd/shhh -> internal/app wires the complete application
 - Domain models use only the Go standard library.
 - Use cases depend on domain models and narrow ports.
 - PTY, SSH, SFTP, session-log, config, settings, workspace-layout,
-  profile-exchange, and secret adapters implement those ports.
+  remote-path-favorite, profile-exchange, and secret adapters implement those
+  ports.
 - The Wails bridge maps task-oriented commands and typed events to use cases.
 - React never receives backend objects and never stores terminal output in
   component state.
@@ -86,8 +87,8 @@ secret-store implementations.
 ### `internal/bridge`
 
 The only privileged frontend boundary. It exposes typed commands for profiles,
-sessions, transfers, tunnels, snippets, settings, and workspace layouts and
-emits typed lifecycle events. Terminal
+sessions, transfers, tunnels, snippets, settings, remote-path favorites, and
+workspace layouts and emits typed lifecycle events. Terminal
 output uses ordered byte-safe chunks, per-session generations, bounded queues,
 cumulative byte-credit acknowledgement, fair scheduling, and backpressure.
 Lifecycle and control traffic does not wait behind bulk terminal output.
@@ -114,6 +115,20 @@ private atomic-file adapter after the user chooses a path in the native Save
 dialog. Neither payload enters React component state, session logs, layout
 storage, or profile storage. Remote-controlled terminal titles are sanitized
 before they become suggested export filenames.
+
+## Remote Path Favorite Ownership
+
+A remote-path favorite is configuration, not a live SFTP resource. Its private
+versioned store contains only a generated ID, saved-profile ID, canonical
+absolute POSIX path, and creation timestamp. It never contains a hostname,
+username, credential, trust decision, SFTP session ID, directory listing, or
+transfer state. The bridge accepts new favorites only for an existing SSH
+profile and rejects duplicate profile/path pairs.
+
+Loading favorites performs no network operation. The frontend shows only those
+owned by the currently open saved profile; choosing one issues an ordinary
+navigation request through that already-open SFTP session. Favorites whose
+profiles were removed remain inert and hidden rather than being reassigned.
 
 ## Workspace Layout Ownership
 

@@ -25,6 +25,7 @@ import {
 } from 'lucide-react'
 import { CommandPalette, type PaletteCommand } from '../feature/commands/CommandPalette'
 import { FileBrowser } from '../feature/files/FileBrowser'
+import { canonicalRemotePath } from '../feature/files/remotePath'
 import { ProfileEditor } from '../feature/profile/ProfileEditor'
 import { ProfileExchangeDialog } from '../feature/profile/ProfileExchangeDialog'
 import { QuickConnectDialog } from '../feature/ssh/QuickConnectDialog'
@@ -48,6 +49,7 @@ import type {
   ProfileInput,
   QuickSSHInput,
   RemoteFile,
+  RemotePathFavorite,
   Session,
   SessionLogStatus,
   SessionState,
@@ -124,6 +126,7 @@ export function App() {
   const [fileProfile, setFileProfile] = useState<Profile>()
   const [remotePath, setRemotePath] = useState('')
   const [remoteFiles, setRemoteFiles] = useState<RemoteFile[]>([])
+  const [remotePathFavorites, setRemotePathFavorites] = useState<RemotePathFavorite[]>([])
   const [fileLoading, setFileLoading] = useState(false)
   const [transfers, setTransfers] = useState<Transfer[]>([])
   const [tunnelConfigs, setTunnelConfigs] = useState<TunnelConfig[]>([])
@@ -162,6 +165,10 @@ export function App() {
     () => captureWorkspace(tabs, profiles, activeId),
     [activeId, profiles, tabs],
   )
+  const fileFavorites = useMemo(
+    () => remotePathFavorites.filter((favorite) => favorite.profileId === fileProfile?.id),
+    [fileProfile?.id, remotePathFavorites],
+  )
   const runningCount = tabs.filter((tab) => isLive(tab.state)).length
   const activeTransferCount = transfers.filter((transfer) => transfer.state === 'queued' || transfer.state === 'running').length
   const activeTunnelCount = tunnelSnapshots.filter((snapshot) => isLiveTunnel(snapshot.state)).length
@@ -187,14 +194,15 @@ export function App() {
     let cancelled = false
     void Promise.all([
       backend.attachFrontend(frontendNonce), backend.listProfiles(), backend.listTunnels(),
-      backend.listSnippets(), backend.listWorkspaceLayouts(), backend.getSettings(),
-    ]).then(([attachedLease, loadedProfiles, loadedTunnels, loadedSnippets, loadedLayouts, loadedSettings]) => {
+      backend.listSnippets(), backend.listWorkspaceLayouts(), backend.listRemotePathFavorites(), backend.getSettings(),
+    ]).then(([attachedLease, loadedProfiles, loadedTunnels, loadedSnippets, loadedLayouts, loadedPathFavorites, loadedSettings]) => {
         if (!cancelled) {
           setLease(attachedLease)
           setProfiles(loadedProfiles)
           setTunnelConfigs(loadedTunnels)
           setSnippets(loadedSnippets)
           setWorkspaceLayouts(loadedLayouts)
+          setRemotePathFavorites(loadedPathFavorites)
           setSettings(loadedSettings)
         }
     })
@@ -454,13 +462,14 @@ export function App() {
       }
       const opened = await backend.openSFTP(lease.id, selected.id, credentials)
       try {
-        const entries = await backend.listRemoteFiles(lease.id, opened.id, opened.root)
+        const root = canonicalRemotePath(opened.root)
+        const entries = await backend.listRemoteFiles(lease.id, opened.id, root)
         if (fileSession) {
           await backend.closeSFTP(lease.id, fileSession.id)
         }
         setFileSession(opened)
         setFileProfile(selected)
-        setRemotePath(opened.root)
+        setRemotePath(root)
         setRemoteFiles(entries)
         setWorkspaceMode('files')
       } catch (cause) {
@@ -636,8 +645,9 @@ export function App() {
       }
       setFileLoading(true)
       try {
-        const entries = await backend.listRemoteFiles(lease.id, fileSession.id, targetPath)
-        setRemotePath(targetPath)
+        const canonicalPath = canonicalRemotePath(targetPath)
+        const entries = await backend.listRemoteFiles(lease.id, fileSession.id, canonicalPath)
+        setRemotePath(canonicalPath)
         setRemoteFiles(entries)
       } finally {
         setFileLoading(false)
@@ -704,6 +714,19 @@ export function App() {
     },
     [lease],
   )
+
+  const createRemotePathFavorite = useCallback(async (targetPath: string) => {
+    if (!fileProfile) throw new Error('No remote file profile is open')
+    const created = await backend.createRemotePathFavorite(fileProfile.id, canonicalRemotePath(targetPath))
+    setRemotePathFavorites((current) => [...current, created])
+    reportNotice('Remote path added to favorites')
+  }, [fileProfile, reportNotice])
+
+  const deleteRemotePathFavorite = useCallback(async (favoriteId: string) => {
+    await backend.deleteRemotePathFavorite(favoriteId)
+    setRemotePathFavorites((current) => current.filter((favorite) => favorite.id !== favoriteId))
+    reportNotice('Remote path removed from favorites')
+  }, [reportNotice])
 
   const closeFileWorkspace = useCallback(async () => {
     if (!lease || !fileSession) return
@@ -1380,6 +1403,7 @@ export function App() {
             path={remotePath}
             files={remoteFiles}
             transfers={transfers}
+            favorites={fileFavorites}
             loading={fileLoading}
             onNavigate={navigateRemote}
             onRefresh={refreshRemote}
@@ -1390,6 +1414,8 @@ export function App() {
             onDelete={deleteRemotePath}
             onChmod={chmodRemotePath}
             onCancelTransfer={cancelTransfer}
+            onCreateFavorite={createRemotePathFavorite}
+            onDeleteFavorite={deleteRemotePathFavorite}
             onClose={closeFileWorkspace}
           />
         ) : workspaceMode === 'files' ? (

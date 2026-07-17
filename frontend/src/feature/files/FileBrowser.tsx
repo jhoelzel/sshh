@@ -12,10 +12,12 @@ import {
   LoaderCircle,
   RefreshCw,
   RotateCcw,
+  Star,
   Trash2,
   X,
 } from 'lucide-react'
-import type { FileSession, Profile, RemoteFile, Transfer } from '../../lib/bridge/types'
+import type { FileSession, Profile, RemoteFile, RemotePathFavorite, Transfer } from '../../lib/bridge/types'
+import { joinRemotePath, parentRemotePath } from './remotePath'
 
 interface FileBrowserProps {
   profile: Profile
@@ -23,6 +25,7 @@ interface FileBrowserProps {
   path: string
   files: RemoteFile[]
   transfers: Transfer[]
+  favorites: RemotePathFavorite[]
   loading: boolean
   onNavigate: (path: string) => Promise<void>
   onRefresh: () => Promise<void>
@@ -33,6 +36,8 @@ interface FileBrowserProps {
   onDelete: (path: string) => Promise<void>
   onChmod: (path: string, mode: number) => Promise<void>
   onCancelTransfer: (id: string) => Promise<void>
+  onCreateFavorite: (path: string) => Promise<void>
+  onDeleteFavorite: (id: string) => Promise<void>
   onClose: () => Promise<void>
 }
 
@@ -55,6 +60,7 @@ export function FileBrowser(props: FileBrowserProps) {
     [props.files, showHidden],
   )
   const selected = props.files.find((entry) => entry.path === selectedPath)
+  const currentFavorite = props.favorites.find((favorite) => favorite.path === props.path)
   const sessionTransfers = props.transfers.filter((transfer) => transfer.sessionId === props.session.id)
 
   const run = async (operation: () => Promise<void>) => {
@@ -133,6 +139,28 @@ export function FileBrowser(props: FileBrowserProps) {
         <form className="remote-path" onSubmit={(event) => { event.preventDefault(); void run(() => props.onNavigate(pathInput.current?.value ?? props.path)) }}>
           <input ref={pathInput} key={props.path} aria-label="Remote path" defaultValue={props.path} />
         </form>
+        <button
+          className={`icon-button remote-favorite-toggle${currentFavorite ? ' is-favorite' : ''}`}
+          type="button"
+          title={currentFavorite ? 'Remove current path from favorites' : 'Add current path to favorites'}
+          aria-label={currentFavorite ? 'Remove current path from favorites' : 'Add current path to favorites'}
+          disabled={busy || props.loading}
+          onClick={() => void run(() => currentFavorite ? props.onDeleteFavorite(currentFavorite.id) : props.onCreateFavorite(props.path))}
+        >
+          <Star size={15} fill={currentFavorite ? 'currentColor' : 'none'} />
+        </button>
+        <label className="remote-favorites">
+          <Star size={13} />
+          <select
+            aria-label="Favorite remote paths"
+            value=""
+            disabled={busy || props.loading || props.favorites.length === 0}
+            onChange={(event) => { if (event.target.value) void run(() => props.onNavigate(event.target.value)) }}
+          >
+            <option value="">Favorites</option>
+            {props.favorites.map((favorite) => <option value={favorite.path} key={favorite.id}>{favorite.path}</option>)}
+          </select>
+        </label>
         <button className="icon-text-button" type="button" disabled={busy} onClick={() => setDialog({ kind: 'mkdir', value: '' })}>
           <FolderPlus size={15} /> New folder
         </button>
@@ -245,17 +273,6 @@ export function FileBrowser(props: FileBrowserProps) {
       )}
     </section>
   )
-}
-
-function joinRemotePath(directory: string, name: string): string {
-  const base = directory === '/' ? '' : directory.replace(/\/$/, '')
-  return `${base}/${name.trim()}`
-}
-
-function parentRemotePath(value: string): string {
-  const parts = value.split('/').filter(Boolean)
-  parts.pop()
-  return `/${parts.join('/')}`
 }
 
 function baseName(value: string): string {

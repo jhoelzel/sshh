@@ -226,6 +226,24 @@ export namespace bridge {
 		    return a;
 		}
 	}
+	export class RemotePathFavoriteDTO {
+	    id: string;
+	    profileId: string;
+	    path: string;
+	    createdAt: string;
+
+	    static createFrom(source: any = {}) {
+	        return new RemotePathFavoriteDTO(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.profileId = source["profileId"];
+	        this.path = source["path"];
+	        this.createdAt = source["createdAt"];
+	    }
+	}
 	export class SSHAuthenticationDTO {
 	    secret: string;
 	    identityFile: string;

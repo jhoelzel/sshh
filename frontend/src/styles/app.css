@@ -771,6 +771,40 @@ textarea:focus-visible {
   border-color: #5a9e83;
 }
 
+.remote-favorite-toggle {
+  flex: 0 0 28px;
+}
+
+.remote-favorite-toggle.is-favorite {
+  color: #e2bc64;
+}
+
+.remote-favorites {
+  display: grid;
+  width: clamp(112px, 15vw, 170px);
+  min-width: 0;
+  grid-template-columns: 14px minmax(0, 1fr);
+  align-items: center;
+  gap: 4px;
+  color: #7e8881;
+}
+
+.remote-favorites select {
+  width: 100%;
+  height: 28px;
+  min-width: 0;
+  border: 1px solid #343a36;
+  border-radius: 3px;
+  background: #171b19;
+  color: #b7c0ba;
+  font-size: 9px;
+}
+
+.remote-favorites select:focus-visible {
+  border-color: #5a9e83;
+  outline: 0;
+}
+
 .hidden-toggle {
   display: flex;
   align-items: center;

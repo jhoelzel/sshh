@@ -17,7 +17,8 @@ native desktop application.
 - Interactive SSH terminals with strict known-host verification, explicit
   first-use trust, agent, key, password, and keyboard-interactive authentication.
 - An SFTP browser with streamed upload/download, bounded concurrency, progress,
-  cancellation, atomic partial files, directory operations, and permissions.
+  cancellation, atomic partial files, directory operations, permissions, and
+  profile-scoped remote-path favorites.
 - Saved local, remote, and dynamic SOCKS5 SSH tunnels with explicit lifecycle,
   actual bound addresses, retry policy, auto-start policy, and loopback defaults.
 - Saved command snippets with strict variables, backend-rendered previews, and
@@ -72,6 +73,14 @@ permissions, and are atomically replaced; cancelling the native dialog writes
 nothing. Both actions are available from the terminal toolbar and command
 palette.
 
+## Remote Path Favorites
+
+Inside an open SFTP workspace, use the star beside the path field to add or
+remove the current directory. The adjacent Favorites menu navigates to saved
+paths for that profile. Favorites are canonical absolute remote paths stored in
+a separate private atomic file; loading them never opens a connection, and
+choosing one uses only the SFTP session that is already visible.
+
 On macOS, `make build` produces `build/bin/shh-h.app`. The embedded Go
 executable is `build/bin/shh-h.app/Contents/MacOS/shhh`.
 
@@ -80,11 +89,11 @@ executable is `build/bin/shh-h.app/Contents/MacOS/shhh`.
 - `cmd/shhh`: executable entry point and Wails project configuration.
 - `internal/app`: composition root and desktop lifecycle configuration.
 - `internal/domain`: pure profile, transfer, SSH, tunnel, snippet, workspace,
-  and settings models.
+  remote-path favorite, and settings models.
 - `internal/port`: terminal, SSH connection, and remote filesystem contracts.
 - `internal/adapter`: PTY, SSH, known-host, SFTP, session-log, profile exchange, and configuration adapters.
-- `internal/usecase`: profile, session, transfer, SSH, tunnel, snippet, and
-  workspace orchestration.
+- `internal/usecase`: profile, session, transfer, SSH, tunnel, snippet,
+  remote-path favorite, and workspace orchestration.
 - `internal/bridge`: narrow typed Wails command and event boundary.
 - `frontend`: React terminal, profile, file, transfer, tunnel, snippet, layout,
   and settings workspaces.

@@ -25,6 +25,8 @@ export function CreateProfile(arg1:bridge.ProfileInputDTO):Promise<bridge.Profil
 
 export function CreateRemoteDirectory(arg1:string,arg2:string,arg3:string):Promise<void>;
 
+export function CreateRemotePathFavorite(arg1:string,arg2:string):Promise<bridge.RemotePathFavoriteDTO>;
+
 export function CreateSnippet(arg1:bridge.SnippetInputDTO):Promise<bridge.SnippetDTO>;
 
 export function CreateTunnel(arg1:bridge.TunnelInputDTO):Promise<tunnel.Config>;
@@ -34,6 +36,8 @@ export function CreateWorkspaceLayout(arg1:bridge.WorkspaceLayoutInputDTO):Promi
 export function DeleteProfile(arg1:string):Promise<void>;
 
 export function DeleteRemotePath(arg1:string,arg2:string,arg3:string):Promise<void>;
+
+export function DeleteRemotePathFavorite(arg1:string):Promise<void>;
 
 export function DeleteSnippet(arg1:string):Promise<void>;
 
@@ -58,6 +62,8 @@ export function InspectSSHAuthentication(arg1:string,arg2:string):Promise<bridge
 export function ListProfiles():Promise<Array<bridge.ProfileDTO>>;
 
 export function ListRemoteFiles(arg1:string,arg2:string,arg3:string):Promise<Array<filetransfer.Entry>>;
+
+export function ListRemotePathFavorites():Promise<Array<bridge.RemotePathFavoriteDTO>>;
 
 export function ListSnippets():Promise<Array<bridge.SnippetDTO>>;
 

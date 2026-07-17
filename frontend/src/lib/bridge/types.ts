@@ -93,6 +93,13 @@ export interface RemoteFile {
   modifiedAt: string
 }
 
+export interface RemotePathFavorite {
+  id: string
+  profileId: string
+  path: string
+  createdAt: string
+}
+
 export type TransferState = 'queued' | 'running' | 'completed' | 'failed' | 'cancelled'
 
 export interface Transfer {

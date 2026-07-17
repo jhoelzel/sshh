@@ -8,11 +8,13 @@ import {
   CloseTerminal,
   ConfirmApplicationClose,
   CreateProfile,
+  CreateRemotePathFavorite,
   CreateRemoteDirectory,
   CreateSnippet,
   CreateTunnel,
   CreateWorkspaceLayout,
   DeleteProfile,
+  DeleteRemotePathFavorite,
   DeleteRemotePath,
   DeleteSnippet,
   DeleteTunnel,
@@ -22,6 +24,7 @@ import {
   ExportTerminalText,
   GetSettings,
   ListProfiles,
+  ListRemotePathFavorites,
   ListRemoteFiles,
   ListSnippets,
   ListTransfers,
@@ -78,6 +81,7 @@ import type {
   SnippetInput,
   SnippetPreview,
   RemoteFile,
+  RemotePathFavorite,
   TerminalOutput,
   TerminalTextExportResult,
   Transfer,
@@ -120,6 +124,11 @@ export const backend = {
   },
   exportTerminalText: (title: string, text: string) =>
     ExportTerminalText(title, text) as Promise<TerminalTextExportResult>,
+  listRemotePathFavorites: async () =>
+    ((await ListRemotePathFavorites()) ?? []) as RemotePathFavorite[],
+  createRemotePathFavorite: (profileId: string, path: string) =>
+    CreateRemotePathFavorite(profileId, path) as Promise<RemotePathFavorite>,
+  deleteRemotePathFavorite: (favoriteId: string) => DeleteRemotePathFavorite(favoriteId),
   getSettings: () => GetSettings() as Promise<AppSettings>,
   updateSettings: (settings: AppSettings) =>
     UpdateSettings(bridge.SettingsDTO.createFrom(settings)) as Promise<AppSettings>,
