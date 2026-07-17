@@ -5,6 +5,7 @@ import {
   ChevronUp,
   CircleAlert,
   Command,
+  Copy,
   FileText,
   FileDown,
   FileUp,
@@ -31,7 +32,8 @@ import { SSHCredentialsDialog, SSHTrustDialog } from '../feature/ssh/SSHConnectD
 import { SettingsWorkspace } from '../feature/settings/SettingsWorkspace'
 import { SnippetWorkspace } from '../feature/snippets/SnippetWorkspace'
 import { LoggingDialog } from '../feature/terminal/LoggingDialog'
-import { TerminalController } from '../feature/terminal/TerminalController'
+import { copyVisibleText, exportSelectedText } from '../feature/terminal/terminalActions'
+import type { TerminalController } from '../feature/terminal/TerminalController'
 import { TerminalPane } from '../feature/terminal/TerminalPane'
 import { TunnelWorkspace } from '../feature/tunnels/TunnelWorkspace'
 import { WorkspaceLayoutWorkspace } from '../feature/workspaces/WorkspaceLayoutWorkspace'
@@ -82,6 +84,7 @@ interface TabModel {
   state: TerminalTabState
   exitSummary?: string
   attention: boolean
+  hasSelection: boolean
 }
 
 type Confirmation =
@@ -131,6 +134,7 @@ export function App() {
   const [settings, setSettings] = useState<AppSettings>()
   const [loggingSessionId, setLoggingSessionId] = useState<string>()
   const [error, setError] = useState<string>()
+  const [notice, setNotice] = useState<string>()
   const controllers = useRef(new Map<string, TerminalController>())
   const autoStartAttempted = useRef(new Set<string>())
 
@@ -164,8 +168,20 @@ export function App() {
   const activityCount = runningCount + activeTransferCount + activeTunnelCount + (fileSession ? 1 : 0)
 
   const reportError = useCallback((cause: unknown) => {
+    setNotice(undefined)
     setError(cause instanceof Error ? cause.message : String(cause))
   }, [])
+
+  const reportNotice = useCallback((message: string) => {
+    setError(undefined)
+    setNotice(message)
+  }, [])
+
+  useEffect(() => {
+    if (!notice) return
+    const timer = window.setTimeout(() => setNotice(undefined), 3_000)
+    return () => window.clearTimeout(timer)
+  }, [notice])
 
   useEffect(() => {
     let cancelled = false
@@ -361,12 +377,13 @@ export function App() {
       let opened: { session: Session; controller: TerminalController } | undefined
       let replaced: { tab: TabModel; index: number } | undefined
       try {
+        const { TerminalController: Controller } = await import('../feature/terminal/TerminalController')
         const session = selected.protocol === 'local'
           ? await backend.openLocalTerminal(lease.id, selected.id, initialColumns, initialRows)
           : quick
             ? await backend.openQuickSSHTerminal(lease.id, quick, initialColumns, initialRows, credentials)
             : await backend.openSSHTerminal(lease.id, selected.id, initialColumns, initialRows, credentials)
-        const controller = new TerminalController(session, settings.terminal, {
+        const controller = new Controller(session, settings.terminal, {
           onTitle: (title) =>
             setTabs((current) => current.map((tab) => (tab.id === session.id ? { ...tab, title } : tab))),
           onBell: () =>
@@ -375,6 +392,8 @@ export function App() {
             ),
           onError: reportError,
           onSearchRequested: () => setSearchOpen(true),
+          onSelectionChange: (hasSelection) =>
+            setTabs((current) => current.map((tab) => tab.id === session.id ? { ...tab, hasSelection } : tab)),
         })
         opened = { session, controller }
         controllers.current.set(session.id, controller)
@@ -387,6 +406,7 @@ export function App() {
           title: session.title,
           state: session.state,
           attention: false,
+          hasSelection: false,
         }
         setTabs((current) => {
           if (!replaceTabId) return [...current, liveTab]
@@ -926,6 +946,7 @@ export function App() {
   }, [applyWorkspaceLayout, closeTab, confirmation, lease, reportError, workspaceLayouts])
 
   const activeController = activeTab?.controller
+  const activeHasSelection = Boolean(activeController && activeTab?.hasSelection)
   const blockingOverlayOpen = Boolean(
     sshPrompt || profileEditor || profileExchange || quickConnectOpen || loggingSessionId || confirmation,
   )
@@ -937,6 +958,30 @@ export function App() {
     const selected = localProfiles[0]
     if (canOpenLocalTerminal && selected) void connectProfile(selected)
   }, [canOpenLocalTerminal, connectProfile, localProfiles])
+
+  const copyVisibleTerminal = useCallback(async () => {
+    if (!activeController) return
+    try {
+      await copyVisibleText(activeController, backend.copyText)
+      reportNotice('Visible terminal copied')
+    } catch (cause) {
+      reportError(cause)
+    }
+  }, [activeController, reportError, reportNotice])
+
+  const exportTerminalSelection = useCallback(async () => {
+    if (!activeController || !activeHasSelection) return
+    try {
+      const result = await exportSelectedText(
+        activeController,
+        activeTab?.title ?? 'terminal',
+        backend.exportTerminalText,
+      )
+      if (!result.cancelled) reportNotice(`Exported ${result.filename}`)
+    } catch (cause) {
+      reportError(cause)
+    }
+  }, [activeController, activeHasSelection, activeTab, reportError, reportNotice])
 
   const paletteCommands = useMemo<PaletteCommand[]>(() => [
     {
@@ -996,6 +1041,16 @@ export function App() {
       },
     },
     {
+      id: 'copy-visible-terminal', label: 'Copy visible terminal', group: 'Active terminal', icon: Copy,
+      keywords: ['clipboard', 'viewport'], disabled: !activeController,
+      run: () => void copyVisibleTerminal(),
+    },
+    {
+      id: 'export-terminal-selection', label: 'Export terminal selection', group: 'Active terminal', icon: FileDown,
+      keywords: ['save', 'text'], disabled: !activeHasSelection,
+      run: () => void exportTerminalSelection(),
+    },
+    {
       id: 'toggle-logging', label: activeLog ? 'Stop session logging' : 'Start session logging',
       group: 'Active terminal', icon: FileText, keywords: ['record', 'capture'],
       disabled: !activeTab || activeTab.state !== 'running', run: () => void toggleSessionLogging(),
@@ -1016,9 +1071,10 @@ export function App() {
       run: () => void restoreWorkspaceLayout(layout).catch(reportError),
     })),
   ], [
-    activeController, activeId, activeLog, activeTab, canOpenLocalTerminal, closeTab, exportProfiles,
-    importProfiles, lease, openLocalTerminal, openingProfile, profileExchangeAction, settings,
-    reportError, restoreWorkspaceLayout, toggleSessionLogging, workspaceLayouts,
+    activeController, activeHasSelection, activeId, activeLog, activeTab, canOpenLocalTerminal,
+    closeTab, copyVisibleTerminal, exportProfiles, exportTerminalSelection, importProfiles, lease,
+    openLocalTerminal, openingProfile, profileExchangeAction, settings, reportError,
+    restoreWorkspaceLayout, toggleSessionLogging, workspaceLayouts,
   ])
 
   useEffect(() => {
@@ -1187,6 +1243,26 @@ export function App() {
               onClick={() => setSearchOpen((value) => !value)}
             >
               <Search size={16} />
+            </button>
+            <button
+              className="icon-button"
+              type="button"
+              title="Copy visible terminal"
+              aria-label="Copy visible terminal"
+              disabled={!activeController}
+              onClick={() => void copyVisibleTerminal()}
+            >
+              <Copy size={16} />
+            </button>
+            <button
+              className="icon-button"
+              type="button"
+              title="Export terminal selection"
+              aria-label="Export terminal selection"
+              disabled={!activeHasSelection}
+              onClick={() => void exportTerminalSelection()}
+            >
+              <FileDown size={16} />
             </button>
             <button
               className={`icon-button${activeLog ? ' is-recording' : ''}`}
@@ -1372,6 +1448,15 @@ export function App() {
           <CircleAlert size={17} />
           <span>{error}</span>
           <button className="icon-button compact" type="button" aria-label="Dismiss error" onClick={() => setError(undefined)}>
+            <X size={15} />
+          </button>
+        </div>
+      )}
+
+      {notice && (
+        <div className="notice-toast" role="status">
+          <span>{notice}</span>
+          <button className="icon-button compact" type="button" aria-label="Dismiss notification" onClick={() => setNotice(undefined)}>
             <X size={15} />
           </button>
         </div>

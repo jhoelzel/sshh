@@ -28,6 +28,8 @@ native desktop application.
   behavior, with live application to open terminals and durable reset support.
 - A searchable command palette with grouped actions, disabled-state feedback,
   keyboard navigation, and shell-safe application shortcuts.
+- Terminal viewport copy and exact selection export through native clipboard
+  and Save dialogs, with bounded private atomic text files.
 - Saved workspace layouts with private atomic persistence, ordered profile-tab
   snapshots, disconnected restoration, and explicit per-tab reconnection.
 - Explicit session ownership, activation, ordered input/output, bounded output
@@ -59,6 +61,16 @@ make test      # Go and frontend unit/integration tests
 make lint      # ESLint and go vet
 make build     # production native package
 ```
+
+## Terminal Text Actions
+
+`Copy visible terminal` copies only the active viewport, joins xterm soft wraps,
+and ignores right-side cell padding. `Export terminal selection` is enabled only
+while the active terminal has selected text and writes that exact selection to
+a user-chosen `.txt` or `.log` file. Exports are capped at 16 MiB, use private
+permissions, and are atomically replaced; cancelling the native dialog writes
+nothing. Both actions are available from the terminal toolbar and command
+palette.
 
 On macOS, `make build` produces `build/bin/shh-h.app`. The embedded Go
 executable is `build/bin/shh-h.app/Contents/MacOS/shhh`.

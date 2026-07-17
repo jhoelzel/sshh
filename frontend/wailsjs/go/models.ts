@@ -370,6 +370,22 @@ export namespace bridge {
 	    }
 	}
 
+	export class TerminalTextExportDTO {
+	    cancelled: boolean;
+	    filename: string;
+	    bytes: number;
+
+	    static createFrom(source: any = {}) {
+	        return new TerminalTextExportDTO(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.cancelled = source["cancelled"];
+	        this.filename = source["filename"];
+	        this.bytes = source["bytes"];
+	    }
+	}
 	export class TunnelInputDTO {
 	    id: string;
 	    name: string;

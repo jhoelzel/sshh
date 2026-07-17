@@ -168,6 +168,12 @@ export interface TerminalOutput {
   final: boolean
 }
 
+export interface TerminalTextExportResult {
+  cancelled: boolean
+  filename: string
+  bytes: number
+}
+
 export interface SessionStateEvent {
   leaseId: string
   sessionId: string

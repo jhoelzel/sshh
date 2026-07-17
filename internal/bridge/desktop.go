@@ -13,11 +13,14 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/wailsapp/wails/v2/pkg/options"
 	wailsruntime "github.com/wailsapp/wails/v2/pkg/runtime"
 
 	"shh-h/internal/adapter/profileexchange"
+	"shh-h/internal/adapter/textfile"
 	filedomain "shh-h/internal/domain/filetransfer"
 	"shh-h/internal/domain/profile"
 	settingsdomain "shh-h/internal/domain/settings"
@@ -218,6 +221,12 @@ type TerminalOutputDTO struct {
 	ByteCount  int    `json:"byteCount"`
 	Payload    string `json:"payload"`
 	Final      bool   `json:"final"`
+}
+
+type TerminalTextExportDTO struct {
+	Cancelled bool   `json:"cancelled"`
+	Filename  string `json:"filename"`
+	Bytes     int    `json:"bytes"`
 }
 
 type frontendLease struct {
@@ -431,6 +440,31 @@ func (d *Desktop) ExportProfiles() (ProfileExportDTO, error) {
 		return ProfileExportDTO{}, err
 	}
 	return ProfileExportDTO{Filename: filepath.Base(filename), Exported: len(profiles)}, nil
+}
+
+func (d *Desktop) ExportTerminalText(title, text string) (TerminalTextExportDTO, error) {
+	if text == "" {
+		return TerminalTextExportDTO{}, errors.New("terminal selection is empty")
+	}
+	data := []byte(text)
+	if len(data) > textfile.MaxBytes {
+		return TerminalTextExportDTO{}, fmt.Errorf("terminal selection exceeds the %d MiB limit", textfile.MaxBytes/(1<<20))
+	}
+	filename, err := wailsruntime.SaveFileDialog(d.context(), wailsruntime.SaveDialogOptions{
+		Title: "Export terminal selection", DefaultFilename: terminalTextFilename(title),
+		CanCreateDirectories: true, ShowHiddenFiles: true,
+		Filters: []wailsruntime.FileFilter{{DisplayName: "Text files", Pattern: "*.txt;*.log"}},
+	})
+	if err != nil {
+		return TerminalTextExportDTO{}, fmt.Errorf("select terminal export: %w", err)
+	}
+	if filename == "" {
+		return TerminalTextExportDTO{Cancelled: true}, nil
+	}
+	if err := textfile.WriteAtomic(filename, data); err != nil {
+		return TerminalTextExportDTO{}, err
+	}
+	return TerminalTextExportDTO{Filename: filepath.Base(filename), Bytes: len(data)}, nil
 }
 
 func (d *Desktop) ListTunnels() []tunneldomain.Config {
@@ -1204,6 +1238,26 @@ func randomID() (string, error) {
 
 func leaseDTO(lease *frontendLease) FrontendLeaseDTO {
 	return FrontendLeaseDTO{ID: lease.id, ExpiresAt: lease.expiresAt.UTC().Format(time.RFC3339Nano)}
+}
+
+func terminalTextFilename(title string) string {
+	title = strings.TrimSpace(title)
+	var name strings.Builder
+	name.Grow(80)
+	for _, character := range title {
+		if !unicode.IsLetter(character) && !unicode.IsNumber(character) && !strings.ContainsRune(" ._-", character) {
+			character = '-'
+		}
+		if name.Len()+utf8.RuneLen(character) > 80 {
+			break
+		}
+		name.WriteRune(character)
+	}
+	base := strings.Trim(name.String(), " ._-")
+	if base == "" {
+		base = "terminal"
+	}
+	return base + "-selection.txt"
 }
 
 func notify(channel chan struct{}) {

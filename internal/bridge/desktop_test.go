@@ -1,6 +1,7 @@
 package bridge
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -53,5 +54,18 @@ func TestAttachFrontendRejectsInvalidNonce(t *testing.T) {
 
 	if _, err := desktop.AttachFrontend("  "); err == nil {
 		t.Fatal("expected an empty frontend nonce to be rejected")
+	}
+}
+
+func TestTerminalTextFilenameSanitizesUntrustedTitles(t *testing.T) {
+	filename := terminalTextFilename(" ../../Production\nShell ")
+	if filename != "Production-Shell-selection.txt" {
+		t.Fatalf("unexpected filename %q", filename)
+	}
+	if fallback := terminalTextFilename("///"); fallback != "terminal-selection.txt" {
+		t.Fatalf("unexpected fallback filename %q", fallback)
+	}
+	if long := terminalTextFilename(strings.Repeat("界", 100)); len(long) > 100 {
+		t.Fatalf("suggested filename exceeds byte budget: %d", len(long))
 	}
 }

@@ -4,6 +4,7 @@ import { Terminal, type IDisposable } from '@xterm/xterm'
 import { backend } from '../../lib/bridge/client'
 import type { Session, TerminalOutput, TerminalSettings } from '../../lib/bridge/types'
 import { OrderedInputQueue } from './OrderedInputQueue'
+import { visibleBufferText } from './terminalText'
 
 const maxPendingOutput = 1024 * 1024
 const resizeDelay = 80
@@ -13,6 +14,7 @@ interface ControllerCallbacks {
   onBell: () => void
   onError: (error: Error) => void
   onSearchRequested: () => void
+  onSelectionChange: (selected: boolean) => void
 }
 
 export class TerminalController {
@@ -102,6 +104,7 @@ export class TerminalController {
       this.terminal.onBinary((data) => this.inputQueue.enqueue(binaryStringToBytes(data))),
       this.terminal.onResize(({ cols, rows }) => this.scheduleResize(cols, rows)),
       this.terminal.onTitleChange(callbacks.onTitle),
+      this.terminal.onSelectionChange(() => callbacks.onSelectionChange(this.terminal.hasSelection())),
       this.terminal.onBell(() => {
         if (this.bellEnabled) callbacks.onBell()
       }),
@@ -196,6 +199,16 @@ export class TerminalController {
 
   focus(): void {
     this.terminal.focus()
+  }
+
+  visibleText(): string {
+    if (this.disposed) return ''
+    return visibleBufferText(this.terminal.buffer.active, this.terminal.rows)
+  }
+
+  selectedText(): string {
+    if (this.disposed) return ''
+    return this.terminal.getSelection()
   }
 
   applySettings(settings: TerminalSettings): void {

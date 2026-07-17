@@ -19,6 +19,7 @@ import {
   DeleteWorkspaceLayout,
   DuplicateProfile,
   ExportProfiles,
+  ExportTerminalText,
   GetSettings,
   ListProfiles,
   ListRemoteFiles,
@@ -56,7 +57,7 @@ import {
   WriteTerminal,
 } from '../../../wailsjs/go/bridge/Desktop'
 import { bridge } from '../../../wailsjs/go/models'
-import { EventsOff, EventsOn } from '../../../wailsjs/runtime/runtime'
+import { ClipboardSetText, EventsOff, EventsOn } from '../../../wailsjs/runtime/runtime'
 import type {
   AppSettings,
   FrontendLease,
@@ -78,6 +79,7 @@ import type {
   SnippetPreview,
   RemoteFile,
   TerminalOutput,
+  TerminalTextExportResult,
   Transfer,
   TunnelConfig,
   TunnelInput,
@@ -112,6 +114,12 @@ export const backend = {
     }
   },
   exportProfiles: () => ExportProfiles() as Promise<ProfileExportResult>,
+  copyText: async (text: string) => {
+    if (!text) throw new Error('There is no terminal text to copy')
+    if (!await ClipboardSetText(text)) throw new Error('The system clipboard rejected the terminal text')
+  },
+  exportTerminalText: (title: string, text: string) =>
+    ExportTerminalText(title, text) as Promise<TerminalTextExportResult>,
   getSettings: () => GetSettings() as Promise<AppSettings>,
   updateSettings: (settings: AppSettings) =>
     UpdateSettings(bridge.SettingsDTO.createFrom(settings)) as Promise<AppSettings>,

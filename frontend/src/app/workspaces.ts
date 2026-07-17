@@ -7,6 +7,7 @@ export interface DisconnectedTab {
   title: string
   state: 'disconnected'
   attention: false
+  hasSelection: false
 }
 
 export function createDisconnectedTabs(
@@ -20,5 +21,6 @@ export function createDisconnectedTabs(
     title: tab.title,
     state: 'disconnected',
     attention: false,
+    hasSelection: false,
   }))
 }

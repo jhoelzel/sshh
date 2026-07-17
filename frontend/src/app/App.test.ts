@@ -23,10 +23,12 @@ describe('workspace restoration', () => {
       {
         id: 'tab-1', profileId: 'profile-1', title: 'Production', endpoint: 'prod.example:22',
         state: 'disconnected', attention: false,
+        hasSelection: false,
       },
       {
         id: 'tab-2', profileId: 'profile-2', title: 'Database', endpoint: 'db.example:22',
         state: 'disconnected', attention: false,
+        hasSelection: false,
       },
     ])
     expect(tabs.every((tab) => !('session' in tab) && !('controller' in tab))).toBe(true)

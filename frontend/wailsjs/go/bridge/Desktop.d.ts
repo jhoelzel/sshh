@@ -45,6 +45,8 @@ export function DuplicateProfile(arg1:string):Promise<bridge.ProfileDTO>;
 
 export function ExportProfiles():Promise<bridge.ProfileExportDTO>;
 
+export function ExportTerminalText(arg1:string,arg2:string):Promise<bridge.TerminalTextExportDTO>;
+
 export function GetSettings():Promise<bridge.SettingsDTO>;
 
 export function ImportProfiles():Promise<bridge.ProfileImportDTO>;

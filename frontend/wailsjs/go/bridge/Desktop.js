@@ -82,6 +82,10 @@ export function ExportProfiles() {
   return window['go']['bridge']['Desktop']['ExportProfiles']();
 }
 
+export function ExportTerminalText(arg1, arg2) {
+  return window['go']['bridge']['Desktop']['ExportTerminalText'](arg1, arg2);
+}
+
 export function GetSettings() {
   return window['go']['bridge']['Desktop']['GetSettings']();
 }

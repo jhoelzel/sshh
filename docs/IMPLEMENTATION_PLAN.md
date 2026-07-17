@@ -3,11 +3,11 @@
 ## 1. Implementation Status
 
 The macOS core slices through M8, the workspace-layout and command-productivity
-portions of M9, and the terminal portion of M10 are implemented. The repository contains a Wails v2
-host, embedded React and strict TypeScript frontend, xterm.js terminal
-controllers, a real Unix PTY adapter, strict SSH and known-host adapters, SFTP,
-saved tunnel state, and lease-owned runtime managers with bounded bridge flow
-control.
+portions of M9, and the terminal portion of M10 are implemented. The repository
+contains a Wails v2 host, embedded React and strict TypeScript frontend,
+xterm.js terminal controllers, a real Unix PTY adapter, strict SSH and
+known-host adapters, SFTP, saved tunnel state, and lease-owned runtime managers
+with bounded bridge flow control.
 
 Implemented and verified:
 
@@ -49,6 +49,10 @@ Implemented and verified:
 - The command palette searches grouped connection, profile, navigation, and
   active-terminal actions. Arrow-key operation and non-conflicting
   `Cmd/Ctrl+Shift` shortcuts work without intercepting ordinary shell input.
+- Terminal text actions copy the current xterm viewport through the native
+  clipboard and export exact selections through a native Save dialog. Export
+  names are sanitized and files are bounded, private, synced, and atomically
+  replaced.
 - Workspace layouts use a strict versioned private store and retain only
   ordered profile references, display snapshots, and the selected index.
   Restore creates disconnected frontend tabs with no process or network
@@ -929,6 +933,7 @@ Deliverables:
 - Add optional session logging with start/stop controls, timestamp policy,
   rotation, and secure file permissions.
 - Add terminal search, copy-all-visible, and export-selection actions.
+  Implemented for the active terminal through the toolbar and command palette.
 - Add saved workspace layouts that restore profile tabs as disconnected tabs;
   reconnection remains explicit. Implemented for saved-profile terminal tabs.
 - Add profile and remote-path favorites.

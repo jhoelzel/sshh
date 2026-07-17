@@ -107,6 +107,14 @@ Palette and shortcut actions call the same React workflow callbacks as visible
 controls; they do not add a second bridge path or create backend resources on
 their own.
 
+Terminal text actions are read-only controller operations. Copy Visible reads
+the active xterm viewport and sends it directly to the Wails native clipboard;
+Export Selection reads xterm's exact selection and passes it to a bounded
+private atomic-file adapter after the user chooses a path in the native Save
+dialog. Neither payload enters React component state, session logs, layout
+storage, or profile storage. Remote-controlled terminal titles are sanitized
+before they become suggested export filenames.
+
 ## Workspace Layout Ownership
 
 A saved layout is declarative UI state, not a session checkpoint. Its versioned
