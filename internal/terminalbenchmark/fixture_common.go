@@ -4,6 +4,7 @@ import (
 	"errors"
 	"io"
 	"os"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -17,6 +18,7 @@ const (
 	MarkerCloseFlood  = "SHHH_BENCH_CLOSE_FLOOD"
 	MarkerSoakStarted = "SHHH_BENCH_SOAK_STARTED"
 	MarkerSoakDone    = "SHHH_BENCH_SOAK_DONE"
+	commandFlood      = "FLOOD:"
 )
 
 func RunFixtureIfRequested(arguments []string) (bool, error) {
@@ -83,6 +85,18 @@ func writeFlood(output io.Writer, writes *sync.Mutex, byteCount uint64, complete
 		time.Sleep(250 * time.Microsecond)
 	}
 	complete()
+}
+
+func parseFloodCommand(command string) (uint64, bool) {
+	value, found := strings.CutPrefix(command, commandFlood)
+	if !found {
+		return 0, false
+	}
+	byteCount, err := strconv.ParseUint(value, 10, 64)
+	if err != nil || byteCount == 0 || byteCount > PayloadBytes {
+		return 0, false
+	}
+	return byteCount, true
 }
 
 func writeCloseFlood(output io.Writer, writes *sync.Mutex, title func(string) error) {

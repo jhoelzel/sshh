@@ -42,6 +42,9 @@ The `native-linux` CI job performs three independent checks:
    and records the app, PTY child, and WebKitGTK helper process tree. The smaller
    stream keeps this a functional gate under Xvfb; the PTY suite separately
    closes during a 2 MiB flood and macOS retains the 10 MiB performance gate.
+   Smoke and performance modes send an explicit bounded byte count to the same
+   fixture protocol, which rejects zero, malformed, and greater-than-10-MiB
+   requests.
 
 The smoke report contains only booleans, timing, byte/sequence counters, queue
 high-water marks, process counts, host facts, and the WebKitGTK version. It does

@@ -856,6 +856,9 @@ Deliverables:
   process-group cleanup for Darwin and Linux builds.
 - [x] Add native Linux PTY and WebKitGTK coverage. Ubuntu 24.04 CI runs the real
   PTY lifecycle suites and a production-mode Wails/xterm smoke under Xvfb.
+- [x] Keep functional-smoke and performance payloads distinct through an
+  explicit bounded PTY-fixture command. Protocol tests reject zero, malformed,
+  and over-limit byte counts while both modes retain full-path counter checks.
 - [x] Implement Windows ConPTY startup, UTF-8 input/output, live resize, signals,
   exit-status wait, and deterministic job-tree and handle cleanup. Native
   Windows tests cover initial size, exact environment delivery, resize, nonzero

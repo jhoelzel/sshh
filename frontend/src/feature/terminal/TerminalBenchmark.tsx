@@ -106,7 +106,7 @@ async function runTerminalBenchmark(host: HTMLElement, setStatus: (status: strin
     setStatus('Streaming fixture output through PTY, Go, Wails, and xterm')
     const completed = tracker.wait(`${markerDone}${config.payloadBytes}`, timeout)
     const outputStarted = performance.now()
-    await controller.sendText('FLOOD', true)
+    await controller.sendText(`FLOOD:${config.payloadBytes}`, true)
     const floodEcho = measureEcho(controller, tracker, 'flood', config.minimumLatencySamples, timeout)
     await completed
     report.outputDurationMilliseconds = performance.now() - outputStarted

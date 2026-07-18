@@ -260,6 +260,28 @@ func TestFloodWritesExactDeterministicPayload(t *testing.T) {
 	}
 }
 
+func TestFloodCommandAcceptsOnlyBoundedByteCounts(t *testing.T) {
+	tests := []struct {
+		command string
+		want    uint64
+		valid   bool
+	}{
+		{command: "FLOOD:131072", want: 131_072, valid: true},
+		{command: "FLOOD:10485760", want: PayloadBytes, valid: true},
+		{command: "FLOOD", valid: false},
+		{command: "FLOOD:0", valid: false},
+		{command: "FLOOD:-1", valid: false},
+		{command: "FLOOD:10485761", valid: false},
+		{command: "FLOOD:not-a-number", valid: false},
+	}
+	for _, test := range tests {
+		got, valid := parseFloodCommand(test.command)
+		if got != test.want || valid != test.valid {
+			t.Errorf("parseFloodCommand(%q) = (%d, %t), want (%d, %t)", test.command, got, valid, test.want, test.valid)
+		}
+	}
+}
+
 func TestFixtureRequiresExplicitAuthorization(t *testing.T) {
 	t.Setenv(EnvironmentFixture, "")
 	handled, err := RunFixtureIfRequested([]string{FixtureArgument})
