@@ -64,6 +64,7 @@ const harness = vi.hoisted(() => {
     listTunnelStates: vi.fn().mockResolvedValue([]),
     openLocalTerminal: vi.fn().mockResolvedValue(session),
     activateTerminal: vi.fn().mockResolvedValue(undefined),
+    closeTerminal: vi.fn().mockResolvedValue(undefined),
     renewFrontendLease: vi.fn().mockResolvedValue(lease),
   }
 
@@ -88,6 +89,11 @@ const harness = vi.hoisted(() => {
     subscribe,
     disposers,
     controllerInstances: [] as ControllerDouble[],
+    emit: (name: string, ...data: unknown[]) => {
+      for (const callback of [...(activeListeners.get(name) ?? [])]) {
+        callback(...data)
+      }
+    },
     activeListenerCount: () =>
       [...activeListeners.values()].reduce((total, callbacks) => total + callbacks.size, 0),
   }
@@ -129,7 +135,16 @@ import { App } from './App'
 afterEach(cleanup)
 
 describe('App StrictMode lifecycle', () => {
-  it('does not duplicate startup commands, listeners, controllers, or keyboard actions', async () => {
+  it('does not duplicate or retain commands, listeners, controllers, or output delivery', async () => {
+    const emitOutputBurst = (count: number) => {
+      for (let index = 0; index < count; index += 1) {
+        harness.emit('output', {
+          leaseId: 'lease-1', sessionId: 'session-1', generation: 1,
+          sequence: index + 1, endOffset: index + 1, byteCount: 1,
+          payload: 'eA==', final: false,
+        })
+      }
+    }
     const first = render(<StrictMode><App /></StrictMode>)
 
     await screen.findByText('Local Shell')
@@ -155,6 +170,18 @@ describe('App StrictMode lifecycle', () => {
     await waitFor(() => expect(harness.backend.activateTerminal).toHaveBeenCalledOnce())
     expect(harness.backend.openLocalTerminal).toHaveBeenCalledOnce()
     expect(harness.controllerInstances).toHaveLength(1)
+
+    emitOutputBurst(512)
+    expect(harness.controllerInstances[0].acceptOutput).toHaveBeenCalledTimes(512)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Close Local Shell' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Close' }))
+    await waitFor(() => expect(harness.backend.closeTerminal).toHaveBeenCalledOnce())
+    expect(harness.controllerInstances[0].dispose).toHaveBeenCalledOnce()
+    expect(harness.activeListenerCount()).toBe(6)
+
+    emitOutputBurst(1)
+    expect(harness.controllerInstances[0].acceptOutput).toHaveBeenCalledTimes(512)
 
     first.unmount()
     expect(harness.activeListenerCount()).toBe(0)
@@ -187,9 +214,14 @@ describe('App StrictMode lifecycle', () => {
     expect(harness.backend.openLocalTerminal).toHaveBeenCalledTimes(2)
     expect(harness.controllerInstances).toHaveLength(2)
 
+    emitOutputBurst(512)
+    expect(harness.controllerInstances[1].acceptOutput).toHaveBeenCalledTimes(512)
+
     second.unmount()
     expect(harness.activeListenerCount()).toBe(0)
     expect(harness.controllerInstances[1].dispose).toHaveBeenCalledOnce()
+    emitOutputBurst(1)
+    expect(harness.controllerInstances[1].acceptOutput).toHaveBeenCalledTimes(512)
     for (const dispose of harness.disposers) {
       expect(dispose).toHaveBeenCalledOnce()
     }

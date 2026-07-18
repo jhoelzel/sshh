@@ -235,6 +235,8 @@ executable is `build/bin/shh-h.app/Contents/MacOS/shhh`.
 - `docs/IMPLEMENTATION_PLAN.md`: milestones, acceptance criteria, and release
   scope.
 - `docs/SECURITY.md`: automated audit policy and reviewed advisory notes.
+- `docs/TERMINAL_STRESS.md`: real-PTY lifecycle, process, descriptor, goroutine,
+  and frontend-listener stress evidence and the remaining native benchmark gap.
 - `docs/REMOTE_PROJECTS_PLAN.md`: proposed self-hosted remote code editor,
   provisioning, project lifecycle, and browser-authentication design.
 - `docs/TELEPORT_INTEGRATION_PLAN.md`: proposed Teleport cluster, browser

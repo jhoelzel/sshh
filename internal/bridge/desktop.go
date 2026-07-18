@@ -340,6 +340,7 @@ type Desktop struct {
 	lifecycleMu sync.Mutex
 	lifecycle   *desktopLifecycle
 
+	attachMu  sync.Mutex
 	leaseMu   sync.Mutex
 	lease     *frontendLease
 	leaseWake chan struct{}
@@ -960,6 +961,9 @@ func (d *Desktop) AttachFrontend(instanceNonce string) (FrontendLeaseDTO, error)
 	if instanceNonce == "" || len(instanceNonce) > 128 {
 		return FrontendLeaseDTO{}, apperror.New(apperror.CodeInvalidArgument, "Invalid frontend instance nonce.")
 	}
+	d.attachMu.Lock()
+	defer d.attachMu.Unlock()
+
 	now := time.Now()
 	d.leaseMu.Lock()
 	if d.lease != nil && d.lease.nonce == instanceNonce {
@@ -985,17 +989,29 @@ func (d *Desktop) AttachFrontend(instanceNonce string) (FrontendLeaseDTO, error)
 	notify(d.leaseWake)
 
 	if previous != nil && previous.id != next.id {
-		go func() {
-			d.manager.CloseLease(previous.id)
-			if d.files != nil {
-				d.files.CloseLease(previous.id)
-			}
-			if d.tunnels != nil {
-				d.tunnels.CloseLease(previous.id)
-			}
-		}()
+		d.closeLeaseResources(previous.id)
 	}
 	return leaseDTO(next), nil
+}
+
+func (d *Desktop) closeLeaseResources(leaseID string) {
+	operations := []func(){func() { d.manager.CloseLease(leaseID) }}
+	if d.files != nil {
+		operations = append(operations, func() { d.files.CloseLease(leaseID) })
+	}
+	if d.tunnels != nil {
+		operations = append(operations, func() { d.tunnels.CloseLease(leaseID) })
+	}
+
+	var wait sync.WaitGroup
+	wait.Add(len(operations))
+	for _, operation := range operations {
+		go func(closeResources func()) {
+			defer wait.Done()
+			closeResources()
+		}(operation)
+	}
+	wait.Wait()
 }
 
 func (d *Desktop) RenewFrontendLease(leaseID string) (FrontendLeaseDTO, error) {

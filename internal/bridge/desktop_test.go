@@ -49,16 +49,24 @@ func (factory *bridgeTerminalFactory) Open(context.Context, port.TerminalSpec) (
 }
 
 type bridgeTerminalTransport struct {
-	mu        sync.Mutex
-	input     bytes.Buffer
-	columns   uint16
-	rows      uint16
-	closed    chan struct{}
-	closeOnce sync.Once
+	mu           sync.Mutex
+	input        bytes.Buffer
+	columns      uint16
+	rows         uint16
+	closed       chan struct{}
+	closeStarted chan struct{}
+	closeGate    <-chan struct{}
+	closeOnce    sync.Once
 }
 
 func newBridgeTerminalTransport() *bridgeTerminalTransport {
 	return &bridgeTerminalTransport{closed: make(chan struct{})}
+}
+
+func newGatedBridgeTerminalTransport(closeGate <-chan struct{}) *bridgeTerminalTransport {
+	return &bridgeTerminalTransport{
+		closed: make(chan struct{}), closeStarted: make(chan struct{}), closeGate: closeGate,
+	}
 }
 
 func (transport *bridgeTerminalTransport) Read([]byte) (int, error) {
@@ -96,7 +104,15 @@ func (transport *bridgeTerminalTransport) Close() error {
 }
 
 func (transport *bridgeTerminalTransport) finish() {
-	transport.closeOnce.Do(func() { close(transport.closed) })
+	transport.closeOnce.Do(func() {
+		if transport.closeStarted != nil {
+			close(transport.closeStarted)
+		}
+		if transport.closeGate != nil {
+			<-transport.closeGate
+		}
+		close(transport.closed)
+	})
 }
 
 func (transport *bridgeTerminalTransport) snapshot() ([]byte, uint16, uint16) {
@@ -133,19 +149,74 @@ func TestAttachFrontendIsIdempotentForSameInstance(t *testing.T) {
 	}
 }
 
-func TestAttachFrontendReplacesPreviousInstance(t *testing.T) {
-	desktop := NewDesktop(sessionusecase.NewManager(nil), nil, nil, nil, nil, nil, nil, nil, nil, nil)
+func TestAttachFrontendReplacesPreviousInstanceAndReapsItsRuntime(t *testing.T) {
+	allowClose := make(chan struct{})
+	transport := newGatedBridgeTerminalTransport(allowClose)
+	manager := sessionusecase.NewManager(&bridgeTerminalFactory{transport: transport})
+	desktop := NewDesktop(manager, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	manager.SetSink(nil)
+	var releaseOnce sync.Once
+	releaseClose := func() { releaseOnce.Do(func() { close(allowClose) }) }
+	t.Cleanup(func() {
+		releaseClose()
+		manager.Shutdown()
+	})
 
 	first, err := desktop.AttachFrontend("first-instance")
 	if err != nil {
 		t.Fatalf("attach first frontend: %v", err)
 	}
-	second, err := desktop.AttachFrontend("second-instance")
+	opened, err := manager.OpenLocal(context.Background(), first.ID, profiledomain.Profile{
+		ID: "local", Name: "Local", Protocol: profiledomain.ProtocolLocal,
+	}, 80, 24)
 	if err != nil {
-		t.Fatalf("attach second frontend: %v", err)
+		t.Fatalf("open terminal for first frontend: %v", err)
 	}
+	if err := manager.Activate(first.ID, opened.ID, opened.Generation); err != nil {
+		t.Fatalf("activate terminal for first frontend: %v", err)
+	}
+
+	type attachResult struct {
+		lease FrontendLeaseDTO
+		err   error
+	}
+	attached := make(chan attachResult, 1)
+	go func() {
+		lease, attachErr := desktop.AttachFrontend("second-instance")
+		attached <- attachResult{lease: lease, err: attachErr}
+	}()
+	select {
+	case <-transport.closeStarted:
+	case <-time.After(time.Second):
+		t.Fatal("replacement attachment did not begin old-lease cleanup")
+	}
+	select {
+	case result := <-attached:
+		t.Fatalf("replacement attachment returned before cleanup was released: %#v", result)
+	case <-time.After(30 * time.Millisecond):
+	}
+	releaseClose()
+
+	var result attachResult
+	select {
+	case result = <-attached:
+	case <-time.After(time.Second):
+		t.Fatal("replacement attachment did not return after old-lease cleanup")
+	}
+	if result.err != nil {
+		t.Fatalf("attach second frontend: %v", result.err)
+	}
+	second := result.lease
 	if first.ID == second.ID {
 		t.Fatal("replacement frontend reused the previous lease")
+	}
+	select {
+	case <-transport.closed:
+	default:
+		t.Fatal("replacement attachment returned before the old-lease transport closed")
+	}
+	if manager.LiveCount() != 0 {
+		t.Fatalf("replacement attachment left %d old-lease terminals running", manager.LiveCount())
 	}
 	if _, err := desktop.RenewFrontendLease(first.ID); err == nil {
 		t.Fatal("expected the replaced lease to be rejected")

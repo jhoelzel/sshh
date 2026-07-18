@@ -92,9 +92,10 @@ Implemented and verified:
   weekly update checks.
 - [x] Go race tests cover managers and adapters. Real loopback integration tests
   cover PTY binary input and live resize, shared multi-channel SSH terminal
-  lifetime, terminal exit, SFTP operations, and bidirectional local, remote,
-  and SOCKS forwarding. Controller tests cover mixed text, binary mouse, and
-  paste ordering, resize coalescing, malformed frames, and the real xterm parser.
+  lifetime, terminal exit, repeated flood-close process-tree cleanup, SFTP
+  operations, and bidirectional local, remote, and SOCKS forwarding. Controller
+  tests cover mixed text, binary mouse, and paste ordering, resize coalescing,
+  malformed frames, the real xterm parser, and listener disposal during output.
   TypeScript, ESLint, Vitest, vet, and production builds pass.
 
 Still required for the complete cross-platform and 1.0 gates:
@@ -794,13 +795,20 @@ Tests and exit gate:
   close, lifecycle events, or a second low-volume diagnostic session at the
   manager scheduler boundary. Native WebView latency and memory measurements
   remain part of the preceding open performance gate.
-- [ ] Repeated React StrictMode attach/detach cycles and a frontend reload create no
-  duplicate shell and leave no old-lease shell running.
+- [x] Repeated React StrictMode attach/detach cycles and a frontend reload create no
+  duplicate shell and leave no old-lease shell running. Whole-App tests prove
+  one command, controller, and listener set per genuine mount; serialized
+  backend attachment waits for a live old-lease runtime to close before returning
+  the replacement lease.
 - [ ] Minimizing the window, a deliberate main-thread stall, and system sleep/wake
   do not expire a healthy frontend lease. Simulated frontend loss does expire it
   and reap the shell within the measured bounded grace period.
-- [ ] Closing the tab or window during heavy output reaps the shell and returns
-  goroutine, descriptor, and bridge-listener counts to baseline.
+- [x] Closing the tab or window during heavy output reaps the shell and returns
+  goroutine, descriptor, and bridge-listener counts to baseline. A Darwin/Linux
+  real-PTY test repeats both close paths after 2 MiB floods, verifies descendant
+  process-group cleanup and zero runtimes, and compares process-wide counts with
+  warmed baselines. The whole-App test proves tab controller disposal and root
+  listener cleanup while output events are arriving.
 - [x] `OnBeforeClose` performs the visible decision and coordinated shutdown;
   `OnShutdown` remains safe when invoked after frontend destruction.
 - [x] A packaged arm64 macOS `.app` passes the launch and frontend-attachment
@@ -835,11 +843,11 @@ Deliverables:
 
 Tests and exit gate:
 
-- [ ] Extend the real PTY integration coverage, which now includes binary input,
-  live resize, output, initial size, and exit status, with deterministic child
-  process-tree termination evidence.
-- [ ] Closing a tab returns process, file descriptor, goroutine, and runtime
-  counts to baseline under a native leak test.
+- [x] Extend the real PTY integration coverage, which now includes binary input,
+  live resize, output, initial size, exit status, and deterministic child
+  process-tree termination after a descendant ignores hangup.
+- [x] Closing a tab returns process, file descriptor, goroutine, and runtime
+  counts to baseline under a repeated Darwin/Linux real-PTY leak test.
 - [x] Closing the application with a running shell follows the confirmation and
   cleanup contract.
 - [ ] Opening 100 short-lived terminals in a test loop produces no lifecycle leak.

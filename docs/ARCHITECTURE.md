@@ -339,6 +339,14 @@ while backend resources are live. Frontend reload, replacement, or loss closes
 lease-owned resources after a bounded grace period in 1.0; implicit process
 reattachment is not supported. Old-generation commands and events are harmless.
 
+Frontend attachment attempts are serialized. A repeated nonce renews the same
+lease, while a new nonce invalidates the old lease and does not return until the
+terminal, SFTP, and tunnel managers have concurrently closed every old-lease
+resource. The replacement frontend therefore cannot receive a usable lease
+while an old-lease shell is still running. The real-PTY flood, process-tree,
+resource-baseline, and frontend-listener evidence is recorded in
+`docs/TERMINAL_STRESS.md`.
+
 Wails `OnBeforeClose` starts visible confirmation and coordinated shutdown.
 `OnShutdown`, which runs after frontend destruction, is only the final
 idempotent cleanup path. `SingleInstanceLock` ensures one process owns writable
