@@ -35,7 +35,9 @@ by ConPTY. It creates the shell suspended, attaches the HPCON process attribute,
 assigns the process to a private job configured with
 `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`, and resumes only after that assignment.
 Descendants therefore join the same cleanup boundary before the root can spawn
-them.
+them. Startup explicitly supplies null standard handles with
+`STARTF_USESTDHANDLES`, allowing ConPTY to install its handles even when shh-h
+itself was launched from a console or debugger.
 
 Ctrl+C and the graceful hangup stage send the control byte through ConPTY.
 Closing a transport cancels both host pipe ends, including a synchronous write
@@ -65,3 +67,4 @@ checks but do not replace this native run.
 - [Creating a Pseudoconsole session](https://learn.microsoft.com/en-us/windows/console/creating-a-pseudoconsole-session)
 - [ClosePseudoConsole](https://learn.microsoft.com/en-us/windows/console/closepseudoconsole)
 - [CreateProcessW](https://learn.microsoft.com/en-us/windows/win32/api/processthreadsapi/nf-processthreadsapi-createprocessw)
+- [Microsoft Terminal standard-handle guidance](https://github.com/microsoft/terminal/issues/4380#issuecomment-580865346)

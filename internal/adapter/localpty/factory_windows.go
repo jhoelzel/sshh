@@ -142,8 +142,12 @@ func (f *Factory) Open(ctx context.Context, spec port.TerminalSpec) (_ port.Term
 	if err != nil {
 		return nil, err
 	}
+	// Null standard handles keep a console-attached parent from bypassing ConPTY.
 	startupInfo := windows.StartupInfoEx{
-		StartupInfo:             windows.StartupInfo{Cb: uint32(unsafe.Sizeof(windows.StartupInfoEx{}))},
+		StartupInfo: windows.StartupInfo{
+			Cb:    uint32(unsafe.Sizeof(windows.StartupInfoEx{})),
+			Flags: windows.STARTF_USESTDHANDLES,
+		},
 		ProcThreadAttributeList: attributes.List(),
 	}
 	creationFlags := uint32(

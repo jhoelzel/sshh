@@ -144,10 +144,12 @@ secret-store implementations.
 The Windows terminal adapter uses typed `x/sys/windows` APIs plus one contained
 raw `UpdateProcThreadAttribute` call for the opaque HPCON value. It starts the
 root process suspended, assigns a private kill-on-close job before resuming, and
-keeps synchronous ConPTY input and output independently serviceable. Closing
-the transport can interrupt blocked pipe I/O. Natural teardown keeps output
-draining while `ClosePseudoConsole` runs on a separate goroutine, with a bounded
-forced-close fallback for undrained output on older supported Windows releases.
+explicitly nulls inherited standard handles so a console-attached parent cannot
+bypass ConPTY. Synchronous input and output remain independently serviceable.
+Closing the transport can interrupt blocked pipe I/O. Natural teardown keeps
+output draining while `ClosePseudoConsole` runs on a separate goroutine, with a
+bounded forced-close fallback for undrained output on older supported Windows
+releases.
 
 ### `internal/bridge`
 
