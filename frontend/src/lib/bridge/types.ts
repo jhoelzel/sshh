@@ -346,11 +346,19 @@ export interface WorkspaceTab {
   endpoint: string
 }
 
+export interface WorkspaceSplit {
+  axis: 'row' | 'column'
+  primaryTab: number
+  secondaryTab: number
+  ratio: number
+}
+
 export interface WorkspaceLayout {
   id: string
   name: string
   tabs: WorkspaceTab[]
   activeTab: number
+  split?: WorkspaceSplit
   createdAt: string
   updatedAt: string
 }

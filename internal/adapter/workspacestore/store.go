@@ -19,7 +19,8 @@ import (
 
 const (
 	filename      = "workspaces.json"
-	currentSchema = 1
+	currentSchema = 2
+	oldestSchema  = 1
 	directoryMode = 0o700
 	fileMode      = 0o600
 )
@@ -73,7 +74,7 @@ func (store *Store) LoadLayouts() ([]workspace.Layout, error) {
 	if err := decodeSingleJSON(data, &persisted); err != nil {
 		return nil, fmt.Errorf("decode workspace layouts: %w", err)
 	}
-	if persisted.Version != currentSchema {
+	if persisted.Version < oldestSchema || persisted.Version > currentSchema {
 		return nil, fmt.Errorf("unsupported workspace layouts schema version %d", persisted.Version)
 	}
 	validated, err := validate(persisted.Layouts, time.Now().UTC())

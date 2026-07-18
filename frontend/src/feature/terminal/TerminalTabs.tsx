@@ -13,6 +13,7 @@ export interface TerminalTabItem {
 interface TerminalTabsProps {
   tabs: TerminalTabItem[]
   activeId?: string
+  visibleIds?: readonly string[]
   onSelect: (tabId: string) => void
   onClose: (tabId: string) => void
   onReorder: (sourceId: string, targetId: string, position: TabDropPosition) => void
@@ -25,7 +26,7 @@ interface DropTarget {
 
 const tabDragType = 'application/x-shhh-terminal-tab'
 
-export function TerminalTabs({ tabs, activeId, onSelect, onClose, onReorder }: TerminalTabsProps) {
+export function TerminalTabs({ tabs, activeId, visibleIds, onSelect, onClose, onReorder }: TerminalTabsProps) {
   const tabButtons = useRef(new Map<string, HTMLButtonElement>())
   const dragSourceId = useRef<string | undefined>(undefined)
   const [draggedId, setDraggedId] = useState<string>()
@@ -78,48 +79,57 @@ export function TerminalTabs({ tabs, activeId, onSelect, onClose, onReorder }: T
   }
 
   return (
-    <div className="tabs" role="tablist" aria-label="Terminal sessions" aria-orientation="horizontal">
-      {tabs.map((tab, index) => (
-        <div
-          className={`tab${tab.id === activeId ? ' is-active' : ''}${tab.id === draggedId ? ' is-dragging' : ''}${dropTarget?.id === tab.id ? ` is-drop-${dropTarget.position}` : ''}`}
-          key={tab.id}
-          onDragOver={(event) => updateDropTarget(event, tab.id)}
-          onDrop={(event) => drop(event, tab.id)}
-        >
-          <button
-            ref={(element) => {
-              if (element) tabButtons.current.set(tab.id, element)
-              else tabButtons.current.delete(tab.id)
-            }}
-            id={terminalTabId(tab.id)}
-            className="tab-select"
-            type="button"
-            role="tab"
-            aria-controls={terminalPanelId(tab.id)}
-            aria-selected={tab.id === activeId}
-            tabIndex={tab.id === activeId ? 0 : -1}
-            title={`${tab.title}. Drag to reorder`}
-            draggable
-            onClick={() => onSelect(tab.id)}
-            onDragEnd={finishDrag}
-            onDragStart={(event) => beginDrag(event, tab.id)}
-            onKeyDown={(event) => handleKeyDown(event, index)}
+    <div
+      className="tabs"
+      role="tablist"
+      aria-label="Terminal sessions"
+      aria-orientation="horizontal"
+      aria-multiselectable={visibleIds && visibleIds.length > 1 ? true : undefined}
+    >
+      {tabs.map((tab, index) => {
+        const visible = visibleIds ? visibleIds.includes(tab.id) : tab.id === activeId
+        return (
+          <div
+            className={`tab${tab.id === activeId ? ' is-active' : ''}${tab.id === draggedId ? ' is-dragging' : ''}${dropTarget?.id === tab.id ? ` is-drop-${dropTarget.position}` : ''}`}
+            key={tab.id}
+            onDragOver={(event) => updateDropTarget(event, tab.id)}
+            onDrop={(event) => drop(event, tab.id)}
           >
-            <span className={`state-dot state-${tab.state}${tab.attention ? ' has-attention' : ''}`} />
-            <span className="tab-title">{tab.title}</span>
-          </button>
-          <button
-            className="tab-close"
-            type="button"
-            title="Close terminal"
-            aria-label={`Close ${tab.title}`}
-            tabIndex={tab.id === activeId ? 0 : -1}
-            onClick={() => onClose(tab.id)}
-          >
-            <X size={14} />
-          </button>
-        </div>
-      ))}
+            <button
+              ref={(element) => {
+                if (element) tabButtons.current.set(tab.id, element)
+                else tabButtons.current.delete(tab.id)
+              }}
+              id={terminalTabId(tab.id)}
+              className="tab-select"
+              type="button"
+              role="tab"
+              aria-controls={terminalPanelId(tab.id)}
+              aria-selected={visible}
+              tabIndex={tab.id === activeId ? 0 : -1}
+              title={`${tab.title}. Drag to reorder`}
+              draggable
+              onClick={() => onSelect(tab.id)}
+              onDragEnd={finishDrag}
+              onDragStart={(event) => beginDrag(event, tab.id)}
+              onKeyDown={(event) => handleKeyDown(event, index)}
+            >
+              <span className={`state-dot state-${tab.state}${tab.attention ? ' has-attention' : ''}`} />
+              <span className="tab-title">{tab.title}</span>
+            </button>
+            <button
+              className="tab-close"
+              type="button"
+              title="Close terminal"
+              aria-label={`Close ${tab.title}`}
+              tabIndex={tab.id === activeId ? 0 : -1}
+              onClick={() => onClose(tab.id)}
+            >
+              <X size={14} />
+            </button>
+          </div>
+        )
+      })}
     </div>
   )
 }

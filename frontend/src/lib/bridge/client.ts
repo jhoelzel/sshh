@@ -315,10 +315,25 @@ function normalizeWorkspaceLayouts(value: unknown): WorkspaceLayout[] {
   }
   return value.map((item) => {
     const layout = item as Partial<WorkspaceLayout>
+    const tabs = Array.isArray(layout.tabs) ? layout.tabs : []
+    const activeTab = Number.isInteger(layout.activeTab) ? layout.activeTab! : 0
+    const split = layout.split
+    const normalizedSplit = split &&
+      (split.axis === 'row' || split.axis === 'column') &&
+      Number.isInteger(split.primaryTab) &&
+      Number.isInteger(split.secondaryTab) &&
+      split.primaryTab >= 0 && split.primaryTab < tabs.length &&
+      split.secondaryTab >= 0 && split.secondaryTab < tabs.length &&
+      split.primaryTab !== split.secondaryTab &&
+      (activeTab === split.primaryTab || activeTab === split.secondaryTab) &&
+      Number.isFinite(split.ratio) && split.ratio >= 0.2 && split.ratio <= 0.8
+      ? { ...split }
+      : undefined
     return {
       ...layout,
-      tabs: Array.isArray(layout.tabs) ? layout.tabs : [],
-      activeTab: Number.isInteger(layout.activeTab) ? layout.activeTab : 0,
+      tabs,
+      activeTab,
+      split: normalizedSplit,
     } as WorkspaceLayout
   })
 }

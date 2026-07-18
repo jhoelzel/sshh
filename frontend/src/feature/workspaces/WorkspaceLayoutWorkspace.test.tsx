@@ -6,8 +6,12 @@ import { WorkspaceLayoutWorkspace } from './WorkspaceLayoutWorkspace'
 const layout: WorkspaceLayout = {
   id: 'layout-1',
   name: 'Operations',
-  tabs: [{ profileId: 'profile-1', title: 'Production', endpoint: 'prod.example:22' }],
-  activeTab: 0,
+  tabs: [
+    { profileId: 'profile-1', title: 'Production', endpoint: 'prod.example:22' },
+    { profileId: 'profile-2', title: 'Logs', endpoint: 'logs.example:22' },
+  ],
+  activeTab: 1,
+  split: { axis: 'row', primaryTab: 0, secondaryTab: 1, ratio: 0.5 },
   createdAt: '2026-07-17T08:00:00Z',
   updatedAt: '2026-07-17T09:00:00Z',
 }
@@ -30,6 +34,7 @@ describe('WorkspaceLayoutWorkspace', () => {
     const restore = vi.fn(async () => undefined)
     render(<WorkspaceLayoutWorkspace layouts={[layout]} savableTabCount={1} onCreate={vi.fn()} onRename={vi.fn()} onReplace={vi.fn()} onRestore={restore} onDelete={vi.fn()} />)
 
+    expect(screen.getByText('2 terminals, split')).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: 'Restore Operations' }))
     await waitFor(() => expect(restore).toHaveBeenCalledWith(layout))
   })

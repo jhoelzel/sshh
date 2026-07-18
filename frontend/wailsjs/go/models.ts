@@ -531,6 +531,24 @@ export namespace bridge {
 	        this.reconnect = source["reconnect"];
 	    }
 	}
+	export class WorkspaceSplitDTO {
+	    axis: string;
+	    primaryTab: number;
+	    secondaryTab: number;
+	    ratio: number;
+
+	    static createFrom(source: any = {}) {
+	        return new WorkspaceSplitDTO(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.axis = source["axis"];
+	        this.primaryTab = source["primaryTab"];
+	        this.secondaryTab = source["secondaryTab"];
+	        this.ratio = source["ratio"];
+	    }
+	}
 	export class WorkspaceTabDTO {
 	    profileId: string;
 	    title: string;
@@ -552,6 +570,7 @@ export namespace bridge {
 	    name: string;
 	    tabs: WorkspaceTabDTO[];
 	    activeTab: number;
+	    split?: WorkspaceSplitDTO;
 	    createdAt: string;
 	    updatedAt: string;
 
@@ -565,6 +584,7 @@ export namespace bridge {
 	        this.name = source["name"];
 	        this.tabs = this.convertValues(source["tabs"], WorkspaceTabDTO);
 	        this.activeTab = source["activeTab"];
+	        this.split = this.convertValues(source["split"], WorkspaceSplitDTO);
 	        this.createdAt = source["createdAt"];
 	        this.updatedAt = source["updatedAt"];
 	    }
@@ -592,6 +612,7 @@ export namespace bridge {
 	    name: string;
 	    tabs: WorkspaceTabDTO[];
 	    activeTab: number;
+	    split?: WorkspaceSplitDTO;
 
 	    static createFrom(source: any = {}) {
 	        return new WorkspaceLayoutInputDTO(source);
@@ -603,6 +624,7 @@ export namespace bridge {
 	        this.name = source["name"];
 	        this.tabs = this.convertValues(source["tabs"], WorkspaceTabDTO);
 	        this.activeTab = source["activeTab"];
+	        this.split = this.convertValues(source["split"], WorkspaceSplitDTO);
 	    }
 
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
@@ -623,6 +645,7 @@ export namespace bridge {
 		    return a;
 		}
 	}
+
 
 }
 

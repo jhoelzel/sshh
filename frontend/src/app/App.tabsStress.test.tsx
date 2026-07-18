@@ -142,6 +142,29 @@ describe('terminal tab stress', () => {
       expect(controller.dispose).not.toHaveBeenCalled()
     }
 
+    fireEvent.click(screen.getByRole('button', { name: 'Split terminal right' }))
+    let separator = screen.getByRole('separator', { name: 'Resize terminal split' })
+    expect(separator.getAttribute('aria-orientation')).toBe('vertical')
+    expect(screen.getByRole('button', { name: 'Focus Local 50 pane' }).getAttribute('aria-pressed')).toBe('false')
+    expect(screen.getByRole('button', { name: 'Focus Local 01 pane' }).getAttribute('aria-pressed')).toBe('true')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Split terminal down' }))
+    separator = screen.getByRole('separator', { name: 'Resize terminal split' })
+    expect(separator.getAttribute('aria-orientation')).toBe('horizontal')
+    fireEvent.keyDown(separator, { key: 'ArrowDown' })
+    expect(separator.getAttribute('aria-valuenow')).toBe('55')
+
+    fireEvent.click(screen.getByRole('tab', { name: 'Local 13' }))
+    expect(screen.queryByRole('button', { name: 'Focus Local 01 pane' })).toBeNull()
+    expect(screen.getByRole('button', { name: 'Focus Local 13 pane' }).getAttribute('aria-pressed')).toBe('true')
+    fireEvent.click(screen.getByRole('button', { name: 'Close terminal split' }))
+    expect(screen.queryByRole('separator', { name: 'Resize terminal split' })).toBeNull()
+    expect(screen.getByRole('tab', { name: 'Local 13' }).getAttribute('aria-selected')).toBe('true')
+    for (const controller of harness.controllerInstances) {
+      expect(controller.attach).toHaveBeenCalledOnce()
+      expect(controller.dispose).not.toHaveBeenCalled()
+    }
+
     const visibilityCallsBeforeOutput = totalVisibilityCalls()
     const hiddenIndexes = [0, 12, 24, 36]
     act(() => {

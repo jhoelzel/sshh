@@ -84,10 +84,10 @@ Implemented and verified:
   names are sanitized and files are bounded, private, synced, and atomically
   replaced.
 - [x] Workspace layouts use a strict versioned private store and retain only
-  ordered profile references, display snapshots, and the selected index.
-  Restore creates disconnected frontend tabs with no process or network
-  resource; each tab reconnects explicitly through the normal trust and
-  credential workflow.
+  ordered profile references, display snapshots, the selected index, and an
+  optional bounded two-pane arrangement. Restore creates disconnected frontend
+  tabs with no process or network resource; each tab reconnects explicitly
+  through the normal trust and credential workflow.
 - [x] Native builds embed version, source revision, UTC build date, and dirty-tree
   state. Settings exposes that identity with the Go version and target platform;
   direct Go builds fall back to embedded VCS metadata.
@@ -943,7 +943,12 @@ Deliverables:
   replacement when one remains; reconnect preserves old output; quick
   connections retain only a non-secret descriptor and always repeat trust and
   credential handling.
-- [ ] Add split-terminal layout only after tabs are stable.
+- [x] Add a bounded two-pane split-terminal layout after tabs are stable. The
+  side-by-side and stacked modes retain flat persistent terminal hosts, expose
+  pointer and keyboard resizing, replace only the focused pane when a hidden tab
+  is selected, and never launch or close a session implicitly. Saved layouts
+  persist validated pane indexes, axis, ratio, and focus through a schema-1-to-2
+  compatible store migration.
 - [ ] Add a global Activity view for sessions, transfers, and tunnels.
 - [x] Add coordinated shutdown and consolidated close confirmation.
 - [ ] Persist window geometry, sidebar width, selected theme, and non-sensitive UI
@@ -976,6 +981,10 @@ Tests and exit gate:
   frames across four hidden sessions, performs 137 active-tab changes, preserves
   one host attachment per controller, and closes and disposes every controller
   exactly once.
+- [x] Pure state, overlay component, bridge, domain, store-migration, and rendered
+  50-tab workflow tests cover split creation, orientation, focus, hidden-tab
+  replacement, bounded pointer and keyboard resize, persistence, restoration,
+  collapse, and persistent controller ownership.
 
 ### M4: Profiles, Configuration, and Migration
 
@@ -1444,7 +1453,7 @@ commitments:
 | M0 Foundation | Complete | 4-7 days | Wails migration and honest lifecycle |
 | M1 Terminal proof | Partial; TUI and sleep/wake gates open | 7-12 days | Proven PTY/bridge/xterm vertical slice |
 | M2 Local terminal | macOS/Linux local core implemented; Windows interaction gate open | 8-14 days | First genuinely usable program |
-| M3 Workspace | Partial; tab-management and Activity work open | 4-7 days | Reliable multi-session desktop UX |
+| M3 Workspace | Partial; Activity, window-state, and native interaction gates open | 4-7 days | Reliable multi-session desktop UX |
 | M4 Profiles/config | Mostly implemented; recovery and overrides open | 4-7 days | Durable daily workflow |
 | M5 Credentials/trust | Partial; OS secret storage remains open | 5-8 days | Secure SSH foundation |
 | M6 SSH | Core implemented; advanced connection modes open | 7-12 days | Primary remote workflow |

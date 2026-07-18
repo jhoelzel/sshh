@@ -189,6 +189,15 @@ manual-activation ARIA tabs with roving Arrow, Home, and End focus. Saved
 workspace layouts naturally capture the resulting order without persisting a
 live runtime.
 
+Split layout is also frontend metadata. A bounded workspace state names one or
+two visible tab IDs, the active pane, an axis, and a ratio clamped from 20 to 80
+percent. Terminal hosts remain flat, permanent children of the stage and are
+positioned in place; controllers and xterm instances are never moved between
+DOM parents. A separate overlay owns pane labels and the accessible pointer and
+keyboard divider. Creating a split selects another existing tab and never opens
+a backend session. Selecting a hidden tab replaces only the focused pane, and
+closing the split hides rather than closes the other tab.
+
 Persistent pane components are memoized, so selecting a tab only re-renders the
 previous and next terminal hosts. Visible-pane fit, settings, and resize-observer
 requests share one animation-frame scheduler; queued work rechecks visibility
@@ -235,10 +244,13 @@ profiles were removed remain inert and hidden rather than being reassigned.
 
 A saved layout is declarative UI state, not a session checkpoint. Its versioned
 private store contains a layout name, ordered profile IDs, display-only title
-and endpoint snapshots, and the selected tab index. It never contains terminal
-output, runtime IDs, credentials, trust decisions, environment secrets, or
-serialized xterm state. Deleted profile references remain readable so the UI
-can show an unavailable disconnected tab instead of corrupting the layout.
+and endpoint snapshots, the selected tab index, and an optional bounded
+two-pane axis, ratio, and pair of tab indexes. It never contains terminal output,
+runtime IDs, credentials, trust decisions, environment secrets, or serialized
+xterm state. Schema 2 writes the optional split metadata while still accepting
+schema 1 documents without it. Deleted profile references remain readable so
+the UI can show an unavailable disconnected tab instead of corrupting the
+layout.
 
 Workspace-layout persistence commands never call the PTY, SSH, SFTP, tunnel,
 lease, or session managers. Frontend restoration first confirms and closes any

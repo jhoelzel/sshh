@@ -64,4 +64,23 @@ describe('TerminalTabs', () => {
 
     expect(reorder).toHaveBeenCalledWith('three', 'one', 'after')
   })
+
+  it('exposes both visible panes as selected in a split while retaining one roving focus target', () => {
+    render(
+      <TerminalTabs
+        tabs={tabs}
+        activeId="two"
+        visibleIds={['one', 'two']}
+        onSelect={vi.fn()}
+        onClose={vi.fn()}
+        onReorder={vi.fn()}
+      />,
+    )
+
+    expect(screen.getByRole('tablist').getAttribute('aria-multiselectable')).toBe('true')
+    expect(screen.getByRole('tab', { name: 'One' }).getAttribute('aria-selected')).toBe('true')
+    expect(screen.getByRole('tab', { name: 'Two' }).getAttribute('aria-selected')).toBe('true')
+    expect(screen.getByRole('tab', { name: 'Three' }).getAttribute('aria-selected')).toBe('false')
+    expect(screen.getByRole('tab', { name: 'Two' })).toHaveProperty('tabIndex', 0)
+  })
 })

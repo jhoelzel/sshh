@@ -13,6 +13,9 @@ native desktop application.
 - Searchable terminal-tab switching, pointer and command reordering, Ctrl+Tab
   cycling, and accessible roving tab focus without remounting live terminals,
   backed by a rendered 50-tab switching, hidden-output, and disposal stress test.
+- Bounded two-pane terminal splits with side-by-side or stacked layouts,
+  pointer and keyboard resizing, explicit pane focus, and no controller
+  reparenting or implicit session launch.
 - State-aware terminal actions for retry-in-place, reconnecting while preserving
   old output, duplicating running tabs, clearing scrollback, and resetting the
   local terminal emulator.
@@ -53,7 +56,8 @@ native desktop application.
 - OSC 8 and detected web links with strict HTTP/HTTPS canonicalization, visible
   confirmation, and system-browser handoff instead of WebView navigation.
 - Saved workspace layouts with private atomic persistence, ordered profile-tab
-  snapshots, disconnected restoration, and explicit per-tab reconnection.
+  and split-arrangement snapshots, disconnected restoration, and explicit
+  per-tab reconnection.
 - Explicit session ownership, activation, ordered input/output, bounded output
   flow control, frontend leases, and deterministic shutdown of terminals,
   transfers, SFTP clients, and tunnels.
@@ -162,6 +166,20 @@ never retained for reuse.
 `Clear scrollback` uses xterm's bounded local buffer operation. `Reset terminal`
 performs a local RIS reset of the emulator. Neither action writes bytes to the
 shell or remote host, and both become inert after controller disposal.
+
+## Terminal Split Layout
+
+`Split terminal right` and `Split terminal down` show the next existing tab in
+a second pane; they never create a shell or network connection. At most two
+panes are visible. Choosing a hidden tab replaces the focused pane, while
+`Close terminal split` returns to the focused session without closing either
+tab. The divider supports pointer dragging, arrow-key steps, Home and End bounds,
+and double-click balancing, with a fixed 20–80% size range.
+
+Every live terminal retains its original stage host and controller while split
+geometry changes around it. Saved workspace layouts persist the two tab indexes,
+axis, ratio, and focused tab. Restoring a layout still creates disconnected tabs
+only; each session must be connected explicitly.
 
 ## Local Profile Environment
 

@@ -9,6 +9,7 @@ interface WailsTestWindow extends Window {
   go: {
     bridge: {
       Desktop: {
+        ListWorkspaceLayouts: () => Promise<unknown>
         RenewFrontendLease: (leaseId: string) => Promise<unknown>
       }
     }
@@ -24,6 +25,7 @@ beforeEach(() => {
   wailsWindow.go = {
     bridge: {
       Desktop: {
+        ListWorkspaceLayouts: vi.fn(),
         RenewFrontendLease: vi.fn(),
       },
     },
@@ -63,5 +65,27 @@ describe('bridge client', () => {
       message: 'Frontend lease is missing or stale.',
       retryable: true,
     } satisfies Partial<BackendError>)
+  })
+
+  it('keeps valid workspace splits and rejects malformed split metadata', async () => {
+    const base = {
+      name: 'Operations',
+      tabs: [
+        { profileId: 'one', title: 'One', endpoint: 'one.example' },
+        { profileId: 'two', title: 'Two', endpoint: 'two.example' },
+      ],
+      activeTab: 1,
+      createdAt: '2026-07-18T20:00:00Z',
+      updatedAt: '2026-07-18T20:00:00Z',
+    }
+    vi.mocked(wailsWindow.go.bridge.Desktop.ListWorkspaceLayouts).mockResolvedValue([
+      { ...base, id: 'valid', split: { axis: 'row', primaryTab: 0, secondaryTab: 1, ratio: 0.6 } },
+      { ...base, id: 'invalid', split: { axis: 'row', primaryTab: 0, secondaryTab: 1, ratio: 0.9 } },
+    ])
+
+    const layouts = await backend.listWorkspaceLayouts()
+
+    expect(layouts[0].split).toEqual({ axis: 'row', primaryTab: 0, secondaryTab: 1, ratio: 0.6 })
+    expect(layouts[1].split).toBeUndefined()
   })
 })

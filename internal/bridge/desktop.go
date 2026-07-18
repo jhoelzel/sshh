@@ -183,20 +183,29 @@ type WorkspaceTabDTO struct {
 	Endpoint  string `json:"endpoint"`
 }
 
+type WorkspaceSplitDTO struct {
+	Axis         string  `json:"axis"`
+	PrimaryTab   int     `json:"primaryTab"`
+	SecondaryTab int     `json:"secondaryTab"`
+	Ratio        float64 `json:"ratio"`
+}
+
 type WorkspaceLayoutInputDTO struct {
-	ID        string            `json:"id"`
-	Name      string            `json:"name"`
-	Tabs      []WorkspaceTabDTO `json:"tabs"`
-	ActiveTab int               `json:"activeTab"`
+	ID        string             `json:"id"`
+	Name      string             `json:"name"`
+	Tabs      []WorkspaceTabDTO  `json:"tabs"`
+	ActiveTab int                `json:"activeTab"`
+	Split     *WorkspaceSplitDTO `json:"split,omitempty"`
 }
 
 type WorkspaceLayoutDTO struct {
-	ID        string            `json:"id"`
-	Name      string            `json:"name"`
-	Tabs      []WorkspaceTabDTO `json:"tabs"`
-	ActiveTab int               `json:"activeTab"`
-	CreatedAt string            `json:"createdAt"`
-	UpdatedAt string            `json:"updatedAt"`
+	ID        string             `json:"id"`
+	Name      string             `json:"name"`
+	Tabs      []WorkspaceTabDTO  `json:"tabs"`
+	ActiveTab int                `json:"activeTab"`
+	Split     *WorkspaceSplitDTO `json:"split,omitempty"`
+	CreatedAt string             `json:"createdAt"`
+	UpdatedAt string             `json:"updatedAt"`
 }
 
 type RemotePathFavoriteDTO struct {
@@ -1641,7 +1650,16 @@ func workspaceLayoutFromInput(input WorkspaceLayoutInputDTO) workspacedomain.Lay
 	for index, tab := range input.Tabs {
 		tabs[index] = workspacedomain.Tab{ProfileID: tab.ProfileID, Title: tab.Title, Endpoint: tab.Endpoint}
 	}
-	return workspacedomain.Layout{ID: input.ID, Name: input.Name, Tabs: tabs, ActiveTab: input.ActiveTab}
+	var split *workspacedomain.Split
+	if input.Split != nil {
+		split = &workspacedomain.Split{
+			Axis: workspacedomain.SplitAxis(input.Split.Axis), PrimaryTab: input.Split.PrimaryTab,
+			SecondaryTab: input.Split.SecondaryTab, Ratio: input.Split.Ratio,
+		}
+	}
+	return workspacedomain.Layout{
+		ID: input.ID, Name: input.Name, Tabs: tabs, ActiveTab: input.ActiveTab, Split: split,
+	}
 }
 
 func workspaceLayoutDTO(layout workspacedomain.Layout) WorkspaceLayoutDTO {
@@ -1649,8 +1667,16 @@ func workspaceLayoutDTO(layout workspacedomain.Layout) WorkspaceLayoutDTO {
 	for index, tab := range layout.Tabs {
 		tabs[index] = WorkspaceTabDTO{ProfileID: tab.ProfileID, Title: tab.Title, Endpoint: tab.Endpoint}
 	}
+	var split *WorkspaceSplitDTO
+	if layout.Split != nil {
+		split = &WorkspaceSplitDTO{
+			Axis: string(layout.Split.Axis), PrimaryTab: layout.Split.PrimaryTab,
+			SecondaryTab: layout.Split.SecondaryTab, Ratio: layout.Split.Ratio,
+		}
+	}
 	return WorkspaceLayoutDTO{
 		ID: layout.ID, Name: layout.Name, Tabs: tabs, ActiveTab: layout.ActiveTab,
+		Split:     split,
 		CreatedAt: layout.CreatedAt.UTC().Format(time.RFC3339Nano),
 		UpdatedAt: layout.UpdatedAt.UTC().Format(time.RFC3339Nano),
 	}

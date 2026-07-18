@@ -77,7 +77,10 @@ export function WorkspaceLayoutWorkspace(props: WorkspaceLayoutWorkspaceProps) {
               <div className="layout-row" role="row" key={layout.id}>
                 <span className="layout-name-cell" role="cell">
                   <LayoutPanelTop size={16} />
-                  <span><strong>{layout.name}</strong><small>{layout.tabs.length} terminal{layout.tabs.length === 1 ? '' : 's'}</small></span>
+                  <span>
+                    <strong>{layout.name}</strong>
+                    <small>{layout.tabs.length} terminal{layout.tabs.length === 1 ? '' : 's'}{layout.split ? ', split' : ''}</small>
+                  </span>
                 </span>
                 <span className="layout-tab-summary" role="cell" title={layout.tabs.map((tab) => tab.endpoint || tab.title).join(', ')}>
                   {layout.tabs.map((tab) => tab.title).join(', ')}
@@ -87,7 +90,7 @@ export function WorkspaceLayoutWorkspace(props: WorkspaceLayoutWorkspaceProps) {
                   {busy ? <LoaderCircle className="spin" size={16} /> : (
                     <>
                       <button className="icon-button compact" type="button" title="Restore layout" aria-label={`Restore ${layout.name}`} onClick={() => void run(layout.id, () => props.onRestore(layout))}><FolderOpen size={15} /></button>
-                      <button className="icon-button compact" type="button" title="Replace with current tabs" aria-label={`Replace ${layout.name}`} disabled={props.savableTabCount === 0} onClick={() => setConfirmation({ kind: 'replace', layout })}><Save size={14} /></button>
+                      <button className="icon-button compact" type="button" title="Replace with current workspace" aria-label={`Replace ${layout.name}`} disabled={props.savableTabCount === 0} onClick={() => setConfirmation({ kind: 'replace', layout })}><Save size={14} /></button>
                       <button className="icon-button compact" type="button" title="Rename layout" aria-label={`Rename ${layout.name}`} onClick={() => setEditor({ kind: 'rename', layout })}><Pencil size={14} /></button>
                       <button className="icon-button compact danger-quiet" type="button" title="Delete layout" aria-label={`Delete ${layout.name}`} onClick={() => setConfirmation({ kind: 'delete', layout })}><Trash2 size={14} /></button>
                     </>
@@ -122,7 +125,7 @@ export function WorkspaceLayoutWorkspace(props: WorkspaceLayoutWorkspaceProps) {
             <div className="dialog-icon"><CircleAlert size={20} /></div>
             <div className="dialog-copy">
               <h2 id="layout-confirm-title">{confirmation.kind === 'delete' ? 'Delete this layout?' : 'Replace this layout?'}</h2>
-              <p>{confirmation.kind === 'delete' ? `${confirmation.layout.name} will be removed.` : `${confirmation.layout.name} will use the current saved-profile tabs.`}</p>
+              <p>{confirmation.kind === 'delete' ? `${confirmation.layout.name} will be removed.` : `${confirmation.layout.name} will use the current saved-profile tabs and split arrangement.`}</p>
             </div>
             <div className="dialog-actions">
               <button className="secondary-button" type="button" onClick={() => setConfirmation(undefined)}>Cancel</button>

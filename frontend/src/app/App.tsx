@@ -6,10 +6,12 @@ import {
   ChevronDown,
   ChevronUp,
   CircleAlert,
+  Columns2,
   Command,
   Copy,
   CopyPlus,
   Eraser,
+  Equal,
   FileText,
   FileDown,
   FileUp,
@@ -21,10 +23,12 @@ import {
   LoaderCircle,
   MoreHorizontal,
   Network,
+  PanelRightClose,
   Pencil,
   Plus,
   RefreshCw,
   RotateCcw,
+  Rows2,
   Search,
   Settings2,
   Star,
@@ -48,8 +52,27 @@ import type { TerminalController } from '../feature/terminal/TerminalController'
 import { sanitizeTerminalLink } from '../feature/terminal/terminalLinks'
 import { terminalTabActionAvailability } from '../feature/terminal/terminalTabActions'
 import { TerminalPane } from '../feature/terminal/TerminalPane'
+import { terminalPaneBodyStyle } from '../feature/terminal/terminalSplitStyles'
+import { TerminalSplitOverlay } from '../feature/terminal/TerminalSplitOverlay'
 import { terminalPanelId, terminalTabId } from '../feature/terminal/terminalTabIds'
 import { TerminalTabs } from '../feature/terminal/TerminalTabs'
+import {
+  captureTerminalWorkspaceSplit,
+  closeTerminalSplit,
+  createTerminalWorkspace,
+  nextTerminalSplitCandidate,
+  removeTerminalWorkspaceTab,
+  replaceTerminalWorkspaceTab,
+  resizeTerminalSplit,
+  restoreTerminalWorkspace,
+  selectTerminalWorkspaceTab,
+  splitTerminalWorkspace,
+  terminalWorkspaceActiveTab,
+  terminalWorkspacePane,
+  terminalWorkspaceVisibleTabs,
+  type SplitAxis,
+  type TerminalWorkspaceState,
+} from '../feature/terminal/splitLayout'
 import { TunnelWorkspace } from '../feature/tunnels/TunnelWorkspace'
 import { WorkspaceLayoutWorkspace } from '../feature/workspaces/WorkspaceLayoutWorkspace'
 import { backend, onCloseRequested, onSessionLog, onSessionState, onTerminalOutput, onTransfer, onTunnel } from '../lib/bridge/client'
@@ -137,6 +160,7 @@ export function App() {
   const [profiles, setProfiles] = useState<Profile[]>([])
   const [lease, setLease] = useState<FrontendLease>()
   const [tabs, setTabs] = useState<TabModel[]>([])
+  const [terminalWorkspace, setTerminalWorkspace] = useState(createTerminalWorkspace)
   const [workspaceMode, setWorkspaceMode] = useState<'terminals' | 'files' | 'tunnels' | 'snippets' | 'layouts' | 'settings'>('terminals')
   const [activeId, setActiveId] = useState<string>()
   const [openingProfile, setOpeningProfile] = useState<string>()
@@ -171,6 +195,17 @@ export function App() {
   const [notice, setNotice] = useState<string>()
   const controllers = useRef(new Map<string, TerminalController>())
   const autoStartAttempted = useRef(new Set<string>())
+  const terminalWorkspaceRef = useRef(terminalWorkspace)
+
+  const updateTerminalWorkspace = useCallback(
+    (update: (current: TerminalWorkspaceState) => TerminalWorkspaceState): TerminalWorkspaceState => {
+      const next = update(terminalWorkspaceRef.current)
+      terminalWorkspaceRef.current = next
+      setTerminalWorkspace(next)
+      return next
+    },
+    [],
+  )
 
   const activeTab = useMemo(() => tabs.find((tab) => tab.id === activeId), [activeId, tabs])
   const activeProfile = useMemo(
@@ -180,6 +215,24 @@ export function App() {
   const activeLog = useMemo(
     () => sessionLogs.find((status) => status.sessionId === activeTab?.session?.id && status.active),
     [activeTab?.session?.id, sessionLogs],
+  )
+  const splitCandidate = useMemo(
+    () => nextTerminalSplitCandidate(tabs.map((tab) => tab.id), terminalWorkspace, activeId),
+    [activeId, tabs, terminalWorkspace],
+  )
+  const primaryPaneTab = useMemo(
+    () => tabs.find((tab) => tab.id === terminalWorkspace.primaryTabId),
+    [tabs, terminalWorkspace.primaryTabId],
+  )
+  const secondaryPaneTab = useMemo(
+    () => tabs.find((tab) => tab.id === terminalWorkspace.secondaryTabId),
+    [tabs, terminalWorkspace.secondaryTabId],
+  )
+  const splitActive = Boolean(primaryPaneTab && secondaryPaneTab)
+  const canSplitTerminal = splitActive || Boolean(primaryPaneTab && splitCandidate)
+  const visibleTerminalTabIds = useMemo(
+    () => terminalWorkspaceVisibleTabs(terminalWorkspace),
+    [terminalWorkspace],
   )
   const snippetTargets = useMemo(
     () => tabs.flatMap((tab) => tab.state === 'running' && tab.session ? [{
@@ -193,8 +246,8 @@ export function App() {
   )
   const visibleProfiles = useMemo(() => filterAndSortProfiles(profiles, profileFilter), [profileFilter, profiles])
   const workspaceSnapshot = useMemo(
-    () => captureWorkspace(tabs, profiles, activeId),
-    [activeId, profiles, tabs],
+    () => captureWorkspace(tabs, profiles, terminalWorkspace, activeId),
+    [activeId, profiles, tabs, terminalWorkspace],
   )
   const fileFavorites = useMemo(
     () => remotePathFavorites.filter((favorite) => favorite.profileId === fileProfile?.id),
@@ -358,15 +411,19 @@ export function App() {
     setTabs((current) => {
       const index = current.findIndex((tab) => tab.id === tabId)
       const next = current.filter((tab) => tab.id !== tabId)
+      const fallback = next[Math.min(index, next.length - 1)]?.id
+      const nextWorkspace = updateTerminalWorkspace((workspace) =>
+        removeTerminalWorkspaceTab(workspace, tabId, next.map((tab) => tab.id), fallback),
+      )
       setActiveId((active) => {
-        if (active !== tabId) {
+        if (active && active !== tabId && next.some((tab) => tab.id === active)) {
           return active
         }
-        return next[Math.min(index, next.length - 1)]?.id
+        return terminalWorkspaceActiveTab(nextWorkspace) ?? fallback
       })
       return next
     })
-  }, [])
+  }, [updateTerminalWorkspace])
 
   const saveProfile = useCallback(async (input: ProfileInput) => {
     const saved = input.id ? await backend.updateProfile(input) : await backend.createProfile(input)
@@ -472,6 +529,9 @@ export function App() {
         setActiveId(session.id)
         await controller.ready()
         await backend.activateTerminal(lease.id, session.id, session.generation)
+        updateTerminalWorkspace((workspace) => replaceTabId && replaced
+          ? replaceTerminalWorkspaceTab(workspace, replaceTabId, session.id)
+          : selectTerminalWorkspaceTab(workspace, session.id))
       } catch (cause) {
         let failure = cause
         if (opened) {
@@ -496,7 +556,7 @@ export function App() {
         throw failure
       }
     },
-    [lease, removeTab, reportError, settings],
+    [lease, removeTab, reportError, settings, updateTerminalWorkspace],
   )
 
   const openFileWorkspace = useCallback(
@@ -935,9 +995,13 @@ export function App() {
       throw new Error('One or more target terminals are no longer running')
     }
     await Promise.all(targets.map((tab) => tab!.controller!.sendText(text, submit)))
-    if (targetIds.length === 1) setActiveId(targets[0]!.id)
+    if (targetIds.length === 1) {
+      const tabId = targets[0]!.id
+      updateTerminalWorkspace((workspace) => selectTerminalWorkspaceTab(workspace, tabId))
+      setActiveId(tabId)
+    }
     setWorkspaceMode('terminals')
-  }, [tabs])
+  }, [tabs, updateTerminalWorkspace])
 
   const startSessionLogging = useCallback(async (timestampLines: boolean) => {
     const tab = tabs.find((item) => item.session?.id === loggingSessionId)
@@ -967,9 +1031,47 @@ export function App() {
 
   const selectTab = useCallback((tabId: string) => {
     setWorkspaceMode('terminals')
+    updateTerminalWorkspace((workspace) => selectTerminalWorkspaceTab(workspace, tabId))
     setActiveId(tabId)
     setTabs((current) => current.map((tab) => (tab.id === tabId ? { ...tab, attention: false } : tab)))
-  }, [])
+    controllers.current.get(tabId)?.focus()
+  }, [updateTerminalWorkspace])
+
+  const splitTerminal = useCallback((axis: SplitAxis) => {
+    const next = updateTerminalWorkspace((workspace) => splitTerminalWorkspace(
+      workspace,
+      axis,
+      nextTerminalSplitCandidate(tabs.map((tab) => tab.id), workspace, activeId),
+    ))
+    const nextActiveId = terminalWorkspaceActiveTab(next)
+    if (nextActiveId) {
+      setActiveId(nextActiveId)
+      setTabs((current) => current.map((tab) =>
+        tab.id === nextActiveId ? { ...tab, attention: false } : tab,
+      ))
+      controllers.current.get(nextActiveId)?.focus()
+    }
+    setWorkspaceMode('terminals')
+  }, [activeId, tabs, updateTerminalWorkspace])
+
+  const closeSplit = useCallback(() => {
+    const next = updateTerminalWorkspace(closeTerminalSplit)
+    const nextActiveId = terminalWorkspaceActiveTab(next)
+    if (nextActiveId) {
+      setActiveId(nextActiveId)
+      controllers.current.get(nextActiveId)?.focus()
+    }
+  }, [updateTerminalWorkspace])
+
+  const balanceSplit = useCallback(() => {
+    const next = updateTerminalWorkspace((workspace) => resizeTerminalSplit(workspace, 0.5))
+    const nextActiveId = terminalWorkspaceActiveTab(next)
+    if (nextActiveId) controllers.current.get(nextActiveId)?.focus()
+  }, [updateTerminalWorkspace])
+
+  const resizeSplit = useCallback((ratio: number) => {
+    updateTerminalWorkspace((workspace) => resizeTerminalSplit(workspace, ratio))
+  }, [updateTerminalWorkspace])
 
   const selectRelativeTab = useCallback((offset: number) => {
     const nextId = adjacentTabId(tabs, activeId, offset)
@@ -1066,9 +1168,15 @@ export function App() {
     setSearchQuery('')
     const restored = createDisconnectedTabs(layout)
     setTabs(restored)
-    setActiveId(restored[Math.min(layout.activeTab, restored.length - 1)]?.id)
+    const activeTabIndex = Math.min(layout.activeTab, restored.length - 1)
+    setActiveId(restored[activeTabIndex]?.id)
+    updateTerminalWorkspace(() => restoreTerminalWorkspace(
+      restored.map((tab) => tab.id),
+      activeTabIndex,
+      layout.split,
+    ))
     setWorkspaceMode('terminals')
-  }, [lease, tabs])
+  }, [lease, tabs, updateTerminalWorkspace])
 
   const restoreWorkspaceLayout = useCallback(async (layout: WorkspaceLayout) => {
     if (tabs.some((tab) => isLive(tab.state))) {
@@ -1204,6 +1312,26 @@ export function App() {
 
   const terminalActionCommands = useMemo<PaletteCommand[]>(() => [
     {
+      id: 'split-terminal-right', label: 'Split terminal right', group: 'Layout', icon: Columns2,
+      keywords: ['pane', 'side by side', 'vertical'], disabled: !canSplitTerminal,
+      run: () => splitTerminal('row'),
+    },
+    {
+      id: 'split-terminal-down', label: 'Split terminal down', group: 'Layout', icon: Rows2,
+      keywords: ['pane', 'stacked', 'horizontal'], disabled: !canSplitTerminal,
+      run: () => splitTerminal('column'),
+    },
+    {
+      id: 'balance-terminal-split', label: 'Balance terminal panes', group: 'Layout', icon: Equal,
+      keywords: ['equal', 'half', 'resize'], disabled: !splitActive || terminalWorkspace.ratio === 0.5,
+      run: balanceSplit,
+    },
+    {
+      id: 'close-terminal-split', label: 'Close terminal split', group: 'Layout', icon: PanelRightClose,
+      keywords: ['single pane', 'unsplit'], disabled: !splitActive,
+      run: closeSplit,
+    },
+    {
       id: 'retry-terminal', label: 'Retry terminal', group: 'Connection', icon: RefreshCw,
       keywords: ['replace', 'reconnect'], disabled: !terminalActionAvailability.retry,
       run: () => {
@@ -1235,8 +1363,9 @@ export function App() {
       run: resetActiveTerminal,
     },
   ], [
-    activeTab, clearActiveScrollback, duplicateTerminalTab, reconnectTerminalTab, resetActiveTerminal,
-    retryTerminalTab, terminalActionAvailability,
+    activeTab, balanceSplit, canSplitTerminal, clearActiveScrollback, closeSplit, duplicateTerminalTab,
+    reconnectTerminalTab, resetActiveTerminal, retryTerminalTab, splitActive, splitTerminal, terminalActionAvailability,
+    terminalWorkspace.ratio,
   ])
 
   const paletteCommands = useMemo<PaletteCommand[]>(() => [
@@ -1498,11 +1627,42 @@ export function App() {
           <TerminalTabs
             tabs={tabs}
             activeId={activeId}
+            visibleIds={visibleTerminalTabIds}
             onSelect={selectTab}
             onClose={(tabId) => void closeTab(tabId)}
             onReorder={reorderTerminalTabs}
           />
           <div className="workspace-tools">
+            <button
+              className={`icon-button${splitActive && terminalWorkspace.axis === 'row' ? ' is-pressed' : ''}`}
+              type="button"
+              title="Split terminal right"
+              aria-label="Split terminal right"
+              disabled={!canSplitTerminal}
+              onClick={() => splitTerminal('row')}
+            >
+              <Columns2 size={16} />
+            </button>
+            <button
+              className={`icon-button${splitActive && terminalWorkspace.axis === 'column' ? ' is-pressed' : ''}`}
+              type="button"
+              title="Split terminal down"
+              aria-label="Split terminal down"
+              disabled={!canSplitTerminal}
+              onClick={() => splitTerminal('column')}
+            >
+              <Rows2 size={16} />
+            </button>
+            <button
+              className="icon-button"
+              type="button"
+              title="Close terminal split"
+              aria-label="Close terminal split"
+              disabled={!splitActive}
+              onClick={closeSplit}
+            >
+              <PanelRightClose size={16} />
+            </button>
             <button
               className="icon-button"
               type="button"
@@ -1630,33 +1790,61 @@ export function App() {
               </button>
             </div>
           ) : (
-            tabs.map((tab) => (
-              tab.controller ? (
-                <TerminalPane key={tab.id} controller={tab.controller} active={tab.id === activeId} tabId={tab.id} />
+            tabs.map((tab) => {
+              const pane = terminalWorkspacePane(terminalWorkspace, tab.id)
+              const visible = Boolean(pane)
+              const style = pane && splitActive ? terminalPaneBodyStyle(terminalWorkspace, pane) : undefined
+              const tabProfile = profiles.find((profile) => profile.id === tab.profileId)
+              return tab.controller ? (
+                <TerminalPane
+                  key={tab.id}
+                  controller={tab.controller}
+                  visible={visible}
+                  selected={tab.id === activeId}
+                  tabId={tab.id}
+                  style={style}
+                />
               ) : (
                 <div
                   id={terminalPanelId(tab.id)}
                   className="disconnected-terminal"
                   role="tabpanel"
-                  aria-hidden={tab.id !== activeId}
+                  aria-hidden={!visible}
                   aria-labelledby={terminalTabId(tab.id)}
-                  hidden={tab.id !== activeId}
+                  hidden={!visible}
                   key={tab.id}
+                  style={style}
                 >
-                  {tab.id === activeId && (
-                    <>
-                      <LayoutPanelTop size={32} strokeWidth={1.4} />
-                      <h1>{tab.title}</h1>
-                      <span>{activeProfile?.endpoint || tab.endpoint || 'Profile unavailable'}</span>
-                      <button className="primary-button" type="button" disabled={!activeProfile || Boolean(openingProfile)} onClick={() => connectRestoredTab(tab)}>
-                        {openingProfile === activeProfile?.id ? <LoaderCircle className="spin" size={16} /> : <Zap size={16} />}
-                        {activeProfile ? 'Connect' : 'Profile unavailable'}
-                      </button>
-                    </>
-                  )}
+                  <LayoutPanelTop size={32} strokeWidth={1.4} />
+                  <h1>{tab.title}</h1>
+                  <span>{tabProfile?.endpoint || tab.endpoint || 'Profile unavailable'}</span>
+                  <button className="primary-button" type="button" disabled={!tabProfile || Boolean(openingProfile)} onClick={() => connectRestoredTab(tab)}>
+                    {openingProfile === tabProfile?.id ? <LoaderCircle className="spin" size={16} /> : <Zap size={16} />}
+                    {tabProfile ? 'Connect' : 'Profile unavailable'}
+                  </button>
                 </div>
               )
-            ))
+            })
+          )}
+          {splitActive && primaryPaneTab && secondaryPaneTab && (
+            <TerminalSplitOverlay
+              workspace={terminalWorkspace}
+              primary={{
+                tabId: primaryPaneTab.id,
+                title: primaryPaneTab.title,
+                state: primaryPaneTab.state,
+                attention: primaryPaneTab.attention,
+              }}
+              secondary={{
+                tabId: secondaryPaneTab.id,
+                title: secondaryPaneTab.title,
+                state: secondaryPaneTab.state,
+                attention: secondaryPaneTab.attention,
+              }}
+              activeTabId={activeId}
+              onActivate={selectTab}
+              onRatioChange={resizeSplit}
+            />
           )}
         </section>
 
@@ -1985,7 +2173,12 @@ function sortSnippets(snippets: Snippet[]): Snippet[] {
   })
 }
 
-function captureWorkspace(tabs: TabModel[], profiles: Profile[], activeId?: string): Pick<WorkspaceLayoutInput, 'tabs' | 'activeTab'> {
+function captureWorkspace(
+  tabs: TabModel[],
+  profiles: Profile[],
+  terminalWorkspace: TerminalWorkspaceState,
+  activeId?: string,
+): Pick<WorkspaceLayoutInput, 'tabs' | 'activeTab' | 'split'> {
   const captured = tabs.flatMap((tab) => {
     const profile = profiles.find((item) => item.id === tab.profileId)
     return profile ? [{
@@ -1994,18 +2187,21 @@ function captureWorkspace(tabs: TabModel[], profiles: Profile[], activeId?: stri
     }] : []
   })
   const activeTab = Math.max(0, captured.findIndex((item) => item.sourceId === activeId))
-  return { tabs: captured.map((item) => item.tab), activeTab }
+  const tabIndexes = new Map(captured.map((item, index) => [item.sourceId, index]))
+  const split = captureTerminalWorkspaceSplit(terminalWorkspace, tabIndexes, activeId)
+  return { tabs: captured.map((item) => item.tab), activeTab, split }
 }
 
 function layoutInput(
   layout: WorkspaceLayout,
-  changes: Partial<Pick<WorkspaceLayoutInput, 'name' | 'tabs' | 'activeTab'>>,
+  changes: Partial<Pick<WorkspaceLayoutInput, 'name' | 'tabs' | 'activeTab' | 'split'>>,
 ): WorkspaceLayoutInput {
   return {
     id: layout.id,
     name: changes.name ?? layout.name,
     tabs: changes.tabs ?? layout.tabs,
     activeTab: changes.activeTab ?? layout.activeTab,
+    split: Object.hasOwn(changes, 'split') ? changes.split : layout.split,
   }
 }
 
