@@ -20,6 +20,7 @@ import {
   markerResize,
   operationTimeout,
   sanitizeFailure,
+  smokeOperationTimeout,
   TitleTracker,
   waitForDrain,
 } from './terminalBenchmarkSupport'
@@ -60,8 +61,10 @@ async function runTerminalBenchmark(host: HTMLElement, setStatus: (status: strin
   let session: Session | undefined
   let controller: TerminalController | undefined
   let unsubscribe: (() => void) | undefined
+  let leaseRenewal: number | undefined
   const tracker = new TitleTracker()
   const report = emptyReport(started)
+  const timeout = config.mode === 'smoke' ? smokeOperationTimeout : operationTimeout
 
   try {
     report.payloadBytes = config.payloadBytes
@@ -69,6 +72,15 @@ async function runTerminalBenchmark(host: HTMLElement, setStatus: (status: strin
     report.backend.maximumUnacknowledged = config.maximumBackendQueueBytes
 
     lease = await backend.attachFrontend(`terminal-benchmark-${crypto.randomUUID()}`)
+    if (config.mode === 'smoke') {
+      leaseRenewal = window.setInterval(() => {
+        const current = lease
+        if (!current) return
+        void backend.renewFrontendLease(current.id).catch((cause) => {
+          tracker.fail(new Error(sanitizeFailure(cause)))
+        })
+      }, 5_000)
+    }
     session = await backend.openTerminalBenchmark(lease.id, 100, 30)
     controller = new TerminalController(session, benchmarkSettings, {
       onBell: () => undefined,
@@ -82,30 +94,30 @@ async function runTerminalBenchmark(host: HTMLElement, setStatus: (status: strin
     controller.setVisible(true)
     await controller.ready()
     await backend.activateTerminal(lease.id, session.id, session.generation)
-    await tracker.wait(markerReady, operationTimeout)
+    await tracker.wait(markerReady, timeout)
 
     setStatus('Checking native terminal focus and clipboard')
     report.native = await checkNativeInteractions(controller)
 
     setStatus('Measuring idle input and resize latency')
-    report.idleEchoMilliseconds = await measureEcho(controller, tracker, 'idle', config.minimumLatencySamples)
-    report.resizeMilliseconds = await measureResize(controller, tracker, config.minimumLatencySamples)
+    report.idleEchoMilliseconds = await measureEcho(controller, tracker, 'idle', config.minimumLatencySamples, timeout)
+    report.resizeMilliseconds = await measureResize(controller, tracker, config.minimumLatencySamples, timeout)
 
     setStatus('Streaming 10 MiB through PTY, Go, Wails, and xterm')
-    const completed = tracker.wait(`${markerDone}${config.payloadBytes}`, operationTimeout)
+    const completed = tracker.wait(`${markerDone}${config.payloadBytes}`, timeout)
     const outputStarted = performance.now()
     await controller.sendText('FLOOD', true)
-    const floodEcho = measureEcho(controller, tracker, 'flood', config.minimumLatencySamples)
+    const floodEcho = measureEcho(controller, tracker, 'flood', config.minimumLatencySamples, timeout)
     await completed
     report.outputDurationMilliseconds = performance.now() - outputStarted
     report.floodEchoMilliseconds = await floodEcho
 
-    const snapshots = await waitForDrain(lease, session, controller)
+    const snapshots = await waitForDrain(lease, session, controller, timeout)
     report.controller = snapshots.controller
     report.backend = mapBackendDiagnostics(snapshots.backend)
 
     setStatus('Measuring close responsiveness under output pressure')
-    const closeFloodStarted = tracker.wait(markerCloseFlood, operationTimeout)
+    const closeFloodStarted = tracker.wait(markerCloseFlood, timeout)
     await controller.sendText('CLOSE_FLOOD', true)
     await closeFloodStarted
     await delay(75)
@@ -116,6 +128,7 @@ async function runTerminalBenchmark(host: HTMLElement, setStatus: (status: strin
   } catch (cause) {
     report.failures.push(sanitizeFailure(cause))
   } finally {
+    if (leaseRenewal !== undefined) window.clearInterval(leaseRenewal)
     unsubscribe?.()
     controller?.dispose()
     if (lease && session) {
@@ -198,11 +211,12 @@ async function measureEcho(
   tracker: TitleTracker,
   phase: string,
   samples: number,
+  timeout: number,
 ): Promise<number[]> {
   const result: number[] = []
   for (let index = 0; index < samples; index++) {
     const id = `${phase}-${index}`
-    const observed = tracker.wait(`${markerEcho}${id}`, operationTimeout)
+    const observed = tracker.wait(`${markerEcho}${id}`, timeout)
     const started = performance.now()
     await controller.sendText(`PING:${id}`, true)
     const finished = await observed
@@ -215,12 +229,13 @@ async function measureResize(
   controller: TerminalController,
   tracker: TitleTracker,
   samples: number,
+  timeout: number,
 ): Promise<number[]> {
   const result: number[] = []
   for (let index = 0; index < samples; index++) {
     const columns = 101 + index
     const rows = 31 + index
-    const observed = tracker.wait(`${markerResize}${columns}x${rows}`, operationTimeout)
+    const observed = tracker.wait(`${markerResize}${columns}x${rows}`, timeout)
     const started = performance.now()
     controller.resize(columns, rows)
     result.push((await observed) - started)

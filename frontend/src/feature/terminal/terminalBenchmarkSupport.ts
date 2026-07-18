@@ -15,6 +15,7 @@ export const markerCloseFlood = 'SHHH_BENCH_CLOSE_FLOOD'
 export const markerSoakStarted = 'SHHH_BENCH_SOAK_STARTED'
 export const markerSoakDone = 'SHHH_BENCH_SOAK_DONE'
 export const operationTimeout = 10_000
+export const smokeOperationTimeout = 45_000
 export const soakOperationTimeout = 30_000
 
 export const benchmarkSettings: TerminalSettings = {
