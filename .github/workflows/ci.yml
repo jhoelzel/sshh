@@ -158,6 +158,8 @@ jobs:
           cache-dependency-path: frontend/package-lock.json
       - name: Install Wails CLI
         run: go install github.com/wailsapp/wails/v2/cmd/wails@v2.13.0
+      - name: Test Windows ConPTY adapter
+        run: go test -count=1 -timeout=2m ./internal/adapter/localpty
       - name: Compile Windows desktop host
         working-directory: cmd/shhh
         run: |

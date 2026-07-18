@@ -141,6 +141,14 @@ never emitted as diagnostics or lifecycle events.
 Concrete local PTY, Windows ConPTY, SSH, SFTP, config, known-hosts, and native
 secret-store implementations.
 
+The Windows terminal adapter uses typed `x/sys/windows` APIs plus one contained
+raw `UpdateProcThreadAttribute` call for the opaque HPCON value. It starts the
+root process suspended, assigns a private kill-on-close job before resuming, and
+keeps synchronous ConPTY input and output independently serviceable. Closing
+the transport can interrupt blocked pipe I/O. Natural teardown keeps output
+draining while `ClosePseudoConsole` runs on a separate goroutine, with a bounded
+forced-close fallback for undrained output on older supported Windows releases.
+
 ### `internal/bridge`
 
 The only privileged frontend boundary. It exposes typed commands for profiles,
@@ -371,8 +379,8 @@ tray daemon or hidden helper survives application exit.
 - Only embedded origins can call bound Go methods. Production disables remote
   scripts and navigation, developer tools, and the default WebView context menu.
 - macOS uses its system WKWebView and ships as an `.app` bundle.
-- Windows ships as a GUI `.exe` and requires a supported system WebView2
-  runtime.
+- Windows 10 version 1809 or newer ships as a GUI `.exe`, uses native ConPTY,
+  and requires a supported system WebView2 runtime.
 - Linux uses a documented WebKitGTK runtime and ships as an executable and
   optional package/AppImage.
 - User config, secrets, known hosts, logs, and transferred files remain

@@ -6,13 +6,14 @@ The macOS core feature slices through M9, plus the terminal,
 connection-policy, resumable-transfer, transfer-policy, and notification
 portions of M10, are implemented. The repository contains a Wails v2 host, an
 embedded React and strict TypeScript frontend, xterm.js terminal controllers,
-a real Unix PTY adapter, strict SSH and known-host adapters, SFTP, saved tunnel
-state, and lease-owned runtime managers with bounded bridge flow control.
+real Unix PTY and Windows ConPTY adapters, strict SSH and known-host adapters,
+SFTP, saved tunnel state, and lease-owned runtime managers with bounded bridge
+flow control.
 
 Implemented and verified:
 
-- [x] No shell starts with the application; local PTYs start only from an explicit
-  profile action and always have a visible tab.
+- [x] No shell starts with the application; local PTYs and ConPTY sessions start
+  only from an explicit profile action and always have a visible tab.
 - [x] Session IDs, generations, and renewable frontend leases reject stale bridge
   traffic and close resources after frontend loss.
 - [x] PTY output is held until the xterm controller activates, sent as ordered
@@ -110,7 +111,9 @@ Implemented and verified:
 
 Still required for the complete cross-platform and 1.0 gates:
 
-- [ ] ConPTY support and Windows validation.
+- [ ] Complete native Windows WebView2 focus, AltGr, IME, clipboard, and broader
+  interaction validation. The ConPTY transport itself is implemented and has a
+  targeted native Windows CI gate.
 - [x] Native macOS throughput and memory measurements for the 10 MiB terminal
   path, including deterministic scheduler fairness and explicit queue,
   scrollback, latency, close, and whole-application RSS budgets.
@@ -121,8 +124,8 @@ Still required for the complete cross-platform and 1.0 gates:
   harness. macOS launch and frontend attachment are verified today; runtime
   behavior is also exercised below the WebView boundary.
 - [ ] Remaining reconnect, proxy, known-hosts, and agent settings.
-- [ ] Signed/notarized macOS releases, Linux packaging validation, Windows WebView2
-  runtime and ConPTY implementation, accessibility review, and broader
+- [ ] Signed/notarized macOS releases, Linux packaging validation, Windows
+  WebView2 runtime and interaction validation, accessibility review, and broader
   cross-platform and multi-hour performance evidence.
 
 ## 2. Product Definition
@@ -586,15 +589,22 @@ milestones treat the accepted numbers as regression budgets.
 ### 5.5 Local Pseudoterminals
 
 - macOS and Linux use `github.com/creack/pty` behind a Unix adapter.
-- Windows uses ConPTY behind a Windows adapter and build tags. The adapter will
-  use the native pseudoconsole API through a small, reviewed Go wrapper.
+- Windows uses ConPTY behind a Windows adapter and build tags. The adapter calls
+  typed `x/sys/windows` APIs and contains one reviewed raw
+  `UpdateProcThreadAttribute` call for the opaque HPCON process attribute.
 - The default Unix shell comes from the user's account or `SHELL`, with a safe
-  platform fallback. Windows profiles discover PowerShell, PowerShell Core,
-  Command Prompt, and WSL explicitly.
+  platform fallback. An empty Windows shell selects PowerShell Core, Windows
+  PowerShell, Command Prompt, or WSL in that order; an explicit executable never
+  silently falls back when it cannot be resolved.
 - Child processes receive `TERM=xterm-256color` and a correct initial window
   size.
 - Unix processes run in their own process group so tab and application shutdown
   can terminate the complete child tree.
+- Windows creates the root process suspended, assigns it to a private
+  kill-on-close job, and only then resumes it. The ConPTY input and output pipes
+  remain independently serviced; pseudoconsole teardown keeps output draining
+  and uses a bounded forced-close fallback so synchronous output cannot deadlock
+  shutdown.
 
 ### 5.6 SSH and SFTP
 
@@ -741,9 +751,8 @@ Tests and exit gate:
 - [x] The Wails application builds and launches as an arm64 `.app` on the current
   Mac using the system WKWebView.
 - [x] Native macOS, Linux, and Windows CI jobs build the desktop shell. Ubuntu
-  uses WebKitGTK 4.1 through Wails' `webkit2_41` build tag, while Windows keeps
-  the explicit unsupported ConPTY adapter until M2; no stub can report a
-  successful terminal operation.
+  uses WebKitGTK 4.1 through Wails' `webkit2_41` build tag. Windows additionally
+  runs the native ConPTY adapter suite before compiling the Wails host.
 - [x] Production assets load from the embedded filesystem without a runtime Node
   process or local HTTP server.
 
@@ -840,7 +849,10 @@ Deliverables:
 - [x] Productionize Unix PTY startup, input, output, resize, signal, wait, and
   process-group cleanup for Darwin and Linux builds.
 - [ ] Add native Linux PTY and WebKitGTK coverage.
-- [ ] Implement Windows ConPTY startup, input, output, resize, wait, and cleanup.
+- [x] Implement Windows ConPTY startup, UTF-8 input/output, live resize, signals,
+  exit-status wait, and deterministic job-tree and handle cleanup. Native
+  Windows tests cover initial size, exact environment delivery, resize, nonzero
+  exit, close during output, unread-output teardown, and descendant termination.
 - [x] Add local shell discovery and profile options for executable, arguments,
   working directory, and login-shell behavior.
 - [x] Expose portable local-profile environment overrides in an accessible
@@ -869,9 +881,10 @@ Tests and exit gate:
   returns manager runtimes, dispatchers, goroutines, and descriptors to the
   warmed baseline, including under the Go race detector.
 - [x] No shell starts on application launch or mere profile selection.
-- [ ] Native Windows tests cover WebView focus restoration, forward and reverse tab
-  traversal, AltGr, IME composition, clipboard shortcuts, ConPTY resize, and
-  close during output; browser-only tests do not satisfy this gate.
+- [ ] Extend the native Windows coverage beyond the implemented ConPTY resize,
+  close-during-output, and process-tree tests to WebView focus restoration,
+  forward and reverse tab traversal, AltGr, IME composition, and clipboard
+  shortcuts; browser-only tests do not satisfy this gate.
 - [ ] Native Linux tests cover WebKitGTK focus, clipboard, PTY resize, process-group
   cleanup, and the documented minimum runtime version.
 
