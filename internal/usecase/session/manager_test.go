@@ -25,6 +25,9 @@ type fakeTransport struct {
 	writer     *io.PipeWriter
 	inputMu    sync.Mutex
 	input      bytes.Buffer
+	resizeMu   sync.Mutex
+	columns    uint16
+	rows       uint16
 	wait       chan struct{}
 	finishOnce sync.Once
 }
@@ -44,7 +47,11 @@ func (t *fakeTransport) Write(data []byte) (int, error) {
 	return t.input.Write(data)
 }
 
-func (t *fakeTransport) Resize(context.Context, uint16, uint16) error {
+func (t *fakeTransport) Resize(_ context.Context, columns, rows uint16) error {
+	t.resizeMu.Lock()
+	t.columns = columns
+	t.rows = rows
+	t.resizeMu.Unlock()
 	return nil
 }
 
@@ -77,10 +84,40 @@ func (t *fakeTransport) inputBytes() []byte {
 	return append([]byte(nil), t.input.Bytes()...)
 }
 
+func (t *fakeTransport) size() (uint16, uint16) {
+	t.resizeMu.Lock()
+	defer t.resizeMu.Unlock()
+	return t.columns, t.rows
+}
+
 type recordingSink struct {
 	output chan OutputChunk
 	state  chan StateEvent
 	logs   chan SessionLogStatus
+}
+
+type blockingOutputSink struct {
+	outputStarted chan struct{}
+	releaseOutput chan struct{}
+	state         chan StateEvent
+	outputOnce    sync.Once
+}
+
+func newBlockingOutputSink() *blockingOutputSink {
+	return &blockingOutputSink{
+		outputStarted: make(chan struct{}),
+		releaseOutput: make(chan struct{}),
+		state:         make(chan StateEvent, 16),
+	}
+}
+
+func (s *blockingOutputSink) PublishOutput(OutputChunk) {
+	s.outputOnce.Do(func() { close(s.outputStarted) })
+	<-s.releaseOutput
+}
+
+func (s *blockingOutputSink) PublishState(event StateEvent) {
+	s.state <- event
 }
 
 func newRecordingSink() *recordingSink {
@@ -198,6 +235,71 @@ func TestManagerSerializesInputAndRejectsStaleGeneration(t *testing.T) {
 	}
 }
 
+func TestManagerControlAndLifecycleBypassBlockedOutput(t *testing.T) {
+	transport := newFakeTransport()
+	manager := NewManager(&fakeFactory{transport: transport})
+	sink := newBlockingOutputSink()
+	manager.SetSink(sink)
+
+	var releaseOnce sync.Once
+	releaseOutput := func() {
+		releaseOnce.Do(func() { close(sink.releaseOutput) })
+	}
+	t.Cleanup(func() {
+		releaseOutput()
+		manager.Shutdown()
+	})
+
+	opened, err := manager.OpenLocal(context.Background(), "lease", profile.Profile{
+		ID: "local", Name: "Local", Protocol: profile.ProtocolLocal,
+	}, 80, 24)
+	if err != nil {
+		t.Fatalf("open local terminal: %v", err)
+	}
+	receiveState(t, sink.state, StateStarting)
+	if err := manager.Activate("lease", opened.ID, opened.Generation); err != nil {
+		t.Fatalf("activate terminal: %v", err)
+	}
+	receiveState(t, sink.state, StateRunning)
+
+	writeOutputDone := make(chan error, 1)
+	go func() {
+		_, writeErr := transport.writer.Write([]byte("blocked output"))
+		writeOutputDone <- writeErr
+	}()
+	waitForSignal(t, sink.outputStarted, "blocked terminal output")
+
+	callDone := make(chan error, 1)
+	go func() {
+		callDone <- manager.Write("lease", opened.ID, opened.Generation, 1, []byte("input"))
+	}()
+	waitForCall(t, callDone, "terminal input")
+	if got := string(transport.inputBytes()); got != "input" {
+		t.Fatalf("unexpected input while output was blocked: %q", got)
+	}
+
+	go func() {
+		callDone <- manager.Resize("lease", opened.ID, opened.Generation, 120, 40)
+	}()
+	waitForCall(t, callDone, "terminal resize")
+	if columns, rows := transport.size(); columns != 120 || rows != 40 {
+		t.Fatalf("resize did not reach transport: %dx%d", columns, rows)
+	}
+
+	manager.mu.RLock()
+	dispatcher := manager.output
+	manager.mu.RUnlock()
+	go func() {
+		callDone <- manager.Close("lease", opened.ID, opened.Generation)
+	}()
+	receiveState(t, sink.state, StateClosing)
+	waitForCall(t, callDone, "terminal close")
+
+	releaseOutput()
+	waitForSignal(t, dispatcher.stopped, "output dispatcher shutdown")
+	waitForCall(t, writeOutputDone, "terminal output fixture")
+}
+
 func TestManagerRejectsInvalidSize(t *testing.T) {
 	manager := NewManager(&fakeFactory{transport: newFakeTransport()})
 	_, err := manager.OpenLocal(context.Background(), "lease", profile.Profile{
@@ -219,5 +321,42 @@ func receiveOutput(t *testing.T, channel <-chan OutputChunk) OutputChunk {
 	}
 }
 
+func receiveState(t *testing.T, channel <-chan StateEvent, expected State) StateEvent {
+	t.Helper()
+	for {
+		select {
+		case event := <-channel:
+			if event.State == expected {
+				return event
+			}
+		case <-time.After(time.Second):
+			t.Fatalf("timed out waiting for terminal state %q", expected)
+			return StateEvent{}
+		}
+	}
+}
+
+func waitForCall(t *testing.T, done <-chan error, operation string) {
+	t.Helper()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("%s failed: %v", operation, err)
+		}
+	case <-time.After(time.Second):
+		t.Fatalf("%s waited behind terminal output", operation)
+	}
+}
+
+func waitForSignal(t *testing.T, signal <-chan struct{}, operation string) {
+	t.Helper()
+	select {
+	case <-signal:
+	case <-time.After(time.Second):
+		t.Fatalf("timed out waiting for %s", operation)
+	}
+}
+
 var _ port.TerminalTransport = (*fakeTransport)(nil)
 var _ Sink = (*recordingSink)(nil)
+var _ Sink = (*blockingOutputSink)(nil)

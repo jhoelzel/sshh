@@ -98,6 +98,7 @@ type Manager struct {
 	logFactory port.SessionLogFactory
 	sink       Sink
 	runtimes   map[string]*runtimeSession
+	output     *outputDispatcher
 }
 
 type outputMeta struct {
@@ -236,7 +237,6 @@ func (m *Manager) OpenSSH(ctx context.Context, leaseID string, selected profile.
 }
 
 func (m *Manager) registerRuntime(runtimeCtx context.Context, cancel context.CancelFunc, id, leaseID string, selected profile.Profile, columns, rows uint16, transport port.TerminalTransport) Session {
-
 	snapshot := Session{
 		ID: id, Generation: 1, LeaseID: leaseID, ProfileID: selected.ID,
 		Title: selected.Name, State: StateStarting, Columns: columns, Rows: rows,
@@ -250,6 +250,9 @@ func (m *Manager) registerRuntime(runtimeCtx context.Context, cancel context.Can
 	}
 
 	m.mu.Lock()
+	if m.output == nil {
+		m.output = newOutputDispatcher(m.emitOutput)
+	}
 	m.runtimes[id] = runtime
 	m.mu.Unlock()
 	m.publishState(runtime, nil, "")
@@ -431,11 +434,19 @@ func (m *Manager) Close(leaseID, sessionID string, generation uint64) error {
 	}
 	m.closeRuntime(runtime)
 
+	var dispatcher *outputDispatcher
 	m.mu.Lock()
 	if current := m.runtimes[sessionID]; current == runtime {
 		delete(m.runtimes, sessionID)
 	}
+	if len(m.runtimes) == 0 {
+		dispatcher = m.output
+		m.output = nil
+	}
 	m.mu.Unlock()
+	if dispatcher != nil {
+		dispatcher.Close()
+	}
 	return nil
 }
 
@@ -450,12 +461,20 @@ func (m *Manager) CloseLease(leaseID string) {
 		}(runtime)
 	}
 	wait.Wait()
+	var dispatcher *outputDispatcher
+	m.mu.Lock()
 	for _, runtime := range runtimes {
-		m.mu.Lock()
 		if m.runtimes[runtime.session.ID] == runtime {
 			delete(m.runtimes, runtime.session.ID)
 		}
-		m.mu.Unlock()
+	}
+	if len(m.runtimes) == 0 {
+		dispatcher = m.output
+		m.output = nil
+	}
+	m.mu.Unlock()
+	if dispatcher != nil {
+		dispatcher.Close()
 	}
 }
 
@@ -476,9 +495,15 @@ func (m *Manager) Shutdown() {
 		}(runtime)
 	}
 	wait.Wait()
+	var dispatcher *outputDispatcher
 	m.mu.Lock()
 	clear(m.runtimes)
+	dispatcher = m.output
+	m.output = nil
 	m.mu.Unlock()
+	if dispatcher != nil {
+		dispatcher.Close()
+	}
 }
 
 func (m *Manager) LiveCount() int {
@@ -574,16 +599,27 @@ func (m *Manager) publishOutput(runtime *runtimeSession, data []byte, final bool
 		return err
 	}
 	snapshot := runtime.snapshot()
+	chunk := OutputChunk{
+		LeaseID: snapshot.LeaseID, SessionID: snapshot.ID, Generation: snapshot.Generation,
+		Sequence: sequence, EndOffset: endOffset, Data: data, Final: final,
+	}
+	m.mu.RLock()
+	dispatcher := m.output
+	m.mu.RUnlock()
+	if dispatcher == nil {
+		return apperror.New(apperror.CodeUnavailable, "Terminal event delivery is unavailable.")
+	}
+	return dispatcher.Dispatch(runtime.ctx, chunk)
+}
+
+func (m *Manager) emitOutput(chunk OutputChunk) error {
 	m.mu.RLock()
 	sink := m.sink
 	m.mu.RUnlock()
 	if sink == nil {
 		return apperror.New(apperror.CodeUnavailable, "Terminal event delivery is unavailable.")
 	}
-	sink.PublishOutput(OutputChunk{
-		LeaseID: snapshot.LeaseID, SessionID: snapshot.ID, Generation: snapshot.Generation,
-		Sequence: sequence, EndOffset: endOffset, Data: data, Final: final,
-	})
+	sink.PublishOutput(chunk)
 	return nil
 }
 

@@ -16,7 +16,9 @@ Implemented and verified:
 - [x] Session IDs, generations, and renewable frontend leases reject stale bridge
   traffic and close resources after frontend loss.
 - [x] PTY output is held until the xterm controller activates, sent as ordered
-  chunks, and bounded by a cumulative acknowledgement window.
+  chunks, bounded by a cumulative acknowledgement window, and delivered through
+  a manager-owned fair output scheduler that control and lifecycle traffic
+  bypasses.
 - [x] Terminal input is ordered and idempotent, resize is validated and debounced,
   and close escalates from hangup to termination to kill within bounded time.
 - [x] The macOS arm64 application launches as a self-signed `.app` with all
@@ -96,8 +98,9 @@ Implemented and verified:
 Still required for the complete cross-platform and 1.0 gates:
 
 - [ ] ConPTY support and Windows validation.
-- [ ] Multi-session fairness and the documented throughput, memory, and long-run
-  stress measurements.
+- [ ] Native throughput, memory, and long-run stress measurements. Deterministic
+  multi-session scheduler coverage now proves that a 10 MiB noisy stream cannot
+  starve a low-volume peer or terminal control and lifecycle traffic.
 - [ ] Accessibility-driven native interaction automation or a dedicated Wails E2E
   harness. macOS launch and frontend attachment are verified today; runtime
   behavior is also exercised below the WebView boundary.
@@ -370,7 +373,8 @@ Each live session is a pointer-owned runtime object containing:
 - Exactly one terminal transport.
 - A typed state machine.
 - One output pump, one waiter, a sequence counter, and bounded bridge flow
-  control.
+  control. The manager also owns one bounded round-robin output dispatcher for
+  all live sessions.
 - An idempotent `Close` guarded by `sync.Once`.
 - A `WaitGroup` that makes shutdown observable and testable.
 
@@ -398,10 +402,14 @@ frequency; output is never acknowledged once per byte or forced to use one RPC
 per chunk. Flow control slows the transport reader when the frontend cannot
 keep up. Output is never silently dropped and queues never grow without a cap.
 
-Control and lifecycle traffic has priority over bulk output. Fair scheduling
-between sessions prevents one noisy terminal from starving input, resize,
-close, lifecycle events, or another session. Every event is checked against its
-frontend lease and session generation before delivery.
+Each output pump may have only one chunk in the dispatcher at a time. The
+dispatcher serializes sink delivery and rotates session IDs after each chunk;
+its bounded ingress queue applies backpressure if many sessions publish at
+once. Input, resize, close, and lifecycle state use their direct manager paths,
+so they do not enter or wait behind the output queue. Stopping the last session
+signals the dispatcher without waiting for an in-flight GUI callback. Every
+event is checked against its frontend lease and session generation before
+delivery.
 
 ### 4.5 Desktop Bridge Contract
 
@@ -746,8 +754,10 @@ Deliverables:
   Add monotonic input sequence numbers, bounded in-flight writes, large-paste
   chunking, and debounced/coalesced resize without routing bytes through React
   state.
-- [ ] Prioritize input, resize, close, and lifecycle traffic and fairly schedule
-  output across diagnostic sessions used by the stress harness.
+- [x] Prioritize input, resize, close, and lifecycle traffic and fairly schedule
+  output across diagnostic sessions used by the stress harness. Manager tests
+  block output delivery while exercising each control path; a deterministic
+  10 MiB scheduler test verifies round-robin service for a low-volume peer.
 - [x] Implement fit, scrollback, selection, copy, bracketed paste, search, focus,
   terminal title, and bell indication using stable public APIs.
 - [x] Use xterm's standard renderer and keep WebGL disabled by default.
@@ -775,8 +785,10 @@ Tests and exit gate:
 - [ ] A 10 MiB output burst remains interactive and memory stays within explicit
   queue and scrollback caps and passes the provisional latency, fairness, and
   completion budgets in section 5.3.
-- [ ] The same flood in one diagnostic session cannot starve input, lifecycle
-  events, or a second low-volume diagnostic session.
+- [x] The same flood in one diagnostic session cannot starve input, resize,
+  close, lifecycle events, or a second low-volume diagnostic session at the
+  manager scheduler boundary. Native WebView latency and memory measurements
+  remain part of the preceding open performance gate.
 - [ ] Repeated React StrictMode attach/detach cycles and a frontend reload create no
   duplicate shell and leave no old-lease shell running.
 - [ ] Minimizing the window, a deliberate main-thread stall, and system sleep/wake
@@ -1186,7 +1198,8 @@ Release gate:
 - Profile and settings precedence.
 - Config migrations and atomic persistence.
 - Go/TypeScript bridge DTO compatibility, frontend lease/session generation
-  validation, event sequencing, and cumulative acknowledgement.
+  validation, event sequencing, cumulative acknowledgement, and bounded
+  round-robin output scheduling.
 - Frontend terminal-controller output queueing, ordered `onData`/`onBinary`
   input, resize coalescing, StrictMode remounting, and idempotent disposal.
 - React views and state reducers without terminal-byte fixtures in React state.

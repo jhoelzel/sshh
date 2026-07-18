@@ -322,6 +322,13 @@ ID and generation. Closing a live tab closes the corresponding runtime;
 closing a disconnected tab removes only its frontend metadata. Closing the
 application coordinates shutdown of all sessions, transfers, and tunnels.
 
+The manager also owns one bounded output dispatcher while any session is
+registered. Output pumps submit at most one in-flight chunk each; the dispatcher
+serializes bridge delivery and rotates session IDs after every chunk. Terminal
+input, resize, close, and lifecycle state bypass that queue. Closing the final
+session signals dispatcher shutdown without waiting for an in-flight GUI event
+callback, while lease and generation checks make any late output harmless.
+
 A DOM instance attaches through a frontend lease. The lease is renewed only
 while backend resources are live. Frontend reload, replacement, or loss closes
 lease-owned resources after a bounded grace period in 1.0; implicit process
