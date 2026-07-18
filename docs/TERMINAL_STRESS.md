@@ -42,6 +42,20 @@ manager runtime count must be zero, and process-wide goroutine and descriptor
 counts must be no higher than the post-warm-up baseline. Descriptor counts come
 from name-only reads of `/dev/fd` on macOS and `/proc/self/fd` on Linux.
 
+### Short-lived PTY churn
+
+`TestManagerReaps100ShortLivedRealPTYsWithoutResourceLeaks` runs on Darwin and
+Linux against the production manager and real Unix PTY adapter. After one
+warm-up, a single manager opens and activates 100 short-lived `/bin/sh`
+sessions in sequence. Every session must deliver acknowledged output, report a
+zero exit status, transition through explicit tab closure, and leave no runtime
+or output dispatcher registered before the next session opens.
+
+After all 100 measured cycles, process-wide goroutine and descriptor counts
+must be no higher than their post-warm-up baselines. The same workload runs
+under the Go race detector, covering concurrent process wait, output delivery,
+acknowledgement, state publication, and cleanup.
+
 ### React and bridge listeners
 
 `App.strictmode.test.tsx` renders the complete application in React StrictMode,
@@ -60,13 +74,20 @@ macOS 26.5.2:
 ```sh
 go test ./internal/usecase/session \
   -run TestManagerClosesRealPTYFloodWithoutResourceLeaks -count=1
+go test ./internal/usecase/session \
+  -run TestManagerReaps100ShortLivedRealPTYsWithoutResourceLeaks -count=1 -v
+go test -race ./internal/usecase/session \
+  -run TestManagerReaps100ShortLivedRealPTYsWithoutResourceLeaks -count=1 -v
 go test ./internal/bridge -run TestAttachFrontend -count=1
 cd frontend && npm test -- --run src/app/App.strictmode.test.tsx
 ```
 
 The PTY flood test completed its warm-up and four measured cycles in 5.07
-seconds. This timing is a test-run observation, not a rendering throughput
-budget.
+seconds. The short-lived PTY loop completed 100 measured sessions in 478 ms
+normally and 574 ms under the race detector. Both runs delivered 4,000 measured
+output bytes and returned to 2/2 goroutines and 6/6 descriptors relative to
+their warmed baselines. These timings are test-run observations, not rendering
+throughput budgets.
 
 ## Native Performance Gate
 

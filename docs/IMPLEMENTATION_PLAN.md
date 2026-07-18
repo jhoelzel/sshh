@@ -92,11 +92,12 @@ Implemented and verified:
   weekly update checks.
 - [x] Go race tests cover managers and adapters. Real loopback integration tests
   cover PTY binary input and live resize, shared multi-channel SSH terminal
-  lifetime, terminal exit, repeated flood-close process-tree cleanup, SFTP
-  operations, and bidirectional local, remote, and SOCKS forwarding. Controller
-  tests cover mixed text, binary mouse, and paste ordering, resize coalescing,
-  malformed frames, the real xterm parser, and listener disposal during output.
-  TypeScript, ESLint, Vitest, vet, and production builds pass.
+  lifetime, terminal exit, repeated flood-close process-tree cleanup, 100-cycle
+  short-lived PTY churn, SFTP operations, and bidirectional local, remote, and
+  SOCKS forwarding. Controller tests cover mixed text, binary mouse, and paste
+  ordering, resize coalescing, malformed frames, the real xterm parser, and
+  listener disposal during output. TypeScript, ESLint, Vitest, vet, and
+  production builds pass.
 - [x] A guarded packaged-macOS WKWebView harness measures the complete PTY,
   bridge, xterm, input, resize, and close path without recording terminal
   content. The accepted 10 MiB run records hardware, queue high-water marks,
@@ -862,7 +863,9 @@ Tests and exit gate:
   counts to baseline under a repeated Darwin/Linux real-PTY leak test.
 - [x] Closing the application with a running shell follows the confirmation and
   cleanup contract.
-- [ ] Opening 100 short-lived terminals in a test loop produces no lifecycle leak.
+- [x] Opening 100 short-lived terminals in a real Darwin/Linux PTY test loop
+  returns manager runtimes, dispatchers, goroutines, and descriptors to the
+  warmed baseline, including under the Go race detector.
 - [x] No shell starts on application launch or mere profile selection.
 - [ ] Native Windows tests cover WebView focus restoration, forward and reverse tab
   traversal, AltGr, IME composition, clipboard shortcuts, ConPTY resize, and

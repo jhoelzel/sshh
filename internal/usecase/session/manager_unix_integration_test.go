@@ -21,7 +21,10 @@ import (
 	"shh-h/internal/domain/profile"
 )
 
-const nativeFloodCloseBytes = 2 * 1024 * 1024
+const (
+	nativeFloodCloseBytes     = 2 * 1024 * 1024
+	nativeShortLivedPTYCycles = 100
+)
 
 type nativeFloodSink struct {
 	manager   *Manager
@@ -57,6 +60,38 @@ func (sink *nativeFloodSink) PublishOutput(chunk OutputChunk) {
 
 func (*nativeFloodSink) PublishState(StateEvent) {}
 
+type nativeShortLivedSink struct {
+	manager  *Manager
+	states   chan StateEvent
+	ackError chan error
+	bytes    atomic.Uint64
+}
+
+func newNativeShortLivedSink(manager *Manager) *nativeShortLivedSink {
+	return &nativeShortLivedSink{
+		manager:  manager,
+		states:   make(chan StateEvent, 8),
+		ackError: make(chan error, 1),
+	}
+}
+
+func (sink *nativeShortLivedSink) PublishOutput(chunk OutputChunk) {
+	if err := sink.manager.Acknowledge(
+		chunk.LeaseID, chunk.SessionID, chunk.Generation, chunk.Sequence, chunk.EndOffset,
+	); err != nil {
+		select {
+		case sink.ackError <- err:
+		default:
+		}
+		return
+	}
+	sink.bytes.Add(uint64(len(chunk.Data)))
+}
+
+func (sink *nativeShortLivedSink) PublishState(event StateEvent) {
+	sink.states <- event
+}
+
 func TestManagerClosesRealPTYFloodWithoutResourceLeaks(t *testing.T) {
 	if testing.Short() {
 		t.Skip("real PTY stress test")
@@ -73,6 +108,112 @@ func TestManagerClosesRealPTYFloodWithoutResourceLeaks(t *testing.T) {
 		for cycle := 0; cycle < 2; cycle++ {
 			runNativeFloodClose(t, closeKind, nativeFloodCloseBytes)
 			waitForResourceBaseline(t, closeKind, cycle, baselineGoroutines, baselineDescriptors)
+		}
+	}
+}
+
+func TestManagerReaps100ShortLivedRealPTYsWithoutResourceLeaks(t *testing.T) {
+	if testing.Short() {
+		t.Skip("real PTY stress test")
+	}
+
+	manager := NewManager(localpty.NewFactory())
+	sink := newNativeShortLivedSink(manager)
+	manager.SetSink(sink)
+	t.Cleanup(manager.Shutdown)
+
+	// Warm up process creation, the runtime poller, and PTY bookkeeping before
+	// recording the process-wide resource baseline used for leak detection.
+	runNativeShortLivedPTY(t, manager, sink, 0)
+	runtime.GC()
+	baselineGoroutines := runtime.NumGoroutine()
+	baselineDescriptors := openDescriptorCount(t)
+	baselineBytes := sink.bytes.Load()
+
+	started := time.Now()
+	for cycle := 1; cycle <= nativeShortLivedPTYCycles; cycle++ {
+		runNativeShortLivedPTY(t, manager, sink, cycle)
+	}
+	waitForResourceBaseline(
+		t, "short-lived PTY", nativeShortLivedPTYCycles, baselineGoroutines, baselineDescriptors,
+	)
+	finalGoroutines := runtime.NumGoroutine()
+	finalDescriptors := openDescriptorCount(t)
+	t.Logf(
+		"reaped %d short-lived PTYs in %s; output=%d bytes, goroutines=%d/%d, descriptors=%d/%d",
+		nativeShortLivedPTYCycles, time.Since(started), sink.bytes.Load()-baselineBytes,
+		finalGoroutines, baselineGoroutines, finalDescriptors, baselineDescriptors,
+	)
+}
+
+func runNativeShortLivedPTY(t *testing.T, manager *Manager, sink *nativeShortLivedSink, cycle int) {
+	t.Helper()
+
+	bytesBefore := sink.bytes.Load()
+	opened, err := manager.OpenLocal(context.Background(), "native-short-lived-lease", profile.Profile{
+		ID: "native-short-lived", Name: "Native short-lived", Protocol: profile.ProtocolLocal,
+		Shell: "/bin/sh", Arguments: []string{"-c", `printf 'ready:%s\n' "$SHHH_SESSION_ID"`},
+	}, 80, 24)
+	if err != nil {
+		t.Fatalf("open short-lived PTY cycle %d: %v", cycle, err)
+	}
+	if err := manager.Activate(opened.LeaseID, opened.ID, opened.Generation); err != nil {
+		t.Fatalf("activate short-lived PTY cycle %d: %v", cycle, err)
+	}
+
+	exited := waitForNativeSessionState(t, sink, opened, StateExited, cycle)
+	if exited.ExitCode == nil || *exited.ExitCode != 0 || exited.Signal != "" || exited.Message != "" {
+		t.Fatalf("short-lived PTY cycle %d exited unexpectedly: %#v", cycle, exited)
+	}
+	if sink.bytes.Load() <= bytesBefore {
+		t.Fatalf("short-lived PTY cycle %d exited without delivering output", cycle)
+	}
+	if err := manager.Close(opened.LeaseID, opened.ID, opened.Generation); err != nil {
+		t.Fatalf("close short-lived PTY cycle %d: %v", cycle, err)
+	}
+	waitForNativeSessionState(t, sink, opened, StateClosed, cycle)
+	if manager.LiveCount() != 0 {
+		t.Fatalf("short-lived PTY cycle %d left %d terminal runtimes live", cycle, manager.LiveCount())
+	}
+	manager.mu.RLock()
+	runtimeCount := len(manager.runtimes)
+	dispatcherPresent := manager.output != nil
+	manager.mu.RUnlock()
+	if runtimeCount != 0 || dispatcherPresent {
+		t.Fatalf(
+			"short-lived PTY cycle %d retained manager resources: runtimes=%d, dispatcher=%t",
+			cycle, runtimeCount, dispatcherPresent,
+		)
+	}
+}
+
+func waitForNativeSessionState(
+	t *testing.T,
+	sink *nativeShortLivedSink,
+	opened Session,
+	expected State,
+	cycle int,
+) StateEvent {
+	t.Helper()
+	timer := time.NewTimer(3 * time.Second)
+	defer timer.Stop()
+
+	for {
+		select {
+		case err := <-sink.ackError:
+			t.Fatalf("acknowledge short-lived PTY cycle %d output: %v", cycle, err)
+		case event := <-sink.states:
+			if event.SessionID != opened.ID || event.Generation != opened.Generation || event.LeaseID != opened.LeaseID {
+				t.Fatalf("short-lived PTY cycle %d received state for another session: %#v", cycle, event)
+			}
+			if event.State == StateFailed {
+				t.Fatalf("short-lived PTY cycle %d failed: %#v", cycle, event)
+			}
+			if event.State == expected {
+				return event
+			}
+		case <-timer.C:
+			t.Fatalf("short-lived PTY cycle %d timed out waiting for state %q", cycle, expected)
 		}
 	}
 }
@@ -227,4 +368,7 @@ func countOpenDescriptors() (int, error) {
 	return len(names), nil
 }
 
-var _ Sink = (*nativeFloodSink)(nil)
+var (
+	_ Sink = (*nativeFloodSink)(nil)
+	_ Sink = (*nativeShortLivedSink)(nil)
+)
