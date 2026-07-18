@@ -38,6 +38,10 @@ export function CompleteTerminalBenchmark(arg1, arg2) {
   return window['go']['bridge']['Desktop']['CompleteTerminalBenchmark'](arg1, arg2);
 }
 
+export function CompleteTerminalSoak(arg1, arg2) {
+  return window['go']['bridge']['Desktop']['CompleteTerminalSoak'](arg1, arg2);
+}
+
 export function ConfirmApplicationClose(arg1) {
   return window['go']['bridge']['Desktop']['ConfirmApplicationClose'](arg1);
 }
@@ -200,6 +204,10 @@ export function ProbeQuickSSHHostKey(arg1, arg2) {
 
 export function ProbeSSHHostKey(arg1, arg2) {
   return window['go']['bridge']['Desktop']['ProbeSSHHostKey'](arg1, arg2);
+}
+
+export function RecordTerminalBenchmarkProgress(arg1, arg2, arg3) {
+  return window['go']['bridge']['Desktop']['RecordTerminalBenchmarkProgress'](arg1, arg2, arg3);
 }
 
 export function RenameRemotePath(arg1, arg2, arg3, arg4) {

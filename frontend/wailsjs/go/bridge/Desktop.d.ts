@@ -24,6 +24,8 @@ export function CloseTerminal(arg1:string,arg2:string,arg3:number):Promise<void>
 
 export function CompleteTerminalBenchmark(arg1:string,arg2:terminalbenchmark.Report):Promise<terminalbenchmark.Report>;
 
+export function CompleteTerminalSoak(arg1:string,arg2:terminalbenchmark.SoakReport):Promise<terminalbenchmark.SoakReport>;
+
 export function ConfirmApplicationClose(arg1:string):Promise<void>;
 
 export function CreateProfile(arg1:bridge.ProfileInputDTO):Promise<bridge.ProfileDTO>;
@@ -105,6 +107,8 @@ export function OpenTerminalBenchmark(arg1:string,arg2:number,arg3:number):Promi
 export function ProbeQuickSSHHostKey(arg1:string,arg2:bridge.QuickSSHInputDTO):Promise<bridge.QuickSSHProbeDTO>;
 
 export function ProbeSSHHostKey(arg1:string,arg2:string):Promise<bridge.SSHHostKeyDTO>;
+
+export function RecordTerminalBenchmarkProgress(arg1:string,arg2:string,arg3:number):Promise<void>;
 
 export function RenameRemotePath(arg1:string,arg2:string,arg3:string,arg4:string):Promise<void>;
 

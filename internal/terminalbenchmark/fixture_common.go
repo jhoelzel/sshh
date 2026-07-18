@@ -10,11 +10,13 @@ import (
 )
 
 const (
-	MarkerReady      = "SHHH_BENCH_READY"
-	MarkerEchoPrefix = "SHHH_BENCH_ECHO:"
-	MarkerResize     = "SHHH_BENCH_RESIZE:"
-	MarkerDone       = "SHHH_BENCH_DONE:"
-	MarkerCloseFlood = "SHHH_BENCH_CLOSE_FLOOD"
+	MarkerReady       = "SHHH_BENCH_READY"
+	MarkerEchoPrefix  = "SHHH_BENCH_ECHO:"
+	MarkerResize      = "SHHH_BENCH_RESIZE:"
+	MarkerDone        = "SHHH_BENCH_DONE:"
+	MarkerCloseFlood  = "SHHH_BENCH_CLOSE_FLOOD"
+	MarkerSoakStarted = "SHHH_BENCH_SOAK_STARTED"
+	MarkerSoakDone    = "SHHH_BENCH_SOAK_DONE"
 )
 
 func RunFixtureIfRequested(arguments []string) (bool, error) {
@@ -25,6 +27,38 @@ func RunFixtureIfRequested(arguments []string) (bool, error) {
 		return true, errors.New("terminal benchmark fixture is not authorized")
 	}
 	return true, runFixture(os.Stdin, os.Stdout)
+}
+
+func writeSoak(
+	output io.Writer,
+	writes *sync.Mutex,
+	stop <-chan struct{},
+	title func(string) error,
+) {
+	if title(MarkerSoakStarted) != nil {
+		return
+	}
+	line := []byte(strings.Repeat("s", 78) + "\r\n")
+	chunk := make([]byte, 0, SoakOutputChunkBytes)
+	for len(chunk)+len(line) <= cap(chunk) {
+		chunk = append(chunk, line...)
+	}
+	ticker := time.NewTicker(SoakOutputInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-stop:
+			_ = title(MarkerSoakDone)
+			return
+		case <-ticker.C:
+			writes.Lock()
+			err := writeAll(output, chunk)
+			writes.Unlock()
+			if err != nil {
+				return
+			}
+		}
+	}
 }
 
 func writeFlood(output io.Writer, writes *sync.Mutex, byteCount uint64, complete func()) {

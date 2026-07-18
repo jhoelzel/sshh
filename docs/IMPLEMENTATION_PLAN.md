@@ -101,6 +101,10 @@ Implemented and verified:
   bridge, xterm, input, resize, and close path without recording terminal
   content. The accepted 10 MiB run records hardware, queue high-water marks,
   p95 latency, completion time, and app/fixture/WebKit RSS.
+- [x] A separate guarded 15-minute packaged-macOS soak keeps eight PTYs and
+  xterm controllers active, rotates the visible tab, records 1,440 input echoes,
+  moves 439.5 MiB, proves exact queue drain and cleanup, and bounds warmed RSS
+  growth to 18.2 MiB.
 
 Still required for the complete cross-platform and 1.0 gates:
 
@@ -108,14 +112,16 @@ Still required for the complete cross-platform and 1.0 gates:
 - [x] Native macOS throughput and memory measurements for the 10 MiB terminal
   path, including deterministic scheduler fairness and explicit queue,
   scrollback, latency, close, and whole-application RSS budgets.
-- [ ] Long-run terminal soak and multi-session native stress measurements.
+- [x] Long-run terminal soak and multi-session native stress measurements on the
+  current Apple Silicon Mac. Multi-hour, larger-count, Linux, and Windows runs
+  remain separate gates.
 - [ ] Accessibility-driven native interaction automation or a dedicated Wails E2E
   harness. macOS launch and frontend attachment are verified today; runtime
   behavior is also exercised below the WebView boundary.
 - [ ] Remaining reconnect, proxy, known-hosts, and agent settings.
 - [ ] Signed/notarized macOS releases, Linux packaging validation, Windows WebView2
-  runtime and ConPTY implementation, accessibility review, and long-run
-  soak/performance evidence.
+  runtime and ConPTY implementation, accessibility review, and broader
+  cross-platform and multi-hour performance evidence.
 
 ## 2. Product Definition
 
@@ -1189,8 +1195,11 @@ Deliverables:
 - [ ] Profile startup and idle CPU behavior.
 - [x] Packaged-macOS terminal flood and bounded scrollback memory behavior under
   the M1 10 MiB workload.
-- [ ] Large directory listing, large transfer, long-run soak, and many-session
-  behavior.
+- [x] Packaged-macOS 15-minute, eight-session terminal soak with sustained input,
+  visibility rotation, exact queue drain, deterministic close, and bounded
+  steady-state RSS growth.
+- [ ] Large directory listing, large transfer, multi-hour terminal soak, and
+  broader many-session behavior.
 - [ ] Add structured local diagnostics and a user-controlled diagnostic export
   with redaction.
 - [ ] Complete user documentation for profiles, trust prompts, credentials,

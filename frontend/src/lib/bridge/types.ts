@@ -207,11 +207,15 @@ export interface TerminalDiagnostics {
 
 export interface TerminalBenchmarkConfig {
   enabled: boolean
+  mode: 'burst' | 'soak'
   processId: number
   payloadBytes: number
   maximumBackendQueueBytes: number
   maximumFrontendQueueBytes: number
   minimumLatencySamples: number
+  soakDurationMilliseconds: number
+  soakSessionCount: number
+  soakHeartbeatMilliseconds: number
 }
 
 export interface TerminalBenchmarkControllerDiagnostics {
@@ -238,6 +242,22 @@ export interface TerminalBenchmarkBackendDiagnostics {
   maximumUnacknowledged: number
 }
 
+export interface TerminalBenchmarkHostMetrics {
+  model: string
+  processor: string
+  operatingSystemVersion: string
+  memoryBytes: number
+  processTreePeakRssBytes: number
+  processTreePeakProcesses: number
+  webKitPeakProcesses: number
+  rssSamples: number
+  steadyStateStartRssBytes?: number
+  steadyStateEndRssBytes?: number
+  steadyStateGrowthRssBytes?: number
+  steadyStateStartSamples?: number
+  steadyStateEndSamples?: number
+}
+
 export interface TerminalBenchmarkReport {
   schemaVersion: number
   startedAt: string
@@ -254,16 +274,32 @@ export interface TerminalBenchmarkReport {
   controller: TerminalBenchmarkControllerDiagnostics
   backend: TerminalBenchmarkBackendDiagnostics
   runtime: { operatingSystem: string; architecture: string; goVersion: string; processId: number }
-  host: {
-    model: string
-    processor: string
-    operatingSystemVersion: string
-    memoryBytes: number
-    processTreePeakRssBytes: number
-    processTreePeakProcesses: number
-    webKitPeakProcesses: number
-    rssSamples: number
-  }
+  host: TerminalBenchmarkHostMetrics
+  passed: boolean
+  failures: string[]
+}
+
+export interface TerminalSoakSessionReport {
+  index: number
+  closeDurationMilliseconds: number
+  controller: TerminalBenchmarkControllerDiagnostics
+  backend: TerminalBenchmarkBackendDiagnostics
+}
+
+export interface TerminalSoakReport {
+  schemaVersion: number
+  startedAt: string
+  finishedAt: string
+  durationMilliseconds: number
+  sessionCount: number
+  visibilitySwitches: number
+  totalBytes: number
+  echoMilliseconds: number[]
+  echoP95Milliseconds: number
+  closeP95Milliseconds: number
+  sessions: TerminalSoakSessionReport[]
+  runtime: { operatingSystem: string; architecture: string; goVersion: string; processId: number }
+  host: TerminalBenchmarkHostMetrics
   passed: boolean
   failures: string[]
 }

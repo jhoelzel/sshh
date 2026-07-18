@@ -1,6 +1,13 @@
 package main
 
-import "testing"
+import (
+	"path/filepath"
+	"strings"
+	"testing"
+	"time"
+
+	"shh-h/internal/terminalbenchmark"
+)
 
 func TestProcessTreeRSSIncludesOnlyRootAndDescendants(t *testing.T) {
 	data := []byte(`
@@ -46,4 +53,67 @@ func TestProcessTreeRSSIncludesOnlyNewWebKitHelpers(t *testing.T) {
 	if want := uint64((200 + 300 + 500) * 1024); rss != want || count != 3 || webKitCount != 1 {
 		t.Fatalf("usage = %d bytes, %d processes, %d WebKit; want %d, 3, 1", rss, count, webKitCount, want)
 	}
+}
+
+func TestSteadyStateRSSUsesWarmAndFinalMedians(t *testing.T) {
+	readings := []rssReading{
+		{elapsed: 30 * time.Second, bytes: 10},
+		{elapsed: 60 * time.Second, bytes: 100},
+		{elapsed: 90 * time.Second, bytes: 110},
+		{elapsed: 120 * time.Second, bytes: 120},
+		{elapsed: 14 * time.Minute, bytes: 190},
+		{elapsed: 14*time.Minute + 30*time.Second, bytes: 200},
+		{elapsed: 15 * time.Minute, bytes: 210},
+	}
+	start, end, growth, startSamples, endSamples := steadyStateRSS(readings)
+	if start != 110 || end != 200 || growth != 90 || startSamples != 3 || endSamples != 3 {
+		t.Fatalf("steady RSS = %d, %d, %d, %d, %d; want 110, 200, 90, 3, 3", start, end, growth, startSamples, endSamples)
+	}
+}
+
+func TestSteadyStateRSSDoesNotReportNegativeGrowth(t *testing.T) {
+	readings := []rssReading{
+		{elapsed: time.Minute, bytes: 200},
+		{elapsed: 2 * time.Minute, bytes: 200},
+		{elapsed: 14 * time.Minute, bytes: 100},
+		{elapsed: 15 * time.Minute, bytes: 100},
+	}
+	_, _, growth, _, _ := steadyStateRSS(readings)
+	if growth != 0 {
+		t.Fatalf("steady RSS shrinkage reported as %d bytes of growth", growth)
+	}
+}
+
+func TestTimedOutSoakPreservesPartialReport(t *testing.T) {
+	directory := t.TempDir()
+	raw := filepath.Join(directory, "raw.json")
+	final := filepath.Join(directory, "final.json")
+	now := time.Now().UTC()
+	if err := terminalbenchmark.WriteSoakReportAtomic(raw, terminalbenchmark.SoakReport{
+		SchemaVersion: terminalbenchmark.SoakSchemaVersion,
+		StartedAt:     now.Format(time.RFC3339Nano), FinishedAt: now.Add(time.Second).Format(time.RFC3339Nano),
+		Failures: []string{"frontend checkpoint failed"},
+	}); err != nil {
+		t.Fatalf("write partial soak report: %v", err)
+	}
+	if err := salvageTimedOutSoak(raw, final, terminalbenchmark.HostMetrics{}, nil); err != nil {
+		t.Fatalf("salvage partial soak report: %v", err)
+	}
+	report, err := terminalbenchmark.ReadSoakReport(final)
+	if err != nil {
+		t.Fatalf("read salvaged soak report: %v", err)
+	}
+	if report.Passed || !containsText(report.Failures, "frontend checkpoint failed") ||
+		!containsText(report.Failures, "did not exit before the host timeout") {
+		t.Fatalf("salvaged failures = %#v", report.Failures)
+	}
+}
+
+func containsText(values []string, fragment string) bool {
+	for _, value := range values {
+		if strings.Contains(value, fragment) {
+			return true
+		}
+	}
+	return false
 }

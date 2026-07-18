@@ -6,10 +6,12 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -17,7 +19,13 @@ import (
 	"shh-h/internal/terminalbenchmark"
 )
 
-const sampleInterval = 50 * time.Millisecond
+const (
+	burstSampleInterval = 50 * time.Millisecond
+	soakSampleInterval  = time.Second
+	soakRSSWarmupStart  = time.Minute
+	soakRSSWarmupEnd    = 2 * time.Minute
+	soakRSSEndWindow    = time.Minute
+)
 
 func main() {
 	if err := run(); err != nil {
@@ -30,15 +38,33 @@ func run() error {
 	var appPath string
 	var reportPath string
 	var timeout time.Duration
+	var modeValue string
 	flag.StringVar(&appPath, "app", "build/bin/shh-h.app/Contents/MacOS/shhh", "packaged benchmark executable")
-	flag.StringVar(&reportPath, "report", "docs/benchmarks/m1-macos-arm64.json", "final benchmark report")
-	flag.DurationVar(&timeout, "timeout", 45*time.Second, "maximum packaged benchmark duration")
+	flag.StringVar(&reportPath, "report", "", "final benchmark report")
+	flag.DurationVar(&timeout, "timeout", 0, "maximum packaged benchmark duration")
+	flag.StringVar(&modeValue, "mode", string(terminalbenchmark.ModeBurst), "benchmark mode: burst or soak")
 	flag.Parse()
+	mode, err := terminalbenchmark.ParseMode(modeValue)
+	if err != nil {
+		return err
+	}
+	if timeout <= 0 {
+		timeout = 45 * time.Second
+		if mode == terminalbenchmark.ModeSoak {
+			timeout = terminalbenchmark.SoakDuration + 5*time.Minute
+		}
+	}
+	if reportPath == "" {
+		reportPath = "docs/benchmarks/m1-macos-arm64.json"
+		if mode == terminalbenchmark.ModeSoak {
+			reportPath = "docs/benchmarks/m1-macos-arm64-soak.json"
+		}
+	}
 
 	if runtime.GOOS != "darwin" {
 		return fmt.Errorf("packaged WKWebView benchmark requires macOS, got %s", runtime.GOOS)
 	}
-	appPath, err := filepath.Abs(appPath)
+	appPath, err = filepath.Abs(appPath)
 	if err != nil {
 		return fmt.Errorf("resolve benchmark app path: %w", err)
 	}
@@ -66,24 +92,30 @@ func run() error {
 	}
 
 	command := exec.Command(appPath)
-	command.Env = benchmarkEnvironment(home, rawReport)
+	command.Env = benchmarkEnvironment(home, rawReport, mode)
 	var output bytes.Buffer
 	command.Stdout = &output
-	command.Stderr = &output
+	command.Stderr = io.MultiWriter(&output, os.Stderr)
 	if err := command.Start(); err != nil {
 		return fmt.Errorf("launch packaged benchmark: %w", err)
 	}
+	launchedAt := time.Now()
 
 	processDone := make(chan error, 1)
 	go func() { processDone <- command.Wait() }()
 	deadline := time.NewTimer(timeout)
 	defer deadline.Stop()
+	sampleInterval := burstSampleInterval
+	if mode == terminalbenchmark.ModeSoak {
+		sampleInterval = soakSampleInterval
+	}
 	ticker := time.NewTicker(sampleInterval)
 	defer ticker.Stop()
 	var peakRSS uint64
 	var peakProcesses int
 	var peakWebKitProcesses int
 	var samples int
+	var rssReadings []rssReading
 	var processErr error
 
 running:
@@ -95,6 +127,7 @@ running:
 			rss, processCount, webKitCount, sampleErr := sampleProcessTreeRSS(command.Process.Pid, baselineWebKit)
 			if sampleErr == nil && rss > 0 {
 				samples++
+				rssReadings = append(rssReadings, rssReading{elapsed: time.Since(launchedAt), bytes: rss})
 				peakRSS = max(peakRSS, rss)
 				peakProcesses = max(peakProcesses, processCount)
 				peakWebKitProcesses = max(peakWebKitProcesses, webKitCount)
@@ -102,6 +135,12 @@ running:
 		case <-deadline.C:
 			_ = command.Process.Kill()
 			<-processDone
+			if mode == terminalbenchmark.ModeSoak {
+				host := sampledHostMetrics(peakRSS, peakProcesses, peakWebKitProcesses, samples)
+				if salvageErr := salvageTimedOutSoak(rawReport, reportPath, host, rssReadings); salvageErr != nil {
+					return fmt.Errorf("packaged benchmark exceeded %s; preserve partial report: %v\n%s", timeout, salvageErr, boundedOutput(output.String()))
+				}
+			}
 			return fmt.Errorf("packaged benchmark exceeded %s\n%s", timeout, boundedOutput(output.String()))
 		}
 	}
@@ -109,15 +148,50 @@ running:
 		return fmt.Errorf("packaged benchmark exited unsuccessfully: %w\n%s", processErr, boundedOutput(output.String()))
 	}
 
+	host := sampledHostMetrics(peakRSS, peakProcesses, peakWebKitProcesses, samples)
+
+	if mode == terminalbenchmark.ModeSoak {
+		return completeSoak(rawReport, reportPath, output.String(), host, rssReadings)
+	}
+	return completeBurst(rawReport, reportPath, output.String(), host)
+}
+
+func sampledHostMetrics(peakRSS uint64, peakProcesses, peakWebKitProcesses, samples int) terminalbenchmark.HostMetrics {
+	host := collectHostMetrics()
+	host.ProcessTreePeakRSSBytes = peakRSS
+	host.ProcessTreePeakProcesses = peakProcesses
+	host.WebKitPeakProcesses = peakWebKitProcesses
+	host.RSSSamples = samples
+	return host
+}
+
+func salvageTimedOutSoak(
+	rawReport, reportPath string,
+	host terminalbenchmark.HostMetrics,
+	readings []rssReading,
+) error {
+	report, err := terminalbenchmark.ReadSoakReport(rawReport)
+	if err != nil {
+		return err
+	}
+	startRSS, endRSS, growthRSS, startSamples, endSamples := steadyStateRSS(readings)
+	host.SteadyStateStartRSSBytes = startRSS
+	host.SteadyStateEndRSSBytes = endRSS
+	host.SteadyStateGrowthRSSBytes = growthRSS
+	host.SteadyStateStartSamples = startSamples
+	host.SteadyStateEndSamples = endSamples
+	report.Host = host
+	report.Failures = append(report.Failures, "packaged application did not exit before the host timeout")
+	terminalbenchmark.EvaluateSoakHost(&report)
+	return terminalbenchmark.WriteSoakReportAtomic(reportPath, report)
+}
+
+func completeBurst(rawReport, reportPath, processOutput string, host terminalbenchmark.HostMetrics) error {
 	report, err := terminalbenchmark.ReadReport(rawReport)
 	if err != nil {
-		return fmt.Errorf("read packaged benchmark result: %w\n%s", err, boundedOutput(output.String()))
+		return fmt.Errorf("read packaged benchmark result: %w\n%s", err, boundedOutput(processOutput))
 	}
-	report.Host = collectHostMetrics()
-	report.Host.ProcessTreePeakRSSBytes = peakRSS
-	report.Host.ProcessTreePeakProcesses = peakProcesses
-	report.Host.WebKitPeakProcesses = peakWebKitProcesses
-	report.Host.RSSSamples = samples
+	report.Host = host
 	terminalbenchmark.EvaluateHost(&report)
 	if err := terminalbenchmark.WriteReportAtomic(reportPath, report); err != nil {
 		return err
@@ -137,14 +211,51 @@ running:
 	return nil
 }
 
-func benchmarkEnvironment(home, resultPath string) []string {
+func completeSoak(
+	rawReport, reportPath, processOutput string,
+	host terminalbenchmark.HostMetrics,
+	readings []rssReading,
+) error {
+	report, err := terminalbenchmark.ReadSoakReport(rawReport)
+	if err != nil {
+		return fmt.Errorf("read packaged terminal soak result: %w\n%s", err, boundedOutput(processOutput))
+	}
+	startRSS, endRSS, growthRSS, startSamples, endSamples := steadyStateRSS(readings)
+	host.SteadyStateStartRSSBytes = startRSS
+	host.SteadyStateEndRSSBytes = endRSS
+	host.SteadyStateGrowthRSSBytes = growthRSS
+	host.SteadyStateStartSamples = startSamples
+	host.SteadyStateEndSamples = endSamples
+	report.Host = host
+	terminalbenchmark.EvaluateSoakHost(&report)
+	if err := terminalbenchmark.WriteSoakReportAtomic(reportPath, report); err != nil {
+		return err
+	}
+
+	fmt.Printf("terminal soak: %.1f minutes, %d sessions, %.1f MiB, echo p95 %.2f ms, close p95 %.2f ms, peak RSS %.1f MiB, RSS growth %.1f MiB\n",
+		report.DurationMilliseconds/60_000,
+		report.SessionCount,
+		float64(report.TotalBytes)/(1024*1024),
+		report.EchoP95Milliseconds,
+		report.CloseP95Milliseconds,
+		float64(report.Host.ProcessTreePeakRSSBytes)/(1024*1024),
+		float64(report.Host.SteadyStateGrowthRSSBytes)/(1024*1024),
+	)
+	if !report.Passed {
+		return fmt.Errorf("terminal soak failed: %s", strings.Join(report.Failures, "; "))
+	}
+	return nil
+}
+
+func benchmarkEnvironment(home, resultPath string, mode terminalbenchmark.Mode) []string {
 	blocked := map[string]bool{
 		"HOME":                                  true,
 		terminalbenchmark.EnvironmentEnabled:    true,
 		terminalbenchmark.EnvironmentResultPath: true,
 		terminalbenchmark.EnvironmentFixture:    true,
+		terminalbenchmark.EnvironmentMode:       true,
 	}
-	result := make([]string, 0, len(os.Environ())+3)
+	result := make([]string, 0, len(os.Environ())+4)
 	for _, item := range os.Environ() {
 		key, _, _ := strings.Cut(item, "=")
 		if !blocked[key] {
@@ -155,7 +266,49 @@ func benchmarkEnvironment(home, resultPath string) []string {
 		"HOME="+home,
 		terminalbenchmark.EnvironmentEnabled+"=1",
 		terminalbenchmark.EnvironmentResultPath+"="+resultPath,
+		terminalbenchmark.EnvironmentMode+"="+string(mode),
 	)
+}
+
+type rssReading struct {
+	elapsed time.Duration
+	bytes   uint64
+}
+
+func steadyStateRSS(readings []rssReading) (start, end, growth uint64, startSamples, endSamples int) {
+	if len(readings) == 0 {
+		return 0, 0, 0, 0, 0
+	}
+	last := readings[len(readings)-1].elapsed
+	var startValues []uint64
+	var endValues []uint64
+	for _, reading := range readings {
+		if reading.elapsed >= soakRSSWarmupStart && reading.elapsed <= soakRSSWarmupEnd {
+			startValues = append(startValues, reading.bytes)
+		}
+		if reading.elapsed >= last-soakRSSEndWindow {
+			endValues = append(endValues, reading.bytes)
+		}
+	}
+	start = medianRSS(startValues)
+	end = medianRSS(endValues)
+	if end > start {
+		growth = end - start
+	}
+	return start, end, growth, len(startValues), len(endValues)
+}
+
+func medianRSS(values []uint64) uint64 {
+	if len(values) == 0 {
+		return 0
+	}
+	ordered := slices.Clone(values)
+	slices.Sort(ordered)
+	middle := len(ordered) / 2
+	if len(ordered)%2 == 1 {
+		return ordered[middle]
+	}
+	return ordered[middle-1]/2 + ordered[middle]/2 + (ordered[middle-1]%2+ordered[middle]%2)/2
 }
 
 type processSample struct {

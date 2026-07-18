@@ -1059,6 +1059,21 @@ func (d *Desktop) OpenTerminalBenchmark(leaseID string, columns, rows uint16) (s
 	return opened, err
 }
 
+func (d *Desktop) RecordTerminalBenchmarkProgress(leaseID, phase string, completed int) error {
+	if _, err := d.touchLease(leaseID); err != nil {
+		return err
+	}
+	if d.benchmark == nil {
+		return apperror.New(apperror.CodeUnavailable, "Terminal benchmark mode is disabled.")
+	}
+	if err := d.benchmark.RecordProgress(phase, completed); err != nil {
+		return apperror.Wrap(
+			apperror.CodeInvalidArgument, "record terminal benchmark progress", "Terminal benchmark progress was invalid.", err,
+		)
+	}
+	return nil
+}
+
 func (d *Desktop) ProbeSSHHostKey(leaseID, profileID string) (SSHHostKeyDTO, error) {
 	if _, err := d.touchLease(leaseID); err != nil {
 		return SSHHostKeyDTO{}, err
@@ -1434,26 +1449,53 @@ func (d *Desktop) CloseTerminal(leaseID, sessionID string, generation uint64) er
 }
 
 func (d *Desktop) CompleteTerminalBenchmark(leaseID string, report terminalbenchmark.Report) (terminalbenchmark.Report, error) {
-	if _, err := d.touchLease(leaseID); err != nil {
+	if err := d.prepareTerminalBenchmarkCompletion(leaseID); err != nil {
 		return terminalbenchmark.Report{}, err
-	}
-	if d.benchmark == nil {
-		return terminalbenchmark.Report{}, apperror.New(apperror.CodeUnavailable, "Terminal benchmark mode is disabled.")
-	}
-	if d.manager.LiveCount() != 0 {
-		return terminalbenchmark.Report{}, apperror.New(apperror.CodeConflict, "Close the benchmark terminal before completing its report.")
 	}
 	completed, err := d.benchmark.Complete(report)
 	if err != nil {
+		d.finishTerminalBenchmark()
 		return terminalbenchmark.Report{}, apperror.Wrap(
 			apperror.CodeInvalidArgument, "complete terminal benchmark", "Terminal benchmark results were invalid.", err,
 		)
 	}
+	d.finishTerminalBenchmark()
+	return completed, nil
+}
+
+func (d *Desktop) CompleteTerminalSoak(leaseID string, report terminalbenchmark.SoakReport) (terminalbenchmark.SoakReport, error) {
+	if err := d.prepareTerminalBenchmarkCompletion(leaseID); err != nil {
+		return terminalbenchmark.SoakReport{}, err
+	}
+	completed, err := d.benchmark.CompleteSoak(report)
+	if err != nil {
+		d.finishTerminalBenchmark()
+		return terminalbenchmark.SoakReport{}, apperror.Wrap(
+			apperror.CodeInvalidArgument, "complete terminal soak", "Terminal soak results were invalid.", err,
+		)
+	}
+	d.finishTerminalBenchmark()
+	return completed, nil
+}
+
+func (d *Desktop) prepareTerminalBenchmarkCompletion(leaseID string) error {
+	if _, err := d.touchLease(leaseID); err != nil {
+		return err
+	}
+	if d.benchmark == nil {
+		return apperror.New(apperror.CodeUnavailable, "Terminal benchmark mode is disabled.")
+	}
+	if d.manager.LiveCount() != 0 {
+		return apperror.New(apperror.CodeConflict, "Close every benchmark terminal before completing its report.")
+	}
+	return nil
+}
+
+func (d *Desktop) finishTerminalBenchmark() {
 	d.allowClose.Store(true)
 	if d.quitApplication != nil {
 		d.quitApplication(d.context())
 	}
-	return completed, nil
 }
 
 func (d *Desktop) ConfirmApplicationClose(leaseID string) error {

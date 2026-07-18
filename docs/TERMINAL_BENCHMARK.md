@@ -79,5 +79,6 @@ The machine-readable evidence is
 This closes the M1 packaged-macOS throughput, queue, scrollback-memory, input,
 resize, completion, and close-response gate on the recorded hardware. It does
 not claim pixel-paint timing, IME correctness, sleep/wake lease behavior,
-long-duration soak stability, another Mac model, or native Linux and Windows
-performance. Those remain separate plan gates.
+another Mac model, or native Linux and Windows performance. The separate
+15-minute, eight-session native gate is recorded in
+[`TERMINAL_SOAK.md`](TERMINAL_SOAK.md); multi-hour stability remains open.

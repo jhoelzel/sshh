@@ -7,6 +7,7 @@ import {
   CloseSFTP,
   CloseTerminal,
   CompleteTerminalBenchmark,
+  CompleteTerminalSoak,
   ConfirmApplicationClose,
   CreateProfile,
   CreateRemotePathFavorite,
@@ -48,6 +49,7 @@ import {
   OpenTerminalBenchmark,
   ProbeSSHHostKey,
   ProbeQuickSSHHostKey,
+  RecordTerminalBenchmarkProgress,
   RequestNotificationPermission,
   RenewFrontendLease,
   RenderSnippet,
@@ -100,6 +102,7 @@ import type {
   TerminalBenchmarkConfig,
   TerminalBenchmarkReport,
   TerminalDiagnostics,
+  TerminalSoakReport,
   TerminalTextExportResult,
   Transfer,
   TransferResume,
@@ -174,6 +177,8 @@ const rawBackend = {
   openLocalTerminal: (leaseId: string, profileId: string, columns: number, rows: number) =>
     OpenLocalTerminal(leaseId, profileId, columns, rows) as Promise<Session>,
   getTerminalBenchmarkConfig: () => GetTerminalBenchmarkConfig() as Promise<TerminalBenchmarkConfig>,
+  recordTerminalBenchmarkProgress: (leaseId: string, phase: string, completed: number) =>
+    RecordTerminalBenchmarkProgress(leaseId, phase, completed),
   openTerminalBenchmark: (leaseId: string, columns: number, rows: number) =>
     OpenTerminalBenchmark(leaseId, columns, rows) as Promise<Session>,
   probeSSHHostKey: (leaseId: string, profileId: string) =>
@@ -229,6 +234,11 @@ const rawBackend = {
       leaseId,
       terminalbenchmark.Report.createFrom(report),
     ) as Promise<TerminalBenchmarkReport>,
+  completeTerminalSoak: (leaseId: string, report: TerminalSoakReport) =>
+    CompleteTerminalSoak(
+      leaseId,
+      terminalbenchmark.SoakReport.createFrom(report),
+    ) as Promise<TerminalSoakReport>,
   startSessionLogging: (leaseId: string, sessionId: string, generation: number, timestampLines: boolean) =>
     StartSessionLogging(leaseId, sessionId, generation, timestampLines) as Promise<SessionLogStatus>,
   stopSessionLogging: (leaseId: string, sessionId: string, generation: number) =>

@@ -3,29 +3,25 @@ import { backend, onTerminalOutput } from '../../lib/bridge/client'
 import type {
   FrontendLease,
   Session,
-  TerminalBenchmarkBackendDiagnostics,
   TerminalBenchmarkConfig,
   TerminalBenchmarkReport,
-  TerminalSettings,
 } from '../../lib/bridge/types'
 import { TerminalController } from './TerminalController'
-
-const markerReady = 'SHHH_BENCH_READY'
-const markerEcho = 'SHHH_BENCH_ECHO:'
-const markerResize = 'SHHH_BENCH_RESIZE:'
-const markerDone = 'SHHH_BENCH_DONE:'
-const markerCloseFlood = 'SHHH_BENCH_CLOSE_FLOOD'
-const operationTimeout = 10_000
-
-const benchmarkSettings: TerminalSettings = {
-  fontFamily: 'system-mono',
-  fontSize: 13,
-  lineHeight: 1.2,
-  cursorStyle: 'block',
-  cursorBlink: false,
-  scrollback: 10_000,
-  bell: false,
-}
+import { runTerminalSoak } from './TerminalSoakBenchmark'
+import {
+  benchmarkSettings,
+  delay,
+  mapBackendDiagnostics,
+  markerCloseFlood,
+  markerDone,
+  markerEcho,
+  markerReady,
+  markerResize,
+  operationTimeout,
+  sanitizeFailure,
+  TitleTracker,
+  waitForDrain,
+} from './terminalBenchmarkSupport'
 
 export function TerminalBenchmark() {
   const host = useRef<HTMLDivElement>(null)
@@ -46,7 +42,19 @@ export function TerminalBenchmark() {
 
 async function runTerminalBenchmark(host: HTMLElement, setStatus: (status: string) => void): Promise<void> {
   const started = new Date()
-  let config: TerminalBenchmarkConfig | undefined
+  let config: TerminalBenchmarkConfig
+  try {
+    config = await backend.getTerminalBenchmarkConfig()
+    if (!config.enabled) throw new Error('terminal benchmark mode is disabled')
+  } catch (cause) {
+    setStatus(`Benchmark configuration failed: ${sanitizeFailure(cause)}`)
+    return
+  }
+  if (config.mode === 'soak') {
+    await runTerminalSoak(host, setStatus, config)
+    return
+  }
+
   let lease: FrontendLease | undefined
   let session: Session | undefined
   let controller: TerminalController | undefined
@@ -55,8 +63,6 @@ async function runTerminalBenchmark(host: HTMLElement, setStatus: (status: strin
   const report = emptyReport(started)
 
   try {
-    config = await backend.getTerminalBenchmarkConfig()
-    if (!config.enabled) throw new Error('terminal benchmark mode is disabled')
     report.payloadBytes = config.payloadBytes
     report.controller.maximumPendingBytes = config.maximumFrontendQueueBytes
     report.backend.maximumUnacknowledged = config.maximumBackendQueueBytes
@@ -166,42 +172,6 @@ async function measureResize(
   return result
 }
 
-async function waitForDrain(
-  lease: FrontendLease,
-  session: Session,
-  controller: TerminalController,
-) {
-  const deadline = performance.now() + operationTimeout
-  while (performance.now() < deadline) {
-    const frontend = controller.diagnostics()
-    const backendDiagnostics = await backend.getTerminalDiagnostics(lease.id, session.id, session.generation)
-    if (
-      frontend.pendingBytes === 0 &&
-      frontend.acknowledgedSequence === frontend.acceptedSequence &&
-      backendDiagnostics.unacknowledgedBytes === 0 &&
-      backendDiagnostics.pendingChunks === 0
-    ) {
-      return { controller: frontend, backend: backendDiagnostics }
-    }
-    await delay(16)
-  }
-  throw new Error('terminal output did not drain before the benchmark timeout')
-}
-
-function mapBackendDiagnostics(value: Awaited<ReturnType<typeof backend.getTerminalDiagnostics>>): TerminalBenchmarkBackendDiagnostics {
-  return {
-    nextSequence: value.nextSequence,
-    emittedBytes: value.emittedBytes,
-    acknowledgedSequence: value.acknowledgedSequence,
-    acknowledgedBytes: value.acknowledgedBytes,
-    unacknowledgedBytes: value.unacknowledgedBytes,
-    pendingChunks: value.pendingChunks,
-    peakUnacknowledgedBytes: value.peakUnacknowledgedBytes,
-    peakPendingChunks: value.peakPendingChunks,
-    maximumUnacknowledged: value.maximumUnacknowledged,
-  }
-}
-
 function emptyReport(started: Date): TerminalBenchmarkReport {
   return {
     schemaVersion: 1,
@@ -235,59 +205,4 @@ function emptyReport(started: Date): TerminalBenchmarkReport {
     passed: false,
     failures: [],
   }
-}
-
-class TitleTracker {
-  private readonly seen = new Map<string, number>()
-  private readonly waiting = new Map<string, Array<{ resolve: (time: number) => void; reject: (error: Error) => void }>>()
-  private failure?: Error
-
-  record(title: string): void {
-    const observed = performance.now()
-    this.seen.set(title, observed)
-    for (const waiter of this.waiting.get(title) ?? []) waiter.resolve(observed)
-    this.waiting.delete(title)
-  }
-
-  fail(error: Error): void {
-    this.failure = error
-    for (const waiters of this.waiting.values()) {
-      for (const waiter of waiters) waiter.reject(error)
-    }
-    this.waiting.clear()
-  }
-
-  wait(title: string, timeout: number): Promise<number> {
-    if (this.failure) return Promise.reject(this.failure)
-    const observed = this.seen.get(title)
-    if (observed !== undefined) return Promise.resolve(observed)
-    return new Promise((resolve, reject) => {
-      const waiters = this.waiting.get(title) ?? []
-      const waiter = {
-        resolve: (time: number) => {
-          window.clearTimeout(timer)
-          resolve(time)
-        },
-        reject: (error: Error) => {
-          window.clearTimeout(timer)
-          reject(error)
-        },
-      }
-      const timer = window.setTimeout(() => {
-        this.waiting.set(title, (this.waiting.get(title) ?? []).filter((candidate) => candidate !== waiter))
-        reject(new Error(`timed out waiting for benchmark marker ${title}`))
-      }, timeout)
-      waiters.push(waiter)
-      this.waiting.set(title, waiters)
-    })
-  }
-}
-
-function sanitizeFailure(cause: unknown): string {
-  const value = cause instanceof Error ? cause.message : String(cause)
-  return value.replace(/[\r\n]+/g, ' ').slice(0, 240) || 'unknown terminal benchmark failure'
-}
-
-function delay(milliseconds: number): Promise<void> {
-  return new Promise((resolve) => window.setTimeout(resolve, milliseconds))
 }

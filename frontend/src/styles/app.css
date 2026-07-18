@@ -50,9 +50,25 @@ body,
 }
 
 .terminal-benchmark__host {
+  position: relative;
   min-width: 0;
   min-height: 0;
   overflow: hidden;
+}
+
+.terminal-benchmark__session {
+  position: absolute;
+  inset: 0;
+  display: none;
+}
+
+.terminal-benchmark__session.is-active {
+  display: block;
+}
+
+.terminal-benchmark__host > .xterm,
+.terminal-benchmark__session > .xterm {
+  height: 100%;
 }
 
 .startup-failure span {

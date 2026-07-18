@@ -77,5 +77,10 @@ recorded run passes the M1 provisional budgets. Its implementation, reproduction
 command, measurements, and remaining scope are documented in
 [`TERMINAL_BENCHMARK.md`](TERMINAL_BENCHMARK.md).
 
-Pixel-paint timing, IME behavior, sleep/wake timer suspension, and long-duration
-soak behavior remain outside both focused gates.
+The packaged 15-minute, eight-session follow-up also proves bounded
+steady-state RSS growth, sustained input responsiveness, exact queue drain, and
+native cleanup after 439.5 MiB of aggregate output. Its workload, budgets, and
+machine record are documented in [`TERMINAL_SOAK.md`](TERMINAL_SOAK.md).
+
+Pixel-paint timing, IME behavior, sleep/wake timer suspension, multi-hour
+stability, and larger concurrent-session counts remain outside these gates.

@@ -19,6 +19,7 @@ const (
 	EnvironmentEnabled    = "SHHH_TERMINAL_BENCHMARK"
 	EnvironmentResultPath = "SHHH_TERMINAL_BENCHMARK_RESULT"
 	EnvironmentFixture    = "SHHH_TERMINAL_BENCHMARK_FIXTURE"
+	EnvironmentMode       = "SHHH_TERMINAL_BENCHMARK_MODE"
 	FixtureArgument       = "--shhh-terminal-benchmark-fixture"
 
 	SchemaVersion                = 1
@@ -33,13 +34,24 @@ const (
 	MinimumSamples               = 20
 )
 
+type Mode string
+
+const (
+	ModeBurst Mode = "burst"
+	ModeSoak  Mode = "soak"
+)
+
 type Configuration struct {
 	Enabled                   bool   `json:"enabled"`
+	Mode                      Mode   `json:"mode"`
 	ProcessID                 int    `json:"processId"`
 	PayloadBytes              uint64 `json:"payloadBytes"`
 	MaximumBackendQueueBytes  uint64 `json:"maximumBackendQueueBytes"`
 	MaximumFrontendQueueBytes uint64 `json:"maximumFrontendQueueBytes"`
 	MinimumLatencySamples     int    `json:"minimumLatencySamples"`
+	SoakDurationMilliseconds  uint64 `json:"soakDurationMilliseconds"`
+	SoakSessionCount          int    `json:"soakSessionCount"`
+	SoakHeartbeatMilliseconds uint64 `json:"soakHeartbeatMilliseconds"`
 }
 
 type ControllerDiagnostics struct {
@@ -74,14 +86,19 @@ type RuntimeMetrics struct {
 }
 
 type HostMetrics struct {
-	Model                    string `json:"model"`
-	Processor                string `json:"processor"`
-	OperatingSystemVersion   string `json:"operatingSystemVersion"`
-	MemoryBytes              uint64 `json:"memoryBytes"`
-	ProcessTreePeakRSSBytes  uint64 `json:"processTreePeakRssBytes"`
-	ProcessTreePeakProcesses int    `json:"processTreePeakProcesses"`
-	WebKitPeakProcesses      int    `json:"webKitPeakProcesses"`
-	RSSSamples               int    `json:"rssSamples"`
+	Model                     string `json:"model"`
+	Processor                 string `json:"processor"`
+	OperatingSystemVersion    string `json:"operatingSystemVersion"`
+	MemoryBytes               uint64 `json:"memoryBytes"`
+	ProcessTreePeakRSSBytes   uint64 `json:"processTreePeakRssBytes"`
+	ProcessTreePeakProcesses  int    `json:"processTreePeakProcesses"`
+	WebKitPeakProcesses       int    `json:"webKitPeakProcesses"`
+	RSSSamples                int    `json:"rssSamples"`
+	SteadyStateStartRSSBytes  uint64 `json:"steadyStateStartRssBytes,omitempty"`
+	SteadyStateEndRSSBytes    uint64 `json:"steadyStateEndRssBytes,omitempty"`
+	SteadyStateGrowthRSSBytes uint64 `json:"steadyStateGrowthRssBytes,omitempty"`
+	SteadyStateStartSamples   int    `json:"steadyStateStartSamples,omitempty"`
+	SteadyStateEndSamples     int    `json:"steadyStateEndSamples,omitempty"`
 }
 
 type Report struct {
@@ -108,6 +125,7 @@ type Report struct {
 type Service struct {
 	resultPath string
 	executable string
+	mode       Mode
 }
 
 func EnabledInEnvironment() bool {
@@ -117,7 +135,8 @@ func EnabledInEnvironment() bool {
 func NewServiceFromEnvironment() (*Service, error) {
 	enabled := strings.TrimSpace(os.Getenv(EnvironmentEnabled))
 	resultPath := strings.TrimSpace(os.Getenv(EnvironmentResultPath))
-	if enabled == "" && resultPath == "" {
+	modeValue := strings.TrimSpace(os.Getenv(EnvironmentMode))
+	if enabled == "" && resultPath == "" && modeValue == "" {
 		return nil, nil
 	}
 	if enabled != "1" {
@@ -125,6 +144,10 @@ func NewServiceFromEnvironment() (*Service, error) {
 	}
 	if resultPath == "" {
 		return nil, fmt.Errorf("%s is required", EnvironmentResultPath)
+	}
+	mode, err := ParseMode(modeValue)
+	if err != nil {
+		return nil, err
 	}
 	cleanResult, err := validateResultPath(resultPath)
 	if err != nil {
@@ -134,18 +157,37 @@ func NewServiceFromEnvironment() (*Service, error) {
 	if err != nil {
 		return nil, fmt.Errorf("locate benchmark executable: %w", err)
 	}
-	return &Service{resultPath: cleanResult, executable: executable}, nil
+	return &Service{resultPath: cleanResult, executable: executable, mode: mode}, nil
 }
 
 func NewService(executable, resultPath string) (*Service, error) {
+	return NewServiceWithMode(executable, resultPath, ModeBurst)
+}
+
+func NewServiceWithMode(executable, resultPath string, mode Mode) (*Service, error) {
 	if strings.TrimSpace(executable) == "" {
 		return nil, errors.New("benchmark executable is required")
+	}
+	canonicalMode, err := ParseMode(string(mode))
+	if err != nil {
+		return nil, err
 	}
 	cleanResult, err := validateResultPath(resultPath)
 	if err != nil {
 		return nil, err
 	}
-	return &Service{resultPath: cleanResult, executable: executable}, nil
+	return &Service{resultPath: cleanResult, executable: executable, mode: canonicalMode}, nil
+}
+
+func ParseMode(value string) (Mode, error) {
+	switch Mode(strings.TrimSpace(value)) {
+	case "", ModeBurst:
+		return ModeBurst, nil
+	case ModeSoak:
+		return ModeSoak, nil
+	default:
+		return "", fmt.Errorf("unsupported terminal benchmark mode %q", value)
+	}
 }
 
 func (service *Service) Configuration() Configuration {
@@ -154,11 +196,36 @@ func (service *Service) Configuration() Configuration {
 	}
 	return Configuration{
 		Enabled:                   true,
+		Mode:                      service.mode,
 		ProcessID:                 os.Getpid(),
 		PayloadBytes:              PayloadBytes,
 		MaximumBackendQueueBytes:  MaximumQueueBytes,
 		MaximumFrontendQueueBytes: MaximumQueueBytes,
 		MinimumLatencySamples:     MinimumSamples,
+		SoakDurationMilliseconds:  SoakDurationMilliseconds,
+		SoakSessionCount:          SoakSessionCount,
+		SoakHeartbeatMilliseconds: SoakHeartbeatMilliseconds,
+	}
+}
+
+func (service *Service) RecordProgress(phase string, completed int) error {
+	if service == nil {
+		return errors.New("terminal benchmark is disabled")
+	}
+	phase = strings.TrimSpace(phase)
+	if !validProgressPhase(phase) || completed < 0 || completed > 5_000 {
+		return errors.New("invalid terminal benchmark progress")
+	}
+	fmt.Fprintf(os.Stderr, "terminal benchmark progress: mode=%s phase=%s completed=%d\n", service.mode, phase, completed)
+	return nil
+}
+
+func validProgressPhase(phase string) bool {
+	switch phase {
+	case "opening", "running", "stopping", "draining", "closing", "completing", "failed":
+		return true
+	default:
+		return false
 	}
 }
 
@@ -183,6 +250,9 @@ func (service *Service) Profile() (profile.Profile, error) {
 func (service *Service) Complete(report Report) (Report, error) {
 	if service == nil {
 		return Report{}, errors.New("terminal benchmark is disabled")
+	}
+	if service.mode != ModeBurst {
+		return Report{}, errors.New("terminal burst benchmark is not configured")
 	}
 	report.Runtime = RuntimeMetrics{
 		OperatingSystem: runtime.GOOS,
@@ -234,7 +304,11 @@ func ReadReport(filename string) (Report, error) {
 }
 
 func WriteReportAtomic(filename string, report Report) error {
-	data, err := json.MarshalIndent(report, "", "  ")
+	return writeJSONAtomic(filename, report)
+}
+
+func writeJSONAtomic(filename string, value any) error {
+	data, err := json.MarshalIndent(value, "", "  ")
 	if err != nil {
 		return fmt.Errorf("encode terminal benchmark report: %w", err)
 	}

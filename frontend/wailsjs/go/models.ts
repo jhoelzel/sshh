@@ -872,11 +872,15 @@ export namespace terminalbenchmark {
 	}
 	export class Configuration {
 	    enabled: boolean;
+	    mode: string;
 	    processId: number;
 	    payloadBytes: number;
 	    maximumBackendQueueBytes: number;
 	    maximumFrontendQueueBytes: number;
 	    minimumLatencySamples: number;
+	    soakDurationMilliseconds: number;
+	    soakSessionCount: number;
+	    soakHeartbeatMilliseconds: number;
 
 	    static createFrom(source: any = {}) {
 	        return new Configuration(source);
@@ -885,11 +889,15 @@ export namespace terminalbenchmark {
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.enabled = source["enabled"];
+	        this.mode = source["mode"];
 	        this.processId = source["processId"];
 	        this.payloadBytes = source["payloadBytes"];
 	        this.maximumBackendQueueBytes = source["maximumBackendQueueBytes"];
 	        this.maximumFrontendQueueBytes = source["maximumFrontendQueueBytes"];
 	        this.minimumLatencySamples = source["minimumLatencySamples"];
+	        this.soakDurationMilliseconds = source["soakDurationMilliseconds"];
+	        this.soakSessionCount = source["soakSessionCount"];
+	        this.soakHeartbeatMilliseconds = source["soakHeartbeatMilliseconds"];
 	    }
 	}
 	export class ControllerDiagnostics {
@@ -929,6 +937,11 @@ export namespace terminalbenchmark {
 	    processTreePeakProcesses: number;
 	    webKitPeakProcesses: number;
 	    rssSamples: number;
+	    steadyStateStartRssBytes?: number;
+	    steadyStateEndRssBytes?: number;
+	    steadyStateGrowthRssBytes?: number;
+	    steadyStateStartSamples?: number;
+	    steadyStateEndSamples?: number;
 
 	    static createFrom(source: any = {}) {
 	        return new HostMetrics(source);
@@ -944,6 +957,11 @@ export namespace terminalbenchmark {
 	        this.processTreePeakProcesses = source["processTreePeakProcesses"];
 	        this.webKitPeakProcesses = source["webKitPeakProcesses"];
 	        this.rssSamples = source["rssSamples"];
+	        this.steadyStateStartRssBytes = source["steadyStateStartRssBytes"];
+	        this.steadyStateEndRssBytes = source["steadyStateEndRssBytes"];
+	        this.steadyStateGrowthRssBytes = source["steadyStateGrowthRssBytes"];
+	        this.steadyStateStartSamples = source["steadyStateStartSamples"];
+	        this.steadyStateEndSamples = source["steadyStateEndSamples"];
 	    }
 	}
 	export class RuntimeMetrics {
@@ -1004,6 +1022,101 @@ export namespace terminalbenchmark {
 	        this.closeDurationMilliseconds = source["closeDurationMilliseconds"];
 	        this.controller = this.convertValues(source["controller"], ControllerDiagnostics);
 	        this.backend = this.convertValues(source["backend"], BackendDiagnostics);
+	        this.runtime = this.convertValues(source["runtime"], RuntimeMetrics);
+	        this.host = this.convertValues(source["host"], HostMetrics);
+	        this.passed = source["passed"];
+	        this.failures = source["failures"];
+	    }
+
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+
+	export class SoakSessionReport {
+	    index: number;
+	    closeDurationMilliseconds: number;
+	    controller: ControllerDiagnostics;
+	    backend: BackendDiagnostics;
+
+	    static createFrom(source: any = {}) {
+	        return new SoakSessionReport(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.index = source["index"];
+	        this.closeDurationMilliseconds = source["closeDurationMilliseconds"];
+	        this.controller = this.convertValues(source["controller"], ControllerDiagnostics);
+	        this.backend = this.convertValues(source["backend"], BackendDiagnostics);
+	    }
+
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class SoakReport {
+	    schemaVersion: number;
+	    startedAt: string;
+	    finishedAt: string;
+	    durationMilliseconds: number;
+	    sessionCount: number;
+	    visibilitySwitches: number;
+	    totalBytes: number;
+	    echoMilliseconds: number[];
+	    echoP95Milliseconds: number;
+	    closeP95Milliseconds: number;
+	    sessions: SoakSessionReport[];
+	    runtime: RuntimeMetrics;
+	    host: HostMetrics;
+	    passed: boolean;
+	    failures: string[];
+
+	    static createFrom(source: any = {}) {
+	        return new SoakReport(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.schemaVersion = source["schemaVersion"];
+	        this.startedAt = source["startedAt"];
+	        this.finishedAt = source["finishedAt"];
+	        this.durationMilliseconds = source["durationMilliseconds"];
+	        this.sessionCount = source["sessionCount"];
+	        this.visibilitySwitches = source["visibilitySwitches"];
+	        this.totalBytes = source["totalBytes"];
+	        this.echoMilliseconds = source["echoMilliseconds"];
+	        this.echoP95Milliseconds = source["echoP95Milliseconds"];
+	        this.closeP95Milliseconds = source["closeP95Milliseconds"];
+	        this.sessions = this.convertValues(source["sessions"], SoakSessionReport);
 	        this.runtime = this.convertValues(source["runtime"], RuntimeMetrics);
 	        this.host = this.convertValues(source["host"], HostMetrics);
 	        this.passed = source["passed"];

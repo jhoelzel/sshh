@@ -73,6 +73,7 @@ make lint      # ESLint and go vet
 make build     # native package with embedded build identity
 make check-bindings # regenerate, normalize, and verify Wails bridge contracts
 ./scripts/run-terminal-benchmark-macos.sh # packaged WKWebView performance gate
+./scripts/run-terminal-soak-macos.sh # 15-minute, 8-session native soak gate
 ```
 
 `make run` is intentionally a foreground developer command and exits with its
@@ -244,6 +245,8 @@ executable is `build/bin/shh-h.app/Contents/MacOS/shhh`.
   and frontend-listener stress evidence.
 - `docs/TERMINAL_BENCHMARK.md`: reproducible packaged WKWebView terminal
   throughput, latency, queue, memory, and close-response evidence.
+- `docs/TERMINAL_SOAK.md`: reproducible packaged WKWebView long-duration,
+  multi-session, memory-growth, responsiveness, and cleanup evidence.
 - `docs/REMOTE_PROJECTS_PLAN.md`: proposed self-hosted remote code editor,
   provisioning, project lifecycle, and browser-authentication design.
 - `docs/TELEPORT_INTEGRATION_PLAN.md`: proposed Teleport cluster, browser
@@ -252,6 +255,8 @@ executable is `build/bin/shh-h.app/Contents/MacOS/shhh`.
   tradeoffs.
 - `docs/adr/0002-terminal-performance-budgets.md`: accepted native terminal
   queue, latency, completion, close, scrollback, and process-memory budgets.
+- `docs/adr/0003-native-terminal-soak-budgets.md`: accepted multi-session soak,
+  steady-state memory-growth, responsiveness, and cleanup budgets.
 
 The dependency direction and runtime ownership rules are documented in
 `docs/ARCHITECTURE.md`.

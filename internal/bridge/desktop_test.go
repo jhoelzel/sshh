@@ -249,6 +249,9 @@ func TestTerminalBenchmarkIsDisabledByDefault(t *testing.T) {
 	if _, err := desktop.OpenTerminalBenchmark(lease.ID, 80, 24); !apperror.IsCode(err, apperror.CodeUnavailable) {
 		t.Fatalf("disabled benchmark error code = %q, want %q", apperror.CodeOf(err), apperror.CodeUnavailable)
 	}
+	if err := desktop.RecordTerminalBenchmarkProgress(lease.ID, "running", 1); !apperror.IsCode(err, apperror.CodeUnavailable) {
+		t.Fatalf("disabled benchmark progress error code = %q, want %q", apperror.CodeOf(err), apperror.CodeUnavailable)
+	}
 }
 
 func TestGuardedTerminalBenchmarkOpensReportsAndQuits(t *testing.T) {
@@ -272,7 +275,8 @@ func TestGuardedTerminalBenchmarkOpensReportsAndQuits(t *testing.T) {
 	desktop.quitApplication = func(context.Context) { quit <- struct{}{} }
 
 	config := desktop.GetTerminalBenchmarkConfig()
-	if !config.Enabled || config.PayloadBytes != terminalbenchmark.PayloadBytes || config.ProcessID != os.Getpid() {
+	if !config.Enabled || config.Mode != terminalbenchmark.ModeBurst ||
+		config.PayloadBytes != terminalbenchmark.PayloadBytes || config.ProcessID != os.Getpid() {
 		t.Fatalf("unexpected terminal benchmark config: %#v", config)
 	}
 	lease, err := desktop.AttachFrontend("benchmark-enabled")
@@ -315,6 +319,86 @@ func TestGuardedTerminalBenchmarkOpensReportsAndQuits(t *testing.T) {
 	case <-quit:
 	case <-time.After(time.Second):
 		t.Fatal("completed terminal benchmark did not request application quit")
+	}
+}
+
+func TestGuardedTerminalSoakReportsAndQuits(t *testing.T) {
+	executable, err := os.Executable()
+	if err != nil {
+		t.Fatalf("locate test executable: %v", err)
+	}
+	benchmark, err := terminalbenchmark.NewServiceWithMode(
+		executable, filepath.Join(t.TempDir(), "soak.json"), terminalbenchmark.ModeSoak,
+	)
+	if err != nil {
+		t.Fatalf("create terminal soak: %v", err)
+	}
+	desktop, controller := NewDeferredDesktop()
+	if err := controller.Start(context.Background(), Dependencies{
+		Manager:   sessionusecase.NewManager(&bridgeTerminalFactory{transport: newBridgeTerminalTransport()}),
+		Benchmark: benchmark,
+	}); err != nil {
+		t.Fatalf("start terminal soak desktop: %v", err)
+	}
+	t.Cleanup(func() { controller.Shutdown(context.Background()) })
+	quit := make(chan struct{}, 1)
+	desktop.quitApplication = func(context.Context) { quit <- struct{}{} }
+	lease, err := desktop.AttachFrontend("soak-enabled")
+	if err != nil {
+		t.Fatalf("attach frontend: %v", err)
+	}
+
+	now := time.Now().UTC()
+	completed, err := desktop.CompleteTerminalSoak(lease.ID, terminalbenchmark.SoakReport{
+		SchemaVersion: terminalbenchmark.SoakSchemaVersion,
+		StartedAt:     now.Format(time.RFC3339Nano), FinishedAt: now.Add(time.Second).Format(time.RFC3339Nano),
+	})
+	if err != nil {
+		t.Fatalf("complete terminal soak: %v", err)
+	}
+	if completed.Passed || len(completed.Failures) == 0 {
+		t.Fatal("empty soak report unexpectedly passed")
+	}
+	select {
+	case <-quit:
+	case <-time.After(time.Second):
+		t.Fatal("completed terminal soak did not request application quit")
+	}
+}
+
+func TestInvalidTerminalSoakReportStillQuitsGuardedApplication(t *testing.T) {
+	executable, err := os.Executable()
+	if err != nil {
+		t.Fatalf("locate test executable: %v", err)
+	}
+	benchmark, err := terminalbenchmark.NewServiceWithMode(
+		executable, filepath.Join(t.TempDir(), "invalid-soak.json"), terminalbenchmark.ModeSoak,
+	)
+	if err != nil {
+		t.Fatalf("create terminal soak: %v", err)
+	}
+	desktop, controller := NewDeferredDesktop()
+	if err := controller.Start(context.Background(), Dependencies{
+		Manager:   sessionusecase.NewManager(&bridgeTerminalFactory{transport: newBridgeTerminalTransport()}),
+		Benchmark: benchmark,
+	}); err != nil {
+		t.Fatalf("start terminal soak desktop: %v", err)
+	}
+	t.Cleanup(func() { controller.Shutdown(context.Background()) })
+	quit := make(chan struct{}, 1)
+	desktop.quitApplication = func(context.Context) { quit <- struct{}{} }
+	lease, err := desktop.AttachFrontend("invalid-soak")
+	if err != nil {
+		t.Fatalf("attach frontend: %v", err)
+	}
+
+	if _, err := desktop.CompleteTerminalSoak(lease.ID, terminalbenchmark.SoakReport{}); !apperror.IsCode(err, apperror.CodeInvalidArgument) {
+		t.Fatalf("invalid soak report error code = %q, want %q", apperror.CodeOf(err), apperror.CodeInvalidArgument)
+	}
+	select {
+	case <-quit:
+	case <-time.After(time.Second):
+		t.Fatal("invalid terminal soak report did not request guarded application quit")
 	}
 }
 

@@ -55,6 +55,10 @@ func runFixture(input *os.File, output *os.File) error {
 	reader := bufio.NewReader(input)
 	var floodOnce sync.Once
 	var closeFloodOnce sync.Once
+	var soakOnce sync.Once
+	var stopSoakOnce sync.Once
+	stopSoak := make(chan struct{})
+	defer stopSoakOnce.Do(func() { close(stopSoak) })
 	for {
 		command, readErr := reader.ReadString('\r')
 		if readErr != nil {
@@ -79,6 +83,12 @@ func runFixture(input *os.File, output *os.File) error {
 			closeFloodOnce.Do(func() {
 				go writeCloseFlood(output, &writes, writeTitle)
 			})
+		case command == "SOAK":
+			soakOnce.Do(func() {
+				go writeSoak(output, &writes, stopSoak, writeTitle)
+			})
+		case command == "STOP_SOAK":
+			stopSoakOnce.Do(func() { close(stopSoak) })
 		case command == "EXIT":
 			return nil
 		}
