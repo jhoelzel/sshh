@@ -5,6 +5,7 @@ const backendErrorCodes = [
   'stale',
   'authentication_required',
   'permission_denied',
+  'resource_exhausted',
   'unavailable',
   'canceled',
   'deadline_exceeded',

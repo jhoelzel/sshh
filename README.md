@@ -157,6 +157,20 @@ cannot be overridden. Environment values are stored in private profile
 configuration and included in profile exports. They are not a secret store; do
 not use them for passwords, access tokens, or other credentials.
 
+## Terminal Resource Limits
+
+The Go session manager admits at most 64 open terminal sessions across local,
+saved SSH, quick-connect, and benchmark workflows. Connecting sessions reserve
+capacity before a PTY or network transport is allocated, so concurrent opens
+cannot oversubscribe the limit. A failed connection returns its reservation;
+an admitted session retains its slot until the terminal is explicitly closed,
+including after the remote process exits. The UI presents a typed,
+actionable error when the limit is reached.
+
+xterm scrollback is bounded separately through terminal settings. The standard
+renderer remains the supported baseline and WebGL is disabled; any future
+WebGL path must add its own visible-pane context limit before it is enabled.
+
 ## SSH Connection Policy
 
 Connection settings default to a 15-second limit for TCP connection and SSH

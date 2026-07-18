@@ -3,11 +3,13 @@ package session
 import (
 	"bytes"
 	"context"
+	"errors"
 	"io"
 	"sync"
 	"testing"
 	"time"
 
+	"shh-h/internal/apperror"
 	"shh-h/internal/domain/profile"
 	"shh-h/internal/port"
 )
@@ -18,6 +20,48 @@ type fakeFactory struct {
 
 func (f *fakeFactory) Open(context.Context, port.TerminalSpec) (port.TerminalTransport, error) {
 	return f.transport, nil
+}
+
+type allocatingFactory struct {
+	mu       sync.Mutex
+	calls    int
+	failNext error
+}
+
+func (f *allocatingFactory) Open(context.Context, port.TerminalSpec) (port.TerminalTransport, error) {
+	f.mu.Lock()
+	f.calls++
+	failure := f.failNext
+	f.failNext = nil
+	f.mu.Unlock()
+	if failure != nil {
+		return nil, failure
+	}
+	return newFakeTransport(), nil
+}
+
+func (f *allocatingFactory) callCount() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.calls
+}
+
+type countingSSHFactory struct {
+	mu    sync.Mutex
+	calls int
+}
+
+func (f *countingSSHFactory) OpenSSH(context.Context, port.SSHTerminalSpec) (port.TerminalTransport, error) {
+	f.mu.Lock()
+	f.calls++
+	f.mu.Unlock()
+	return newFakeTransport(), nil
+}
+
+func (f *countingSSHFactory) callCount() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.calls
 }
 
 type fakeTransport struct {
@@ -363,6 +407,112 @@ func TestManagerRejectsInvalidSize(t *testing.T) {
 	}
 }
 
+func TestManagerEnforcesConcurrentOpenSessionLimitAndReleasesOnClose(t *testing.T) {
+	const limit = 8
+	factory := &allocatingFactory{}
+	manager := newManager(factory, limit)
+	t.Cleanup(manager.Shutdown)
+	selected := profile.Profile{ID: "local", Name: "Local", Protocol: profile.ProtocolLocal}
+
+	type result struct {
+		session Session
+		err     error
+	}
+	results := make(chan result, limit+4)
+	start := make(chan struct{})
+	var calls sync.WaitGroup
+	for range limit + 4 {
+		calls.Add(1)
+		go func() {
+			defer calls.Done()
+			<-start
+			opened, err := manager.OpenLocal(context.Background(), "lease", selected, 80, 24)
+			results <- result{session: opened, err: err}
+		}()
+	}
+	close(start)
+	calls.Wait()
+	close(results)
+
+	opened := make([]Session, 0, limit)
+	rejected := 0
+	for outcome := range results {
+		if outcome.err == nil {
+			opened = append(opened, outcome.session)
+			continue
+		}
+		if !apperror.IsCode(outcome.err, apperror.CodeResourceExhausted) {
+			t.Fatalf("open terminal error code = %q, want %q", apperror.CodeOf(outcome.err), apperror.CodeResourceExhausted)
+		}
+		rejected++
+	}
+	if len(opened) != limit || rejected != 4 {
+		t.Fatalf("concurrent admission opened %d and rejected %d, want %d and 4", len(opened), rejected, limit)
+	}
+	if got := factory.callCount(); got != limit {
+		t.Fatalf("terminal factory called %d times, want %d", got, limit)
+	}
+
+	if err := manager.Close("lease", opened[0].ID, opened[0].Generation); err != nil {
+		t.Fatalf("close terminal at capacity: %v", err)
+	}
+	if _, err := manager.OpenLocal(context.Background(), "lease", selected, 80, 24); err != nil {
+		t.Fatalf("open terminal after releasing capacity: %v", err)
+	}
+	if got := factory.callCount(); got != limit+1 {
+		t.Fatalf("terminal factory called %d times after reopen, want %d", got, limit+1)
+	}
+}
+
+func TestManagerReleasesOpeningReservationAfterTransportFailure(t *testing.T) {
+	openFailure := errors.New("transport open failed")
+	factory := &allocatingFactory{failNext: openFailure}
+	manager := newManager(factory, 1)
+	t.Cleanup(manager.Shutdown)
+	selected := profile.Profile{ID: "local", Name: "Local", Protocol: profile.ProtocolLocal}
+
+	if _, err := manager.OpenLocal(context.Background(), "lease", selected, 80, 24); !errors.Is(err, openFailure) {
+		t.Fatalf("failed transport open error = %v, want %v", err, openFailure)
+	}
+	if _, err := manager.OpenLocal(context.Background(), "lease", selected, 80, 24); err != nil {
+		t.Fatalf("open terminal after failed transport: %v", err)
+	}
+	if _, err := manager.OpenLocal(context.Background(), "lease", selected, 80, 24); !apperror.IsCode(err, apperror.CodeResourceExhausted) {
+		t.Fatalf("capacity error code = %q, want %q", apperror.CodeOf(err), apperror.CodeResourceExhausted)
+	}
+	if got := factory.callCount(); got != 2 {
+		t.Fatalf("terminal factory called %d times, want 2", got)
+	}
+}
+
+func TestManagerAppliesSessionLimitBeforeSSHAllocationAndClearsCredentials(t *testing.T) {
+	manager := newManager(&allocatingFactory{}, 1)
+	t.Cleanup(manager.Shutdown)
+	if _, err := manager.OpenLocal(context.Background(), "lease", profile.Profile{
+		ID: "local", Name: "Local", Protocol: profile.ProtocolLocal,
+	}, 80, 24); err != nil {
+		t.Fatalf("fill terminal capacity: %v", err)
+	}
+
+	sshFactory := &countingSSHFactory{}
+	manager.SetSSHFactory(sshFactory)
+	password := []byte("password")
+	passphrase := []byte("passphrase")
+	_, err := manager.OpenSSH(context.Background(), "lease", profile.Profile{
+		ID: "ssh", Name: "SSH", Protocol: profile.ProtocolSSH, Host: "localhost", Port: 22,
+		Authentication: profile.AuthenticationAuto,
+	}, 80, 24, port.SSHCredentials{Password: password, Passphrase: passphrase})
+	if !apperror.IsCode(err, apperror.CodeResourceExhausted) {
+		t.Fatalf("SSH capacity error code = %q, want %q", apperror.CodeOf(err), apperror.CodeResourceExhausted)
+	}
+	if got := sshFactory.callCount(); got != 0 {
+		t.Fatalf("SSH factory called %d times at capacity, want 0", got)
+	}
+	if !bytes.Equal(password, make([]byte, len(password))) || !bytes.Equal(passphrase, make([]byte, len(passphrase))) {
+		t.Fatal("SSH credentials were not cleared after capacity rejection")
+	}
+}
+
 func receiveOutput(t *testing.T, channel <-chan OutputChunk) OutputChunk {
 	t.Helper()
 	select {
@@ -411,5 +561,7 @@ func waitForSignal(t *testing.T, signal <-chan struct{}, operation string) {
 }
 
 var _ port.TerminalTransport = (*fakeTransport)(nil)
+var _ port.TerminalFactory = (*allocatingFactory)(nil)
+var _ port.SSHTerminalFactory = (*countingSSHFactory)(nil)
 var _ Sink = (*recordingSink)(nil)
 var _ Sink = (*blockingOutputSink)(nil)

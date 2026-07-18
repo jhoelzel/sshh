@@ -15,6 +15,7 @@ and unexpected failures without parsing message text.
 | `stale` | A frontend lease, session generation, or resource owner is outdated. | Yes |
 | `authentication_required` | Explicit credentials or a key passphrase are required. | No |
 | `permission_denied` | The operating system or remote endpoint denied access. | No |
+| `resource_exhausted` | A bounded runtime resource has reached its admission limit. | No |
 | `unavailable` | A required service, transport, or platform feature is unavailable. | Yes |
 | `canceled` | The operation was deliberately canceled. | No |
 | `deadline_exceeded` | A bounded operation timed out. | Yes |
@@ -35,6 +36,8 @@ Use the most specific code at the layer that understands the failure:
 - External edits, duplicate names, and invalid state transitions become
   `conflict`.
 - Lease ownership and generation mismatches become `stale`.
+- Admission limits become `resource_exhausted`; the message names the bounded
+  resource and the action required to release capacity.
 - Platform adapters preserve standard cancellation, deadline, not-found, and
   permission errors so the common classifier can recognize them.
 - Unexpected implementation or persistence failures remain `internal` unless a

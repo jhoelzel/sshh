@@ -16,6 +16,9 @@ Implemented and verified:
   only from an explicit profile action and always have a visible tab.
 - [x] Session IDs, generations, and renewable frontend leases reject stale bridge
   traffic and close resources after frontend loss.
+- [x] A backend-enforced 64-session admission cap covers concurrent local, saved
+  SSH, quick-connect, and benchmark opens before transport allocation. Failed
+  starts release capacity and typed resource errors remain actionable in the UI.
 - [x] PTY output is held until the xterm controller activates, sent as ordered
   chunks, bounded by a cumulative acknowledgement window, and delivered through
   a manager-owned fair output scheduler that control and lifecycle traffic
@@ -409,6 +412,13 @@ runtime ID and generation, serializable metadata, and a non-React
 represented by copied Go structs, and terminal bytes never pass through React
 component state. Creating a runtime is an explicit user command; React mounting
 or remounting a component never opens a process or connection.
+
+The registry and in-progress opens share one authoritative 64-session admission
+budget. A caller reserves a slot before allocating a PTY or SSH transport,
+commits it atomically with runtime registration, and returns it on every failed
+startup path. Registered sessions retain capacity through exited or failed
+states until explicit close removes the runtime. The frontend surfaces the
+typed rejection but does not enforce a separate competing limit.
 
 Valid state transitions are:
 
@@ -917,8 +927,10 @@ Deliverables:
   terminal state without repaint work, are not unmounted by ordinary tab
   selection, and refit when made visible.
 - [x] Cap scrollback through validated settings and keep WebGL disabled.
-- [ ] Add an explicit open-session resource cap and test any future visible-pane
-  WebGL context cap.
+- [x] Add a backend-enforced 64-session resource cap with atomic reservations for
+  concurrent local, saved SSH, quick-connect, and benchmark opens.
+- [ ] If WebGL rendering is introduced, add and test a visible-pane context cap
+  before enabling it.
 - [x] Add clear starting, running, disconnected, failed, exited, and closed states.
 - [x] Add Close and explicit reconnect for restored disconnected tabs.
 - [ ] Add Retry, Reconnect in New Tab, Duplicate Tab, Clear Scrollback, and Reset
@@ -934,6 +946,9 @@ Tests and exit gate:
 - [x] Pure ordering and React component tests cover bounded command moves,
   before/after drops, Ctrl+Tab direction, scoped tab search, roving tab focus,
   close controls, and ARIA tab/tabpanel relationships.
+- [x] Session admission tests cover concurrent saturation, rejection before PTY
+  or SSH allocation, typed frontend error decoding, failed-start reservation
+  release, close-and-reopen capacity recovery, and SSH credential clearing.
 - [ ] Add exhaustive state-machine transition rejection tests.
 - [ ] Add a concurrent tab open/output/resize/close race scenario; the existing
   full Go suite passes the race detector.

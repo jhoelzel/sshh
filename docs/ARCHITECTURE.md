@@ -362,6 +362,15 @@ ID and generation. Closing a live tab closes the corresponding runtime;
 closing a disconnected tab removes only its frontend metadata. Closing the
 application coordinates shutdown of all sessions, transfers, and tunnels.
 
+Terminal admission is bounded to 64 open sessions across local, saved SSH,
+quick-connect, and benchmark entry points. A mutex-protected opening count
+reserves capacity before transport allocation and moves into the runtime
+registry atomically when registration succeeds. Failed allocation releases the
+reservation. Exited and failed sessions continue to occupy a slot until their
+tab closes because they still retain runtime metadata and user-visible
+lifecycle state. Rejected calls do not invoke a PTY or SSH factory and return
+the typed `resource_exhausted` bridge error.
+
 The manager also owns one bounded output dispatcher while any session is
 registered. Output pumps submit at most one in-flight chunk each; the dispatcher
 serializes bridge delivery and rotates session IDs after every chunk. Terminal

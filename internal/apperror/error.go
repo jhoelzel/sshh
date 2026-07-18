@@ -16,6 +16,7 @@ const (
 	CodeStale                  Code = "stale"
 	CodeAuthenticationRequired Code = "authentication_required"
 	CodePermissionDenied       Code = "permission_denied"
+	CodeResourceExhausted      Code = "resource_exhausted"
 	CodeUnavailable            Code = "unavailable"
 	CodeCanceled               Code = "canceled"
 	CodeDeadlineExceeded       Code = "deadline_exceeded"
@@ -149,7 +150,7 @@ func retryable(code Code) bool {
 func normalizeCode(code Code) Code {
 	switch code {
 	case CodeInvalidArgument, CodeNotFound, CodeConflict, CodeStale,
-		CodeAuthenticationRequired, CodePermissionDenied, CodeUnavailable,
+		CodeAuthenticationRequired, CodePermissionDenied, CodeResourceExhausted, CodeUnavailable,
 		CodeCanceled, CodeDeadlineExceeded, CodeInternal:
 		return code
 	default:

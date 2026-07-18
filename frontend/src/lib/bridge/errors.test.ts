@@ -39,4 +39,18 @@ describe('backend errors', () => {
 
     expect(asBackendError(error)).toBe(error)
   })
+
+  it('preserves resource exhaustion as an actionable backend error', () => {
+    const error = asBackendError(new Error(JSON.stringify({
+      code: 'resource_exhausted',
+      message: 'Open terminal limit of 64 reached. Close a terminal and try again.',
+      retryable: false,
+    })))
+
+    expect(error).toMatchObject({
+      code: 'resource_exhausted',
+      message: 'Open terminal limit of 64 reached. Close a terminal and try again.',
+      retryable: false,
+    })
+  })
 })

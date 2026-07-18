@@ -17,6 +17,10 @@ import (
 )
 
 const (
+	// MaximumOpenSessions bounds terminal transports, process handles, and the
+	// goroutines attached to sessions that have not yet been closed by the user.
+	MaximumOpenSessions = 64
+
 	maxOutputChunk      = 64 * 1024
 	maxUnackedBytes     = 1024 * 1024
 	activationTimeout   = 10 * time.Second
@@ -108,13 +112,15 @@ type Diagnostics struct {
 }
 
 type Manager struct {
-	mu         sync.RWMutex
-	factory    port.TerminalFactory
-	sshFactory port.SSHTerminalFactory
-	logFactory port.SessionLogFactory
-	sink       Sink
-	runtimes   map[string]*runtimeSession
-	output     *outputDispatcher
+	mu                  sync.RWMutex
+	factory             port.TerminalFactory
+	sshFactory          port.SSHTerminalFactory
+	logFactory          port.SessionLogFactory
+	sink                Sink
+	runtimes            map[string]*runtimeSession
+	openingSessions     int
+	maximumOpenSessions int
+	output              *outputDispatcher
 }
 
 type outputMeta struct {
@@ -151,7 +157,15 @@ type runtimeSession struct {
 }
 
 func NewManager(factory port.TerminalFactory) *Manager {
-	return &Manager{factory: factory, runtimes: make(map[string]*runtimeSession)}
+	return newManager(factory, MaximumOpenSessions)
+}
+
+func newManager(factory port.TerminalFactory, maximumOpenSessions int) *Manager {
+	return &Manager{
+		factory:             factory,
+		runtimes:            make(map[string]*runtimeSession),
+		maximumOpenSessions: maximumOpenSessions,
+	}
 }
 
 func (m *Manager) SetSink(sink Sink) {
@@ -184,6 +198,15 @@ func (m *Manager) OpenLocal(ctx context.Context, leaseID string, selected profil
 	if err := validateSize(columns, rows); err != nil {
 		return Session{}, err
 	}
+	if err := m.reserveSessionSlot(); err != nil {
+		return Session{}, err
+	}
+	registered := false
+	defer func() {
+		if !registered {
+			m.releaseSessionSlotReservation()
+		}
+	}()
 
 	id, err := newID()
 	if err != nil {
@@ -209,10 +232,15 @@ func (m *Manager) OpenLocal(ctx context.Context, leaseID string, selected profil
 		cancel()
 		return Session{}, err
 	}
-	return m.registerRuntime(runtimeCtx, cancel, id, leaseID, selected, columns, rows, transport), nil
+	opened := m.registerRuntime(runtimeCtx, cancel, id, leaseID, selected, columns, rows, transport)
+	registered = true
+	return opened, nil
 }
 
 func (m *Manager) OpenSSH(ctx context.Context, leaseID string, selected profile.Profile, columns, rows uint16, credentials port.SSHCredentials) (Session, error) {
+	defer clear(credentials.Password)
+	defer clear(credentials.Passphrase)
+
 	if leaseID == "" {
 		return Session{}, apperror.New(apperror.CodeStale, "A current frontend lease is required.")
 	}
@@ -234,6 +262,15 @@ func (m *Manager) OpenSSH(ctx context.Context, leaseID string, selected profile.
 	if factory == nil {
 		return Session{}, apperror.New(apperror.CodeUnavailable, "SSH terminal support is unavailable.")
 	}
+	if err := m.reserveSessionSlot(); err != nil {
+		return Session{}, err
+	}
+	registered := false
+	defer func() {
+		if !registered {
+			m.releaseSessionSlotReservation()
+		}
+	}()
 
 	id, err := newID()
 	if err != nil {
@@ -245,13 +282,13 @@ func (m *Manager) OpenSSH(ctx context.Context, leaseID string, selected profile.
 		Authentication: selected.Authentication, IdentityFile: selected.IdentityFile,
 		Credentials: credentials, Columns: columns, Rows: rows,
 	})
-	clear(credentials.Password)
-	clear(credentials.Passphrase)
 	if err != nil {
 		cancel()
 		return Session{}, err
 	}
-	return m.registerRuntime(runtimeCtx, cancel, id, leaseID, selected, columns, rows, transport), nil
+	opened := m.registerRuntime(runtimeCtx, cancel, id, leaseID, selected, columns, rows, transport)
+	registered = true
+	return opened, nil
 }
 
 func (m *Manager) registerRuntime(runtimeCtx context.Context, cancel context.CancelFunc, id, leaseID string, selected profile.Profile, columns, rows uint16, transport port.TerminalTransport) Session {
@@ -268,6 +305,7 @@ func (m *Manager) registerRuntime(runtimeCtx context.Context, cancel context.Can
 	}
 
 	m.mu.Lock()
+	m.openingSessions--
 	if m.output == nil {
 		m.output = newOutputDispatcher(m.emitOutput)
 	}
@@ -279,6 +317,25 @@ func (m *Manager) registerRuntime(runtimeCtx context.Context, cancel context.Can
 	go m.waitForProcess(runtime)
 	go m.enforceActivation(runtime)
 	return snapshot
+}
+
+func (m *Manager) reserveSessionSlot() error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if len(m.runtimes)+m.openingSessions >= m.maximumOpenSessions {
+		return apperror.New(
+			apperror.CodeResourceExhausted,
+			fmt.Sprintf("Open terminal limit of %d reached. Close a terminal and try again.", m.maximumOpenSessions),
+		)
+	}
+	m.openingSessions++
+	return nil
+}
+
+func (m *Manager) releaseSessionSlotReservation() {
+	m.mu.Lock()
+	m.openingSessions--
+	m.mu.Unlock()
 }
 
 func (m *Manager) Activate(leaseID, sessionID string, generation uint64) error {
