@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
+  ArrowLeft,
+  ArrowRight,
   Braces,
   ChevronDown,
   ChevronUp,
@@ -13,6 +15,7 @@ import {
   FolderOpen,
   LayoutPanelTop,
   Laptop,
+  ListFilter,
   LoaderCircle,
   Network,
   Pencil,
@@ -39,11 +42,20 @@ import { copyVisibleText, exportSelectedText } from '../feature/terminal/termina
 import type { TerminalController } from '../feature/terminal/TerminalController'
 import { sanitizeTerminalLink } from '../feature/terminal/terminalLinks'
 import { TerminalPane } from '../feature/terminal/TerminalPane'
+import { terminalPanelId, terminalTabId } from '../feature/terminal/terminalTabIds'
+import { TerminalTabs } from '../feature/terminal/TerminalTabs'
 import { TunnelWorkspace } from '../feature/tunnels/TunnelWorkspace'
 import { WorkspaceLayoutWorkspace } from '../feature/workspaces/WorkspaceLayoutWorkspace'
 import { backend, onCloseRequested, onSessionLog, onSessionState, onTerminalOutput, onTransfer, onTunnel } from '../lib/bridge/client'
 import { loadFrontendBootstrap, loadFrontendNotificationStatus } from './frontendBootstrap'
-import { createDisconnectedTabs } from './workspaces'
+import {
+  adjacentTabId,
+  createDisconnectedTabs,
+  moveTabByOffset,
+  reorderTabs,
+  tabCycleOffset,
+  type TabDropPosition,
+} from './workspaces'
 import type {
   AppSettings,
   BuildInfo,
@@ -82,6 +94,7 @@ const isMacOS = navigator.userAgent.includes('Macintosh')
 const shortcutPrefix = isMacOS ? 'Cmd Shift' : 'Ctrl Shift'
 
 type TerminalTabState = SessionState | 'disconnected'
+type PaletteScope = 'commands' | 'tabs'
 
 interface TabModel {
   id: string
@@ -124,7 +137,7 @@ export function App() {
   const [profileExchange, setProfileExchange] = useState<ProfileExchangeResult>()
   const [profileExchangeAction, setProfileExchangeAction] = useState<'import' | 'export'>()
   const [quickConnectOpen, setQuickConnectOpen] = useState(false)
-  const [commandPaletteOpen, setCommandPaletteOpen] = useState(false)
+  const [paletteScope, setPaletteScope] = useState<PaletteScope>()
   const [sshPrompt, setSSHPrompt] = useState<SSHPrompt>()
   const [profileFilter, setProfileFilter] = useState('')
   const [confirmation, setConfirmation] = useState<Confirmation>()
@@ -928,8 +941,23 @@ export function App() {
   }, [activeLog, activeTab, lease, reportError])
 
   const selectTab = useCallback((tabId: string) => {
+    setWorkspaceMode('terminals')
     setActiveId(tabId)
     setTabs((current) => current.map((tab) => (tab.id === tabId ? { ...tab, attention: false } : tab)))
+  }, [])
+
+  const selectRelativeTab = useCallback((offset: number) => {
+    const nextId = adjacentTabId(tabs, activeId, offset)
+    if (nextId) selectTab(nextId)
+  }, [activeId, selectTab, tabs])
+
+  const moveActiveTab = useCallback((offset: number) => {
+    if (!activeId) return
+    setTabs((current) => moveTabByOffset(current, activeId, offset))
+  }, [activeId])
+
+  const reorderTerminalTabs = useCallback((sourceId: string, targetId: string, position: TabDropPosition) => {
+    setTabs((current) => reorderTabs(current, sourceId, targetId, position))
   }, [])
 
   const closeTab = useCallback(
@@ -1078,6 +1106,16 @@ export function App() {
     }
   }, [activeController, activeHasSelection, activeTab, reportError, reportNotice])
 
+  const activeTabIndex = tabs.findIndex((tab) => tab.id === activeId)
+  const tabCommands = useMemo<PaletteCommand[]>(() => tabs.map((tab, index) => ({
+    id: `switch-tab-${tab.id}`,
+    label: `Switch to ${index + 1}: ${tab.title}`,
+    group: 'Terminal tabs',
+    icon: TerminalSquare,
+    keywords: [tab.endpoint, tab.profileId, tab.state, `tab ${index + 1}`],
+    run: () => selectTab(tab.id),
+  })), [selectTab, tabs])
+
   const paletteCommands = useMemo<PaletteCommand[]>(() => [
     {
       id: 'quick-connect', label: 'Quick connect', group: 'Connections', icon: Zap,
@@ -1128,6 +1166,14 @@ export function App() {
       keywords: ['preferences', 'terminal'], run: () => setWorkspaceMode('settings'),
     },
     {
+      id: 'previous-terminal-tab', label: 'Previous terminal tab', group: 'Navigation', icon: ArrowLeft,
+      keywords: ['cycle', 'switch'], disabled: tabs.length < 2, run: () => selectRelativeTab(-1),
+    },
+    {
+      id: 'next-terminal-tab', label: 'Next terminal tab', group: 'Navigation', icon: ArrowRight,
+      keywords: ['cycle', 'switch'], disabled: tabs.length < 2, run: () => selectRelativeTab(1),
+    },
+    {
       id: 'search-terminal', label: 'Search terminal output', group: 'Active terminal', icon: Search,
       disabled: !activeController,
       run: () => {
@@ -1157,6 +1203,16 @@ export function App() {
         if (activeId) void closeTab(activeId)
       },
     },
+    {
+      id: 'move-terminal-tab-left', label: 'Move active tab left', group: 'Active terminal', icon: ArrowLeft,
+      keywords: ['reorder'], disabled: activeTabIndex <= 0, run: () => moveActiveTab(-1),
+    },
+    {
+      id: 'move-terminal-tab-right', label: 'Move active tab right', group: 'Active terminal', icon: ArrowRight,
+      keywords: ['reorder'], disabled: activeTabIndex < 0 || activeTabIndex >= tabs.length - 1,
+      run: () => moveActiveTab(1),
+    },
+    ...tabCommands,
     ...workspaceLayouts.map((layout) => ({
       id: `restore-layout-${layout.id}`,
       label: `Restore ${layout.name}`,
@@ -1166,23 +1222,30 @@ export function App() {
       run: () => void restoreWorkspaceLayout(layout).catch(reportError),
     })),
   ], [
-    activeController, activeHasSelection, activeId, activeLog, activeTab, canOpenLocalTerminal,
+    activeController, activeHasSelection, activeId, activeLog, activeTab, activeTabIndex, canOpenLocalTerminal,
     closeTab, copyVisibleTerminal, exportProfiles, exportTerminalSelection, importProfiles, lease,
-    openLocalTerminal, openingProfile, profileExchangeAction, settings, reportError,
-    restoreWorkspaceLayout, toggleSessionLogging, workspaceLayouts,
+    moveActiveTab, openLocalTerminal, openingProfile, profileExchangeAction, settings, reportError,
+    restoreWorkspaceLayout, selectRelativeTab, tabCommands, tabs.length, toggleSessionLogging, workspaceLayouts,
   ])
 
   useEffect(() => {
     const handleShortcut = (event: KeyboardEvent) => {
+      const cycleOffset = tabCycleOffset(event)
+      if (cycleOffset && !blockingOverlayOpen && !paletteScope && tabs.length > 0) {
+        event.preventDefault()
+        event.stopPropagation()
+        if (tabs.length > 1) selectRelativeTab(cycleOffset)
+        return
+      }
       const modifier = isMacOS ? event.metaKey : event.ctrlKey
       if (!modifier || !event.shiftKey || event.altKey || event.repeat) return
       const key = event.key.toLocaleLowerCase()
       if (key === 'p') {
         event.preventDefault()
-        if (!blockingOverlayOpen) setCommandPaletteOpen(true)
+        if (!blockingOverlayOpen) setPaletteScope('commands')
         return
       }
-      if (blockingOverlayOpen || commandPaletteOpen) return
+      if (blockingOverlayOpen || paletteScope) return
       if (key === 't' && canOpenLocalTerminal) {
         event.preventDefault()
         openLocalTerminal()
@@ -1192,9 +1255,12 @@ export function App() {
         setSearchOpen(true)
       }
     }
-    document.addEventListener('keydown', handleShortcut)
-    return () => document.removeEventListener('keydown', handleShortcut)
-  }, [activeController, blockingOverlayOpen, canOpenLocalTerminal, commandPaletteOpen, openLocalTerminal])
+    document.addEventListener('keydown', handleShortcut, true)
+    return () => document.removeEventListener('keydown', handleShortcut, true)
+  }, [
+    activeController, blockingOverlayOpen, canOpenLocalTerminal, openLocalTerminal, paletteScope,
+    selectRelativeTab, tabs.length,
+  ])
 
   return (
     <div className="app-shell">
@@ -1206,7 +1272,7 @@ export function App() {
             <div className="brand-meta">LOCAL WORKSPACE</div>
           </div>
           <div className="brand-actions">
-            <button className="icon-button" type="button" title={`Command palette (${shortcutPrefix} P)`} aria-label="Open command palette" disabled={blockingOverlayOpen} onClick={() => setCommandPaletteOpen(true)}>
+            <button className="icon-button" type="button" title={`Command palette (${shortcutPrefix} P)`} aria-label="Open command palette" disabled={blockingOverlayOpen} onClick={() => setPaletteScope('commands')}>
               <Command size={16} />
             </button>
             <button className="icon-button" type="button" title="Quick connect" aria-label="Quick connect" disabled={!lease || !settings || Boolean(openingProfile)} onClick={() => setQuickConnectOpen(true)}>
@@ -1304,31 +1370,24 @@ export function App() {
       <main className="workspace">
         <div className={`terminal-workspace${workspaceMode === 'terminals' ? '' : ' is-hidden'}`}>
         <div className="tabbar">
-          <div className="tabs" role="tablist" aria-label="Terminal sessions">
-            {tabs.map((tab) => (
-              <div
-                className={`tab${tab.id === activeId ? ' is-active' : ''}`}
-                role="tab"
-                aria-selected={tab.id === activeId}
-                key={tab.id}
-              >
-                <button className="tab-select" type="button" onClick={() => selectTab(tab.id)}>
-                  <span className={`state-dot state-${tab.state}${tab.attention ? ' has-attention' : ''}`} />
-                  <span className="tab-title">{tab.title}</span>
-                </button>
-                <button
-                  className="tab-close"
-                  type="button"
-                  title="Close terminal"
-                  aria-label={`Close ${tab.title}`}
-                  onClick={() => void closeTab(tab.id)}
-                >
-                  <X size={14} />
-                </button>
-              </div>
-            ))}
-          </div>
+          <TerminalTabs
+            tabs={tabs}
+            activeId={activeId}
+            onSelect={selectTab}
+            onClose={(tabId) => void closeTab(tabId)}
+            onReorder={reorderTerminalTabs}
+          />
           <div className="workspace-tools">
+            <button
+              className="icon-button"
+              type="button"
+              title="Find terminal tab"
+              aria-label="Find terminal tab"
+              disabled={tabs.length === 0}
+              onClick={() => setPaletteScope('tabs')}
+            >
+              <ListFilter size={16} />
+            </button>
             <button
               className={`icon-button${searchOpen ? ' is-pressed' : ''}`}
               type="button"
@@ -1438,18 +1497,30 @@ export function App() {
           ) : (
             tabs.map((tab) => (
               tab.controller ? (
-                <TerminalPane key={tab.id} controller={tab.controller} active={tab.id === activeId} />
-              ) : tab.id === activeId ? (
-                <div className="disconnected-terminal" key={tab.id}>
-                  <LayoutPanelTop size={32} strokeWidth={1.4} />
-                  <h1>{tab.title}</h1>
-                  <span>{activeProfile?.endpoint || tab.endpoint || 'Profile unavailable'}</span>
-                  <button className="primary-button" type="button" disabled={!activeProfile || Boolean(openingProfile)} onClick={() => connectRestoredTab(tab)}>
-                    {openingProfile === activeProfile?.id ? <LoaderCircle className="spin" size={16} /> : <Zap size={16} />}
-                    {activeProfile ? 'Connect' : 'Profile unavailable'}
-                  </button>
+                <TerminalPane key={tab.id} controller={tab.controller} active={tab.id === activeId} tabId={tab.id} />
+              ) : (
+                <div
+                  id={terminalPanelId(tab.id)}
+                  className="disconnected-terminal"
+                  role="tabpanel"
+                  aria-hidden={tab.id !== activeId}
+                  aria-labelledby={terminalTabId(tab.id)}
+                  hidden={tab.id !== activeId}
+                  key={tab.id}
+                >
+                  {tab.id === activeId && (
+                    <>
+                      <LayoutPanelTop size={32} strokeWidth={1.4} />
+                      <h1>{tab.title}</h1>
+                      <span>{activeProfile?.endpoint || tab.endpoint || 'Profile unavailable'}</span>
+                      <button className="primary-button" type="button" disabled={!activeProfile || Boolean(openingProfile)} onClick={() => connectRestoredTab(tab)}>
+                        {openingProfile === activeProfile?.id ? <LoaderCircle className="spin" size={16} /> : <Zap size={16} />}
+                        {activeProfile ? 'Connect' : 'Profile unavailable'}
+                      </button>
+                    </>
+                  )}
                 </div>
-              ) : null
+              )
             ))
           )}
         </section>
@@ -1571,8 +1642,14 @@ export function App() {
         </div>
       )}
 
-      {commandPaletteOpen && (
-        <CommandPalette commands={paletteCommands} onClose={() => setCommandPaletteOpen(false)} />
+      {paletteScope && (
+        <CommandPalette
+          commands={paletteScope === 'tabs' ? tabCommands : paletteCommands}
+          emptyLabel={paletteScope === 'tabs' ? 'No matching terminal tabs' : undefined}
+          onClose={() => setPaletteScope(undefined)}
+          searchLabel={paletteScope === 'tabs' ? 'Search terminal tabs' : undefined}
+          title={paletteScope === 'tabs' ? 'Find terminal tab' : undefined}
+        />
       )}
 
       {sshPrompt?.kind === 'trust' && (

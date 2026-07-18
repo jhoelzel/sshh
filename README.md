@@ -10,6 +10,8 @@ native desktop application.
 - Real interactive local shells through a pseudoterminal on macOS and Linux and
   native ConPTY on supported Windows systems.
 - xterm.js rendering, input, resize, search, titles, bells, and persistent tabs.
+- Searchable terminal-tab switching, pointer and command reordering, Ctrl+Tab
+  cycling, and accessible roving tab focus without remounting live terminals.
 - Searchable local and SSH profiles with create, edit, duplicate, delete,
   grouping, tags, favorites, validated local-shell environment overrides,
   versioned atomic persistence, private JSON export, and strict atomic import

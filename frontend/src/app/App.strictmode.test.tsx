@@ -183,6 +183,11 @@ describe('App StrictMode lifecycle', () => {
     expect(harness.backend.openLocalTerminal).toHaveBeenCalledOnce()
     expect(harness.controllerInstances).toHaveLength(1)
 
+    fireEvent.click(screen.getByRole('button', { name: 'Find terminal tab' }))
+    expect(await screen.findByRole('dialog', { name: 'Find terminal tab' })).toBeTruthy()
+    expect(screen.getByRole('option', { name: 'Switch to 1: Local Shell' })).toBeTruthy()
+    fireEvent.click(screen.getByRole('option', { name: 'Switch to 1: Local Shell' }))
+
     harness.controllerInstances[0].requestLink('https://example.com/documentation')
     expect(await screen.findByRole('dialog', { name: 'Open external link?' })).toBeTruthy()
     expect(screen.getByText('https://example.com/documentation')).toBeTruthy()

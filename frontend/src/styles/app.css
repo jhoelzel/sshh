@@ -434,6 +434,18 @@ textarea:focus-visible {
   box-shadow: inset 0 2px #70c7a5;
 }
 
+.tab.is-dragging {
+  opacity: 0.45;
+}
+
+.tab.is-drop-before {
+  box-shadow: inset 2px 0 #70c7a5;
+}
+
+.tab.is-drop-after {
+  box-shadow: inset -2px 0 #70c7a5;
+}
+
 .tab-select,
 .tab-close {
   height: 100%;
@@ -449,7 +461,12 @@ textarea:focus-visible {
   gap: 7px;
   padding: 0 7px 0 10px;
   color: inherit;
+  cursor: grab;
   text-align: left;
+}
+
+.tab-select:active {
+  cursor: grabbing;
 }
 
 .tab-title {
@@ -2398,6 +2415,12 @@ textarea:focus-visible {
 
 .command-item > svg {
   color: #829088;
+}
+
+.command-item > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .command-item.is-active:not(:disabled),

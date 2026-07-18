@@ -908,9 +908,9 @@ cross-platform program.
 Deliverables:
 
 - [x] Add closeable session tabs with protocol and state indicators.
-- [ ] Add session-tab reordering.
+- [x] Add session-tab reordering.
 - [x] Add keyboard-operated new-terminal commands and focus restoration.
-- [ ] Add tab search and explicit keyboard tab-navigation commands.
+- [x] Add tab search and explicit keyboard tab-navigation commands.
 - [x] Support multiple simultaneous terminal runtimes without shared mutable xterm
   controllers or React component state.
 - [x] Keep one persistent terminal host/controller per open tab. Hidden tabs retain
@@ -931,6 +931,9 @@ Deliverables:
 
 Tests and exit gate:
 
+- [x] Pure ordering and React component tests cover bounded command moves,
+  before/after drops, Ctrl+Tab direction, scoped tab search, roving tab focus,
+  close controls, and ARIA tab/tabpanel relationships.
 - [ ] Add exhaustive state-machine transition rejection tests.
 - [ ] Add a concurrent tab open/output/resize/close race scenario; the existing
   full Go suite passes the race detector.

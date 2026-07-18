@@ -1,12 +1,14 @@
 import { useEffect, useRef } from 'react'
 import type { TerminalController } from './TerminalController'
+import { terminalPanelId, terminalTabId } from './terminalTabIds'
 
 interface TerminalPaneProps {
   controller: TerminalController
   active: boolean
+  tabId: string
 }
 
-export function TerminalPane({ controller, active }: TerminalPaneProps) {
+export function TerminalPane({ controller, active, tabId }: TerminalPaneProps) {
   const host = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -19,5 +21,14 @@ export function TerminalPane({ controller, active }: TerminalPaneProps) {
     controller.setVisible(active)
   }, [active, controller])
 
-  return <div ref={host} className={`terminal-host${active ? ' is-active' : ''}`} aria-hidden={!active} />
+  return (
+    <div
+      ref={host}
+      id={terminalPanelId(tabId)}
+      className={`terminal-host${active ? ' is-active' : ''}`}
+      role="tabpanel"
+      aria-hidden={!active}
+      aria-labelledby={terminalTabId(tabId)}
+    />
+  )
 }

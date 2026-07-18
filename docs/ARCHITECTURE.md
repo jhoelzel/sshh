@@ -180,6 +180,15 @@ Palette and shortcut actions call the same React workflow callbacks as visible
 controls; they do not add a second bridge path or create backend resources on
 their own.
 
+Tab ordering is frontend metadata. Pointer drops and command moves use the same
+pure ordering functions and only rearrange the existing tab model array; live
+controllers, xterm hosts, backend sessions, and session IDs are preserved. The
+tab-scoped command palette selects through the ordinary tab callback. Ctrl+Tab
+and Ctrl+Shift+Tab cycle the same ordered model, while the tab strip implements
+manual-activation ARIA tabs with roving Arrow, Home, and End focus. Saved
+workspace layouts naturally capture the resulting order without persisting a
+live runtime.
+
 Terminal text actions are read-only controller operations. Copy Visible reads
 the active xterm viewport and sends it directly to the Wails native clipboard;
 Export Selection reads xterm's exact selection and passes it to a bounded

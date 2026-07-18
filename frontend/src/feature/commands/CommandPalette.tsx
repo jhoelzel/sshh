@@ -13,10 +13,19 @@ export interface PaletteCommand {
 
 interface CommandPaletteProps {
   commands: PaletteCommand[]
+  emptyLabel?: string
   onClose: () => void
+  searchLabel?: string
+  title?: string
 }
 
-export function CommandPalette({ commands, onClose }: CommandPaletteProps) {
+export function CommandPalette({
+  commands,
+  emptyLabel = 'No matching commands',
+  onClose,
+  searchLabel = 'Search commands',
+  title = 'Command palette',
+}: CommandPaletteProps) {
   const [query, setQuery] = useState('')
   const [preferredActiveId, setPreferredActiveId] = useState<string>()
   const resultsRef = useRef<HTMLDivElement>(null)
@@ -73,10 +82,10 @@ export function CommandPalette({ commands, onClose }: CommandPaletteProps) {
           <Search size={17} aria-hidden="true" />
           <input
             autoFocus
-            aria-label="Search commands"
+            aria-label={searchLabel}
             aria-controls="command-palette-results"
             aria-activedescendant={activeId ? `command-${activeId}` : undefined}
-            placeholder="Search commands"
+            placeholder={searchLabel}
             value={query}
             onChange={(event) => setQuery(event.target.value)}
           />
@@ -85,7 +94,7 @@ export function CommandPalette({ commands, onClose }: CommandPaletteProps) {
           </button>
         </header>
 
-        <h2 id="command-palette-title" className="visually-hidden">Command palette</h2>
+        <h2 id="command-palette-title" className="visually-hidden">{title}</h2>
         <div ref={resultsRef} id="command-palette-results" className="command-palette-results" role="listbox" aria-label="Commands">
           {groups.map(([group, items]) => (
             <section className="command-group" role="group" aria-label={group} key={group}>
@@ -113,7 +122,7 @@ export function CommandPalette({ commands, onClose }: CommandPaletteProps) {
               })}
             </section>
           ))}
-          {filtered.length === 0 && <div className="command-palette-empty">No matching commands</div>}
+          {filtered.length === 0 && <div className="command-palette-empty">{emptyLabel}</div>}
         </div>
       </section>
     </div>

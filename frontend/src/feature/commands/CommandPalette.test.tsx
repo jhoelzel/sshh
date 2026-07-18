@@ -47,4 +47,20 @@ describe('CommandPalette', () => {
     expect(close).toHaveBeenCalledTimes(1)
     expect(run).not.toHaveBeenCalled()
   })
+
+  it('exposes scoped search and dialog labels', () => {
+    render(
+      <CommandPalette
+        commands={[]}
+        emptyLabel="No matching terminal tabs"
+        onClose={vi.fn()}
+        searchLabel="Search terminal tabs"
+        title="Find terminal tab"
+      />,
+    )
+
+    expect(screen.getByRole('dialog', { name: 'Find terminal tab' })).toBeTruthy()
+    expect(screen.getByLabelText('Search terminal tabs')).toBeTruthy()
+    expect(screen.getByText('No matching terminal tabs')).toBeTruthy()
+  })
 })
