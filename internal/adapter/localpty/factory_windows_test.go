@@ -85,13 +85,14 @@ func TestFactoryRunsAndResizesRealConPTY(t *testing.T) {
 	if err := terminal.Resize(context.Background(), 101, 37); err != nil {
 		t.Fatalf("resize ConPTY: %v", err)
 	}
-	for attempt := 0; attempt < 20 && !output.contains("size:101x37"); attempt++ {
+	const resizedReport = "report:exact value:term=xterm-256color:color=truecolor:size=101x37"
+	for attempt := 0; attempt < 20 && !output.contains(resizedReport); attempt++ {
 		if _, err := terminal.Write([]byte("report\r\n")); err != nil {
 			t.Fatalf("request resized dimensions: %v", err)
 		}
 		time.Sleep(50 * time.Millisecond)
 	}
-	waitForOutput(t, output, "size:101x37", 2*time.Second)
+	waitForOutput(t, output, resizedReport, 2*time.Second)
 
 	if _, err := terminal.Write([]byte("exit23\r\n")); err != nil {
 		t.Fatalf("request fixture exit: %v", err)
