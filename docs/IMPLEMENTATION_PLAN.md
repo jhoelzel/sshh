@@ -91,8 +91,10 @@ Implemented and verified:
   Wails compiles. Actions are pinned to immutable SHAs and dependencies receive
   weekly update checks.
 - [x] Go race tests cover managers and adapters. Real loopback integration tests
-  cover PTY, shared multi-channel SSH terminal lifetime, terminal resize/exit,
-  SFTP operations, and bidirectional local, remote, and SOCKS forwarding.
+  cover PTY binary input and live resize, shared multi-channel SSH terminal
+  lifetime, terminal exit, SFTP operations, and bidirectional local, remote,
+  and SOCKS forwarding. Controller tests cover mixed text, binary mouse, and
+  paste ordering, resize coalescing, malformed frames, and the real xterm parser.
   TypeScript, ESLint, Vitest, vet, and production builds pass.
 
 Still required for the complete cross-platform and 1.0 gates:
@@ -778,10 +780,13 @@ Tests and exit gate:
 - [x] Sequence tests prove no duplicated, reordered, or silently dropped chunks.
 - [x] Duplicate cumulative acknowledgements are harmless; stale commands and late
   events from an old generation or frontend lease are rejected or discarded.
-- [ ] Interleaved `onData`, `onBinary`, and paste input reaches the PTY in callback
-  order, including binary mouse reports, while resize delivers the final size.
-- [ ] Invalid UTF-8 and malformed terminal streams do not crash Go, Wails, or the
-  WebView.
+- [x] Interleaved `onData`, `onBinary`, and paste input reaches a real PTY in
+  callback order, including binary mouse reports, while coalescing delivers the
+  final resize. Controller, bridge-to-transport, and Darwin/Linux PTY tests
+  cover each boundary.
+- [x] Invalid UTF-8 and malformed terminal streams do not crash Go, Wails, or the
+  WebView. Raw-byte manager and DTO tests, bounded controller validation, parser
+  failure containment, and the real xterm parser test cover the complete path.
 - [ ] A 10 MiB output burst remains interactive and memory stays within explicit
   queue and scrollback caps and passes the provisional latency, fairness, and
   completion budgets in section 5.3.
@@ -830,9 +835,9 @@ Deliverables:
 
 Tests and exit gate:
 
-- [ ] Expand integration tests beyond the current `printf`, initial PTY-size, and
-  exit-code coverage to read input, resize an active PTY, and terminate a child
-  process tree.
+- [ ] Extend the real PTY integration coverage, which now includes binary input,
+  live resize, output, initial size, and exit status, with deterministic child
+  process-tree termination evidence.
 - [ ] Closing a tab returns process, file descriptor, goroutine, and runtime
   counts to baseline under a native leak test.
 - [x] Closing the application with a running shell follows the confirmation and
@@ -1201,7 +1206,8 @@ Release gate:
   validation, event sequencing, cumulative acknowledgement, and bounded
   round-robin output scheduling.
 - Frontend terminal-controller output queueing, ordered `onData`/`onBinary`
-  input, resize coalescing, StrictMode remounting, and idempotent disposal.
+  input, resize coalescing, malformed-frame validation, parser failure
+  containment, StrictMode remounting, and idempotent disposal.
 - React views and state reducers without terminal-byte fixtures in React state.
 - Host-key decisions and authentication ordering.
 - Transfer and tunnel state machines.

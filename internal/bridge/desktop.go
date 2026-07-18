@@ -1400,11 +1400,15 @@ func (d *Desktop) ConfirmApplicationClose(leaseID string) error {
 
 func (s *eventSink) PublishOutput(chunk sessionusecase.OutputChunk) {
 	d := s.desktop
-	wailsruntime.EventsEmit(d.context(), EventTerminalOutput, TerminalOutputDTO{
+	wailsruntime.EventsEmit(d.context(), EventTerminalOutput, terminalOutputDTO(chunk))
+}
+
+func terminalOutputDTO(chunk sessionusecase.OutputChunk) TerminalOutputDTO {
+	return TerminalOutputDTO{
 		LeaseID: chunk.LeaseID, SessionID: chunk.SessionID, Generation: chunk.Generation,
 		Sequence: chunk.Sequence, EndOffset: chunk.EndOffset, ByteCount: len(chunk.Data),
 		Payload: base64.StdEncoding.EncodeToString(chunk.Data), Final: chunk.Final,
-	})
+	}
 }
 
 func (s *eventSink) PublishState(event sessionusecase.StateEvent) {

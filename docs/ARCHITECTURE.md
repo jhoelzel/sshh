@@ -153,6 +153,11 @@ terminal data does not pass through React rendering. One persistent host and
 controller exists per live tab; a restored disconnected tab has neither a
 backend session nor a terminal controller. `onData` and `onBinary` feed one
 ordered input queue; resize is coalesced without losing the final dimensions.
+Output frames are checked for the current lease and generation, safe sequence
+and offset values, the 64 KiB event cap, canonical payload length, and decoded
+byte count before xterm receives them. A malformed frame remains retryable at
+the same sequence; an xterm parser failure halts that controller's output so a
+later cumulative acknowledgement cannot skip rejected bytes.
 Palette and shortcut actions call the same React workflow callbacks as visible
 controls; they do not add a second bridge path or create backend resources on
 their own.

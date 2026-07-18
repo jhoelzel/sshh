@@ -7,6 +7,7 @@ import { OrderedInputQueue } from './OrderedInputQueue'
 import { visibleBufferText } from './terminalText'
 
 const maxPendingOutput = 1024 * 1024
+const maxOutputChunk = 64 * 1024
 const resizeDelay = 80
 
 interface ControllerCallbacks {
@@ -31,9 +32,11 @@ export class TerminalController {
   private resizeTimer?: number
   private visible = false
   private disposed = false
+  private outputFailed = false
   private readyResolve!: () => void
   private readonly readyPromise: Promise<void>
   private expectedOutputSequence = 1
+  private expectedOutputOffset = 0
   private pendingOutputBytes = 0
   private consumedSequence = 0
   private consumedOffset = 0
@@ -152,7 +155,22 @@ export class TerminalController {
   }
 
   acceptOutput(event: TerminalOutput): void {
-    if (this.disposed || event.sessionId !== this.session.id || event.generation !== this.session.generation) {
+    if (this.disposed || this.outputFailed) {
+      return
+    }
+    if (!event || typeof event !== 'object') {
+      this.callbacks.onError(new Error('terminal output event is malformed'))
+      return
+    }
+    if (
+      event.leaseId !== this.session.leaseId ||
+      event.sessionId !== this.session.id ||
+      event.generation !== this.session.generation
+    ) {
+      return
+    }
+    if (!Number.isSafeInteger(event.sequence) || event.sequence < 1) {
+      this.callbacks.onError(new Error('terminal output sequence is invalid'))
       return
     }
     if (event.sequence < this.expectedOutputSequence) {
@@ -164,9 +182,33 @@ export class TerminalController {
       return
     }
 
-    const data = decodeBase64(event.payload)
+    if (
+      !Number.isSafeInteger(event.byteCount) ||
+      event.byteCount < 0 ||
+      event.byteCount > maxOutputChunk ||
+      !Number.isSafeInteger(event.endOffset) ||
+      event.endOffset < 0 ||
+      typeof event.payload !== 'string' ||
+      event.payload.length !== Math.ceil(event.byteCount / 3) * 4
+    ) {
+      this.callbacks.onError(new Error('terminal output metadata is invalid'))
+      return
+    }
+
+    let data: Uint8Array
+    try {
+      data = decodeBase64(event.payload)
+    } catch {
+      this.callbacks.onError(new Error('terminal output payload is not valid base64'))
+      return
+    }
     if (data.byteLength !== event.byteCount) {
       this.callbacks.onError(new Error('terminal output byte count does not match its payload'))
+      return
+    }
+    const expectedEndOffset = this.expectedOutputOffset + data.byteLength
+    if (!Number.isSafeInteger(expectedEndOffset) || event.endOffset !== expectedEndOffset) {
+      this.callbacks.onError(new Error('terminal output byte offset is invalid'))
       return
     }
     if (this.pendingOutputBytes + data.byteLength > maxPendingOutput) {
@@ -175,8 +217,12 @@ export class TerminalController {
     }
 
     this.expectedOutputSequence++
+    this.expectedOutputOffset = event.endOffset
     this.pendingOutputBytes += data.byteLength
+    let consumedOnce = false
     const consumed = () => {
+      if (consumedOnce) return
+      consumedOnce = true
       this.pendingOutputBytes -= data.byteLength
       this.consumedSequence = event.sequence
       this.consumedOffset = event.endOffset
@@ -185,7 +231,15 @@ export class TerminalController {
     if (data.byteLength === 0) {
       consumed()
     } else {
-      this.terminal.write(data, consumed)
+      try {
+        this.terminal.write(data, consumed)
+      } catch {
+        this.outputFailed = true
+        if (!consumedOnce) {
+          this.pendingOutputBytes -= data.byteLength
+        }
+        this.callbacks.onError(new Error('terminal output parser rejected a chunk'))
+      }
     }
   }
 

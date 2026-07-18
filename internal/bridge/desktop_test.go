@@ -1,9 +1,13 @@
 package bridge
 
 import (
+	"bytes"
 	"context"
+	"encoding/base64"
 	"errors"
+	"io"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -13,6 +17,7 @@ import (
 	profiledomain "shh-h/internal/domain/profile"
 	remotepathdomain "shh-h/internal/domain/remotepath"
 	settingsdomain "shh-h/internal/domain/settings"
+	"shh-h/internal/port"
 	profileusecase "shh-h/internal/usecase/profile"
 	remotepathusecase "shh-h/internal/usecase/remotepath"
 	sessionusecase "shh-h/internal/usecase/session"
@@ -33,6 +38,71 @@ func (repository *bridgeProfileRepository) SaveProfiles(profiles []profiledomain
 
 type bridgeRemotePathRepository struct {
 	favorites []remotepathdomain.Favorite
+}
+
+type bridgeTerminalFactory struct {
+	transport *bridgeTerminalTransport
+}
+
+func (factory *bridgeTerminalFactory) Open(context.Context, port.TerminalSpec) (port.TerminalTransport, error) {
+	return factory.transport, nil
+}
+
+type bridgeTerminalTransport struct {
+	mu        sync.Mutex
+	input     bytes.Buffer
+	columns   uint16
+	rows      uint16
+	closed    chan struct{}
+	closeOnce sync.Once
+}
+
+func newBridgeTerminalTransport() *bridgeTerminalTransport {
+	return &bridgeTerminalTransport{closed: make(chan struct{})}
+}
+
+func (transport *bridgeTerminalTransport) Read([]byte) (int, error) {
+	<-transport.closed
+	return 0, io.EOF
+}
+
+func (transport *bridgeTerminalTransport) Write(data []byte) (int, error) {
+	transport.mu.Lock()
+	defer transport.mu.Unlock()
+	return transport.input.Write(data)
+}
+
+func (transport *bridgeTerminalTransport) Resize(_ context.Context, columns, rows uint16) error {
+	transport.mu.Lock()
+	transport.columns = columns
+	transport.rows = rows
+	transport.mu.Unlock()
+	return nil
+}
+
+func (transport *bridgeTerminalTransport) Signal(context.Context, port.TerminalSignal) error {
+	transport.finish()
+	return nil
+}
+
+func (transport *bridgeTerminalTransport) Wait() (port.ExitStatus, error) {
+	<-transport.closed
+	return port.ExitStatus{}, nil
+}
+
+func (transport *bridgeTerminalTransport) Close() error {
+	transport.finish()
+	return nil
+}
+
+func (transport *bridgeTerminalTransport) finish() {
+	transport.closeOnce.Do(func() { close(transport.closed) })
+}
+
+func (transport *bridgeTerminalTransport) snapshot() ([]byte, uint16, uint16) {
+	transport.mu.Lock()
+	defer transport.mu.Unlock()
+	return append([]byte(nil), transport.input.Bytes()...), transport.columns, transport.rows
 }
 
 func (repository *bridgeRemotePathRepository) LoadFavorites() ([]remotepathdomain.Favorite, error) {
@@ -264,6 +334,89 @@ func TestBoundedDialogTextRemovesControlsAndCapsBytes(t *testing.T) {
 	}
 }
 
+func TestTerminalOutputDTOFramesArbitraryBytes(t *testing.T) {
+	payload := []byte{0xff, 0xfe, 0xe2, 0x28, 0xa1, 0x1b, '[', '3', '8', ';'}
+	dto := terminalOutputDTO(sessionusecase.OutputChunk{
+		LeaseID: "lease", SessionID: "session", Generation: 2,
+		Sequence: 7, EndOffset: 42, Data: payload, Final: true,
+	})
+
+	decoded, err := base64.StdEncoding.DecodeString(dto.Payload)
+	if err != nil {
+		t.Fatalf("decode terminal output payload: %v", err)
+	}
+	if !bytes.Equal(decoded, payload) {
+		t.Fatalf("terminal output bytes changed: %v", decoded)
+	}
+	if dto.LeaseID != "lease" || dto.SessionID != "session" || dto.Generation != 2 ||
+		dto.Sequence != 7 || dto.EndOffset != 42 || dto.ByteCount != len(payload) || !dto.Final {
+		t.Fatalf("terminal output metadata changed: %#v", dto)
+	}
+}
+
+func TestTerminalCommandsPreserveInterleavedInputAndFinalResize(t *testing.T) {
+	transport := newBridgeTerminalTransport()
+	manager := sessionusecase.NewManager(&bridgeTerminalFactory{transport: transport})
+	desktop := NewDesktop(manager, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	manager.SetSink(nil)
+	t.Cleanup(manager.Shutdown)
+
+	lease, err := desktop.AttachFrontend("terminal-command-test")
+	if err != nil {
+		t.Fatalf("attach frontend: %v", err)
+	}
+	opened, err := manager.OpenLocal(context.Background(), lease.ID, profiledomain.Profile{
+		ID: "local", Name: "Local", Protocol: profiledomain.ProtocolLocal,
+	}, 80, 24)
+	if err != nil {
+		t.Fatalf("open terminal: %v", err)
+	}
+	if err := desktop.ActivateTerminal(lease.ID, opened.ID, opened.Generation); err != nil {
+		t.Fatalf("activate terminal: %v", err)
+	}
+
+	inputs := [][]byte{
+		[]byte("lambda: \xce\xbb"),
+		{0x1b, 0x5b, 0x4d, 0, 0xff},
+		[]byte("pasted line\r"),
+	}
+	for index, input := range inputs {
+		if err := desktop.WriteTerminal(
+			lease.ID, opened.ID, opened.Generation, uint64(index+1),
+			base64.StdEncoding.EncodeToString(input),
+		); err != nil {
+			t.Fatalf("write terminal input %d: %v", index+1, err)
+		}
+	}
+	if err := desktop.WriteTerminal(lease.ID, opened.ID, opened.Generation, 4, "!!!!"); !apperror.IsCode(err, apperror.CodeInvalidArgument) {
+		t.Fatalf("malformed terminal input error = %v", err)
+	}
+	if err := desktop.WriteTerminal(
+		lease.ID, opened.ID, opened.Generation, 4, base64.StdEncoding.EncodeToString([]byte{'\r'}),
+	); err != nil {
+		t.Fatalf("write after malformed payload: %v", err)
+	}
+
+	if err := desktop.ResizeTerminal(lease.ID, opened.ID, opened.Generation, 81, 25); err != nil {
+		t.Fatalf("resize terminal: %v", err)
+	}
+	if err := desktop.ResizeTerminal(lease.ID, opened.ID, opened.Generation, 120, 40); err != nil {
+		t.Fatalf("resize terminal to final dimensions: %v", err)
+	}
+
+	want := bytes.Join(append(inputs, []byte{'\r'}), nil)
+	input, columns, rows := transport.snapshot()
+	if !bytes.Equal(input, want) {
+		t.Fatalf("terminal input bytes changed: %v", input)
+	}
+	if columns != 120 || rows != 40 {
+		t.Fatalf("final terminal size = %dx%d, want 120x40", columns, rows)
+	}
+	if err := desktop.CloseTerminal(lease.ID, opened.ID, opened.Generation); err != nil {
+		t.Fatalf("close terminal: %v", err)
+	}
+}
+
 func TestRemotePathFavoritesRequireExistingSSHProfile(t *testing.T) {
 	profiles, err := profileusecase.NewService(&bridgeProfileRepository{profiles: []profiledomain.Profile{
 		{ID: "local", Protocol: profiledomain.ProtocolLocal},
@@ -292,3 +445,6 @@ func TestRemotePathFavoritesRequireExistingSSHProfile(t *testing.T) {
 		t.Fatalf("unexpected remote path favorite: %#v", created)
 	}
 }
+
+var _ port.TerminalFactory = (*bridgeTerminalFactory)(nil)
+var _ port.TerminalTransport = (*bridgeTerminalTransport)(nil)

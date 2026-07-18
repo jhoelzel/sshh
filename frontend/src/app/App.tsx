@@ -234,7 +234,7 @@ export function App() {
       return
     }
     const disposeOutput = onTerminalOutput((event) => {
-      if (event.leaseId === lease.id) {
+      if (event?.leaseId === lease.id) {
         controllers.current.get(event.sessionId)?.acceptOutput(event)
       }
     })

@@ -65,3 +65,16 @@ Expected state changes are represented by the normal session, transfer, and
 tunnel state models, not by thrown errors. Errors are reserved for rejected
 commands or failed operations. A visible failed state may still carry a bounded
 human-readable reason, while the command that initiated it uses this taxonomy.
+
+## Terminal Stream Errors
+
+Terminal output is untrusted byte data rather than a command rejection. The
+frontend controller validates event identity, ordering, offsets, size, base64
+framing, and decoded byte count before passing a chunk to xterm. Invalid frames
+produce a bounded visible application error and do not throw from the Wails
+event callback or advance the expected sequence, so a corrected frame can be
+retried safely.
+
+If xterm itself rejects a chunk, the controller reports a bounded parser error
+and halts that output stream. It does not acknowledge a later sequence past the
+rejected bytes. Error messages contain no terminal contents.

@@ -235,6 +235,41 @@ func TestManagerSerializesInputAndRejectsStaleGeneration(t *testing.T) {
 	}
 }
 
+func TestManagerPreservesArbitraryTerminalOutputBytes(t *testing.T) {
+	transport := newFakeTransport()
+	manager := NewManager(&fakeFactory{transport: transport})
+	sink := newRecordingSink()
+	manager.SetSink(sink)
+
+	opened, err := manager.OpenLocal(context.Background(), "lease", profile.Profile{
+		ID: "local", Name: "Local", Protocol: profile.ProtocolLocal,
+	}, 80, 24)
+	if err != nil {
+		t.Fatalf("open local terminal: %v", err)
+	}
+	if err := manager.Activate("lease", opened.ID, opened.Generation); err != nil {
+		t.Fatalf("activate terminal: %v", err)
+	}
+
+	payload := []byte{0xff, 0xfe, 0xe2, 0x28, 0xa1, 0x1b, '[', '3', '8', ';'}
+	writeDone := make(chan error, 1)
+	go func() {
+		_, writeErr := transport.writer.Write(payload)
+		writeDone <- writeErr
+	}()
+	chunk := receiveOutput(t, sink.output)
+	if !bytes.Equal(chunk.Data, payload) || len(chunk.Data) != len(payload) {
+		t.Fatalf("terminal output bytes changed: %v", chunk.Data)
+	}
+	waitForCall(t, writeDone, "terminal output fixture")
+	if err := manager.Acknowledge("lease", opened.ID, opened.Generation, chunk.Sequence, chunk.EndOffset); err != nil {
+		t.Fatalf("acknowledge terminal output: %v", err)
+	}
+	if err := manager.Close("lease", opened.ID, opened.Generation); err != nil {
+		t.Fatalf("close terminal: %v", err)
+	}
+}
+
 func TestManagerControlAndLifecycleBypassBlockedOutput(t *testing.T) {
 	transport := newFakeTransport()
 	manager := NewManager(&fakeFactory{transport: transport})
