@@ -2462,6 +2462,19 @@ textarea:focus-visible {
   line-height: 1.5;
 }
 
+.terminal-link-address {
+  display: block;
+  max-height: 96px;
+  margin-top: 9px;
+  overflow: auto;
+  color: #cbd4ce;
+  font-family: "SFMono-Regular", Menlo, Monaco, Consolas, monospace;
+  font-size: 10px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+
 .dialog-actions {
   display: flex;
   grid-column: 1 / -1;

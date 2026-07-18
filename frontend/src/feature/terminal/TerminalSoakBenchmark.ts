@@ -61,6 +61,7 @@ export async function runTerminalSoak(
       const controller = new TerminalController(session, benchmarkSettings, {
         onBell: () => undefined,
         onError: (error) => tracker.fail(error),
+        onLinkRequested: () => undefined,
         onSearchRequested: () => undefined,
         onSelectionChange: () => undefined,
         onTitle: (title) => tracker.record(title),

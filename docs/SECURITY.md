@@ -47,6 +47,24 @@ collisions, null bytes, more than 128 entries, and variables owned by the
 terminal runtime. Backend validation remains authoritative for bridge, import,
 and manually edited configuration paths.
 
+## Terminal Links
+
+Terminal output is untrusted, including OSC 8 targets and text that resembles a
+web address. Both forms pass through the same frontend policy before they can
+leave the terminal:
+
+- only absolute `http://` and `https://` URLs are accepted;
+- URLs containing credentials, control characters, spaces, backslashes,
+  malformed hosts, or more than 2,048 characters are rejected;
+- accepted URLs are parsed and canonicalized before display; and
+- the exact canonical address requires explicit confirmation and is validated
+  again before Wails opens it in the operating system browser.
+
+The application WebView does not navigate to terminal-provided URLs. `file`,
+`data`, `javascript`, `ssh`, and other schemes remain inactive. Unit tests cover
+both xterm link sources, ambiguous and malicious inputs, canonicalization, and
+the confirmation boundary.
+
 ## Reviewed Module-Only Advisory
 
 The verbose scan on 2026-07-17 reported `GO-2026-5932` against

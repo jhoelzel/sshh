@@ -188,6 +188,14 @@ dialog. Neither payload enters React component state, session logs, layout
 storage, or profile storage. Remote-controlled terminal titles are sanitized
 before they become suggested export filenames.
 
+Terminal links follow one path for xterm OSC 8 hyperlinks and URLs found by the
+official web-links addon. The controller accepts only absolute HTTP and HTTPS
+URLs, rejects credentials, controls, backslashes, malformed hosts, and values
+over 2,048 characters, and emits the canonical URL to React. React displays that
+exact value in a confirmation dialog, validates it again, and only then calls
+Wails' system-browser handoff. Terminal output cannot navigate the application
+WebView directly, and non-web schemes remain inert.
+
 ## Remote Path Favorite Ownership
 
 A remote-path favorite is configuration, not a live SFTP resource. Its private

@@ -85,6 +85,7 @@ async function runTerminalBenchmark(host: HTMLElement, setStatus: (status: strin
     controller = new TerminalController(session, benchmarkSettings, {
       onBell: () => undefined,
       onError: (error) => tracker.fail(error),
+      onLinkRequested: () => undefined,
       onSearchRequested: () => undefined,
       onSelectionChange: () => undefined,
       onTitle: (title) => tracker.record(title),

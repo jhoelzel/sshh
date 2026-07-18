@@ -794,7 +794,7 @@ Deliverables:
 - [x] Use xterm's standard renderer and keep WebGL disabled by default.
 - [ ] Evaluate WebGL only as an optional measured acceleration path with
   automatic fallback.
-- [ ] Allow only sanitized HTTP and HTTPS links to open through the operating
+- [x] Allow only sanitized HTTP and HTTPS links to open through the operating
   system.
 - [x] Disable remote navigation and OSC 52 clipboard writes by default.
 - [x] Add a production Content Security Policy and disable production developer
@@ -1144,7 +1144,11 @@ Deliverables:
 
 - [x] Add terminal font, size, line spacing, cursor, scrollback, and bell
   controls with live application and persisted defaults.
-- [ ] Add terminal palette, copy, paste, and hyperlink policies.
+- [x] Enforce a secure terminal hyperlink baseline for OSC 8 and detected web
+  links: absolute HTTP/HTTPS only, canonicalized and bounded URLs, no embedded
+  credentials, explicit confirmation, and system-browser handoff.
+- [ ] Add terminal palette and configurable copy, paste, and hyperlink policies
+  beyond the fixed secure hyperlink baseline.
 - [x] Add connection timeout and keepalive settings across host-key probes,
   terminal, SFTP, and tunnel dials.
 - [ ] Add reconnect, proxy, known-hosts, and agent settings.

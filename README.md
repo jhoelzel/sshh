@@ -44,6 +44,8 @@ native desktop application.
   keyboard navigation, and shell-safe application shortcuts.
 - Terminal viewport copy and exact selection export through native clipboard
   and Save dialogs, with bounded private atomic text files.
+- OSC 8 and detected web links with strict HTTP/HTTPS canonicalization, visible
+  confirmation, and system-browser handoff instead of WebView navigation.
 - Saved workspace layouts with private atomic persistence, ordered profile-tab
   snapshots, disconnected restoration, and explicit per-tab reconnection.
 - Explicit session ownership, activation, ordered input/output, bounded output

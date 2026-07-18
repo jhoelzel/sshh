@@ -11,6 +11,7 @@ interface ControllerDouble {
   dispose: ReturnType<typeof vi.fn>
   focus: ReturnType<typeof vi.fn>
   ready: ReturnType<typeof vi.fn>
+  requestLink: (url: string) => void
   search: ReturnType<typeof vi.fn>
   selectionText: ReturnType<typeof vi.fn>
   setVisible: ReturnType<typeof vi.fn>
@@ -86,6 +87,7 @@ const harness = vi.hoisted(() => {
 
   return {
     backend,
+    browserOpenURL: vi.fn(),
     subscribe,
     disposers,
     controllerInstances: [] as ControllerDouble[],
@@ -109,6 +111,10 @@ vi.mock('../lib/bridge/client', () => ({
   onCloseRequested: (callback: (...data: unknown[]) => void) => harness.subscribe('close', callback),
 }))
 
+vi.mock('../../wailsjs/runtime/runtime', () => ({
+  BrowserOpenURL: harness.browserOpenURL,
+}))
+
 vi.mock('../feature/terminal/TerminalController', () => ({
   TerminalController: class implements ControllerDouble {
     acceptOutput = vi.fn()
@@ -119,12 +125,18 @@ vi.mock('../feature/terminal/TerminalController', () => ({
     dispose = vi.fn()
     focus = vi.fn()
     ready = vi.fn().mockResolvedValue(undefined)
+    requestLink: (url: string) => void
     search = vi.fn()
     selectionText = vi.fn(() => '')
     setVisible = vi.fn()
     visibleText = vi.fn(() => '')
 
-    constructor() {
+    constructor(
+      _session: unknown,
+      _settings: unknown,
+      callbacks: { onLinkRequested: (url: string) => void },
+    ) {
+      this.requestLink = callbacks.onLinkRequested
       harness.controllerInstances.push(this)
     }
   },
@@ -170,6 +182,14 @@ describe('App StrictMode lifecycle', () => {
     await waitFor(() => expect(harness.backend.activateTerminal).toHaveBeenCalledOnce())
     expect(harness.backend.openLocalTerminal).toHaveBeenCalledOnce()
     expect(harness.controllerInstances).toHaveLength(1)
+
+    harness.controllerInstances[0].requestLink('https://example.com/documentation')
+    expect(await screen.findByRole('dialog', { name: 'Open external link?' })).toBeTruthy()
+    expect(screen.getByText('https://example.com/documentation')).toBeTruthy()
+    expect(harness.browserOpenURL).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByRole('button', { name: 'Open link' }))
+    expect(harness.browserOpenURL).toHaveBeenCalledOnce()
+    expect(harness.browserOpenURL).toHaveBeenCalledWith('https://example.com/documentation')
 
     emitOutputBurst(512)
     expect(harness.controllerInstances[0].acceptOutput).toHaveBeenCalledTimes(512)

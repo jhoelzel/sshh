@@ -1,9 +1,11 @@
 import { FitAddon } from '@xterm/addon-fit'
 import { SearchAddon } from '@xterm/addon-search'
+import { WebLinksAddon } from '@xterm/addon-web-links'
 import { Terminal, type IDisposable } from '@xterm/xterm'
 import { backend } from '../../lib/bridge/client'
 import type { Session, TerminalOutput, TerminalSettings } from '../../lib/bridge/types'
 import { OrderedInputQueue } from './OrderedInputQueue'
+import { sanitizeTerminalLink } from './terminalLinks'
 import { visibleBufferText } from './terminalText'
 
 const maxPendingOutput = 1024 * 1024
@@ -14,6 +16,7 @@ interface ControllerCallbacks {
   onTitle: (title: string) => void
   onBell: () => void
   onError: (error: Error) => void
+  onLinkRequested: (url: string) => void
   onSearchRequested: () => void
   onSelectionChange: (selected: boolean) => void
 }
@@ -72,6 +75,10 @@ export class TerminalController {
       fontFamily: fontFamily(settings.fontFamily),
       fontSize: settings.fontSize,
       lineHeight: settings.lineHeight,
+      linkHandler: {
+        activate: (event, url) => this.requestLink(event, url),
+        allowNonHttpProtocols: false,
+      },
       macOptionIsMeta: true,
       rightClickSelectsWord: true,
       scrollback: settings.scrollback,
@@ -101,6 +108,7 @@ export class TerminalController {
     })
     this.terminal.loadAddon(this.fitAddon)
     this.terminal.loadAddon(this.searchAddon)
+    this.terminal.loadAddon(new WebLinksAddon((event, url) => this.requestLink(event, url)))
 
     this.inputQueue = new OrderedInputQueue(
       async (sequence, data) => {
@@ -349,6 +357,13 @@ export class TerminalController {
       return
     }
     this.fitAddon.fit()
+  }
+
+  private requestLink(event: MouseEvent, value: string): void {
+    event.preventDefault()
+    event.stopPropagation()
+    const url = sanitizeTerminalLink(value)
+    if (url) this.callbacks.onLinkRequested(url)
   }
 
   private scheduleResize(columns: number, rows: number): void {

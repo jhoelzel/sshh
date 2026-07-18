@@ -9,6 +9,7 @@ import {
   FileText,
   FileDown,
   FileUp,
+  ExternalLink,
   FolderOpen,
   LayoutPanelTop,
   Laptop,
@@ -23,6 +24,7 @@ import {
   Zap,
   X,
 } from 'lucide-react'
+import { BrowserOpenURL } from '../../wailsjs/runtime/runtime'
 import { CommandPalette, type PaletteCommand } from '../feature/commands/CommandPalette'
 import { FileBrowser } from '../feature/files/FileBrowser'
 import { canonicalRemotePath } from '../feature/files/remotePath'
@@ -35,6 +37,7 @@ import { SnippetWorkspace } from '../feature/snippets/SnippetWorkspace'
 import { LoggingDialog } from '../feature/terminal/LoggingDialog'
 import { copyVisibleText, exportSelectedText } from '../feature/terminal/terminalActions'
 import type { TerminalController } from '../feature/terminal/TerminalController'
+import { sanitizeTerminalLink } from '../feature/terminal/terminalLinks'
 import { TerminalPane } from '../feature/terminal/TerminalPane'
 import { TunnelWorkspace } from '../feature/tunnels/TunnelWorkspace'
 import { WorkspaceLayoutWorkspace } from '../feature/workspaces/WorkspaceLayoutWorkspace'
@@ -97,6 +100,7 @@ type Confirmation =
   | { kind: 'close-tab'; tabId: string }
   | { kind: 'close-application' }
   | { kind: 'delete-profile'; profileId: string }
+  | { kind: 'open-link'; url: string }
   | { kind: 'restore-layout'; layoutId: string }
 
 interface ProfileEditorState {
@@ -416,6 +420,8 @@ export function App() {
               current.map((tab) => (tab.id === session.id ? { ...tab, attention: true } : tab)),
             ),
           onError: reportError,
+          onLinkRequested: (url) =>
+            setConfirmation((current) => current ?? { kind: 'open-link', url }),
           onSearchRequested: () => setSearchOpen(true),
           onSelectionChange: (hasSelection) =>
             setTabs((current) => current.map((tab) => tab.id === session.id ? { ...tab, hasSelection } : tab)),
@@ -981,10 +987,23 @@ export function App() {
     await applyWorkspaceLayout(layout)
   }, [applyWorkspaceLayout, tabs])
 
-  const confirmClose = useCallback(async () => {
+  const confirmAction = useCallback(async () => {
     const pending = confirmation
     setConfirmation(undefined)
     if (!pending) {
+      return
+    }
+    if (pending.kind === 'open-link') {
+      const url = sanitizeTerminalLink(pending.url)
+      if (!url) {
+        reportError(new Error('The terminal link is no longer valid.'))
+        return
+      }
+      try {
+        BrowserOpenURL(url)
+      } catch (cause) {
+        reportError(cause)
+      }
       return
     }
     if (pending.kind === 'delete-profile') {
@@ -1604,6 +1623,8 @@ export function App() {
               <h2 id="confirm-title">
                 {confirmation.kind === 'close-application'
                   ? 'Close running sessions?'
+                  : confirmation.kind === 'open-link'
+                    ? 'Open external link?'
                   : confirmation.kind === 'delete-profile'
                     ? 'Delete this profile?'
                     : confirmation.kind === 'restore-layout'
@@ -1613,16 +1634,28 @@ export function App() {
               <p>
                 {confirmation.kind === 'close-application'
                   ? `${activityCount} active resource${activityCount === 1 ? '' : 's'} will be closed.`
+                  : confirmation.kind === 'open-link'
+                    ? 'This address came from terminal output and will open in your system browser.'
                   : confirmation.kind === 'delete-profile'
                     ? 'The saved connection settings will be removed. Existing sessions remain open.'
                     : confirmation.kind === 'restore-layout'
                       ? `${runningCount} running terminal${runningCount === 1 ? '' : 's'} will be closed before the layout is restored.`
                       : 'The shell process and its child processes will be terminated.'}
               </p>
+              {confirmation.kind === 'open-link' && (
+                <code className="terminal-link-address">{confirmation.url}</code>
+              )}
             </div>
             <div className="dialog-actions">
               <button className="secondary-button" type="button" autoFocus onClick={() => setConfirmation(undefined)}>Cancel</button>
-              <button className="danger-button" type="button" onClick={() => void confirmClose()}>{confirmation.kind === 'restore-layout' ? 'Restore' : confirmation.kind === 'delete-profile' ? 'Delete' : 'Close'}</button>
+              <button
+                className={confirmation.kind === 'open-link' ? 'primary-button' : 'danger-button'}
+                type="button"
+                onClick={() => void confirmAction()}
+              >
+                {confirmation.kind === 'open-link' && <ExternalLink size={14} />}
+                {confirmation.kind === 'open-link' ? 'Open link' : confirmation.kind === 'restore-layout' ? 'Restore' : confirmation.kind === 'delete-profile' ? 'Delete' : 'Close'}
+              </button>
             </div>
           </section>
         </div>

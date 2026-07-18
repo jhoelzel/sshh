@@ -5,6 +5,7 @@ interface TerminalDouble {
   emitBinary: (value: string) => void
   emitData: (value: string) => void
   emitResize: (columns: number, rows: number) => void
+  options: Record<string, unknown>
   rejectWrites: boolean
   resize: (columns: number, rows: number) => void
   writes: Uint8Array[]
@@ -17,6 +18,7 @@ const harness = vi.hoisted(() => ({
     writeTerminal: vi.fn(),
   },
   terminals: [] as TerminalDouble[],
+  webLinkHandlers: [] as Array<(event: MouseEvent, url: string) => void>,
 }))
 
 vi.mock('../../lib/bridge/client', () => ({ backend: harness.backend }))
@@ -31,6 +33,14 @@ vi.mock('@xterm/addon-search', () => ({
   SearchAddon: class {
     findNext = vi.fn(() => false)
     findPrevious = vi.fn(() => false)
+  },
+}))
+
+vi.mock('@xterm/addon-web-links', () => ({
+  WebLinksAddon: class {
+    constructor(handler: (event: MouseEvent, url: string) => void) {
+      harness.webLinkHandlers.push(handler)
+    }
   },
 }))
 
@@ -112,6 +122,7 @@ const settings: TerminalSettings = {
 
 beforeEach(() => {
   harness.terminals.length = 0
+  harness.webLinkHandlers.length = 0
   harness.backend.acknowledgeTerminalOutput.mockReset().mockResolvedValue(undefined)
   harness.backend.resizeTerminal.mockReset().mockResolvedValue(undefined)
   harness.backend.writeTerminal.mockReset().mockResolvedValue(undefined)
@@ -125,6 +136,31 @@ afterEach(() => {
 })
 
 describe('TerminalController', () => {
+  it('routes only canonical HTTP and HTTPS links through the confirmation callback', () => {
+    const { callbacks, controller } = createController()
+    const terminal = harness.terminals[0]
+    const linkHandler = terminal.options.linkHandler as {
+      activate: (event: MouseEvent, url: string) => void
+      allowNonHttpProtocols: boolean
+    }
+    const event = new MouseEvent('click', { cancelable: true })
+    const stopPropagation = vi.spyOn(event, 'stopPropagation')
+
+    expect(linkHandler.allowNonHttpProtocols).toBe(false)
+    linkHandler.activate(event, 'HTTPS://EXAMPLE.COM/path')
+    harness.webLinkHandlers[0](event, 'http://example.org:80/status')
+    linkHandler.activate(event, 'javascript:alert(1)')
+    harness.webLinkHandlers[0](event, 'https://user:secret@example.com/')
+
+    expect(event.defaultPrevented).toBe(true)
+    expect(stopPropagation).toHaveBeenCalledTimes(4)
+    expect(callbacks.onLinkRequested.mock.calls.map(([url]) => url)).toEqual([
+      'https://example.com/path',
+      'http://example.org/status',
+    ])
+    controller.dispose()
+  })
+
   it('preserves callback order across text, binary mouse, and paste input', async () => {
     let releaseFirst!: () => void
     const firstWrite = new Promise<void>((resolve) => { releaseFirst = resolve })
@@ -249,6 +285,7 @@ function createController() {
   const callbacks = {
     onBell: vi.fn(),
     onError: vi.fn(),
+    onLinkRequested: vi.fn(),
     onSearchRequested: vi.fn(),
     onSelectionChange: vi.fn(),
     onTitle: vi.fn(),
