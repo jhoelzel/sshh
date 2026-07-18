@@ -5,6 +5,7 @@ interface TerminalDouble {
   clear: ReturnType<typeof vi.fn>
   emitBinary: (value: string) => void
   emitData: (value: string) => void
+  emitRender: () => void
   emitResize: (columns: number, rows: number) => void
   focus: ReturnType<typeof vi.fn>
   options: Record<string, unknown>
@@ -14,12 +15,24 @@ interface TerminalDouble {
   writes: Uint8Array[]
 }
 
+interface FitAddonDouble {
+  fit: ReturnType<typeof vi.fn>
+}
+
+interface ResizeObserverDouble {
+  disconnect: ReturnType<typeof vi.fn>
+  emit: () => void
+  observe: ReturnType<typeof vi.fn>
+}
+
 const harness = vi.hoisted(() => ({
   backend: {
     acknowledgeTerminalOutput: vi.fn(),
     resizeTerminal: vi.fn(),
     writeTerminal: vi.fn(),
   },
+  fitAddons: [] as FitAddonDouble[],
+  resizeObservers: [] as ResizeObserverDouble[],
   terminals: [] as TerminalDouble[],
   webLinkHandlers: [] as Array<(event: MouseEvent, url: string) => void>,
 }))
@@ -29,6 +42,10 @@ vi.mock('../../lib/bridge/client', () => ({ backend: harness.backend }))
 vi.mock('@xterm/addon-fit', () => ({
   FitAddon: class {
     fit = vi.fn()
+
+    constructor() {
+      harness.fitAddons.push(this)
+    }
   },
 }))
 
@@ -51,6 +68,7 @@ vi.mock('@xterm/xterm', () => ({
   Terminal: class implements TerminalDouble {
     private binaryHandler?: (value: string) => void
     private dataHandler?: (value: string) => void
+    private renderHandler?: () => void
     private resizeHandler?: (size: { cols: number; rows: number }) => void
     readonly buffer = { active: { baseY: 0, cursorY: 0, getLine: () => undefined, viewportY: 0 } }
     readonly rows = 24
@@ -79,6 +97,10 @@ vi.mock('@xterm/xterm', () => ({
     onBell = vi.fn(() => disposable())
     onSelectionChange = vi.fn(() => disposable())
     onTitleChange = vi.fn(() => disposable())
+    onRender = vi.fn((handler: () => void) => {
+      this.renderHandler = handler
+      return disposable()
+    })
     onBinary = vi.fn((handler: (value: string) => void) => {
       this.binaryHandler = handler
       return disposable()
@@ -106,6 +128,10 @@ vi.mock('@xterm/xterm', () => ({
       this.dataHandler?.(value)
     }
 
+    emitRender(): void {
+      this.renderHandler?.()
+    }
+
     emitResize(columns: number, rows: number): void {
       this.resizeHandler?.({ cols: columns, rows })
     }
@@ -126,6 +152,8 @@ const settings: TerminalSettings = {
 }
 
 beforeEach(() => {
+  harness.fitAddons.length = 0
+  harness.resizeObservers.length = 0
   harness.terminals.length = 0
   harness.webLinkHandlers.length = 0
   harness.backend.acknowledgeTerminalOutput.mockReset().mockResolvedValue(undefined)
@@ -133,6 +161,18 @@ beforeEach(() => {
   harness.backend.writeTerminal.mockReset().mockResolvedValue(undefined)
   vi.stubGlobal('requestAnimationFrame', vi.fn(() => 1))
   vi.stubGlobal('cancelAnimationFrame', vi.fn())
+  vi.stubGlobal('ResizeObserver', class {
+    disconnect = vi.fn()
+    observe = vi.fn()
+
+    constructor(private readonly callback: ResizeObserverCallback) {
+      harness.resizeObservers.push(this)
+    }
+
+    emit(): void {
+      this.callback([], this as unknown as ResizeObserver)
+    }
+  })
 })
 
 afterEach(() => {
@@ -212,6 +252,60 @@ describe('TerminalController', () => {
     expect(harness.backend.resizeTerminal).toHaveBeenCalledWith('lease-1', 'session-1', 3, 120, 40)
     expect(terminal.resize).toHaveBeenCalledTimes(2)
     controller.dispose()
+  })
+
+  it('measures no fit or focus work while hidden and coalesces visible layout frames', () => {
+    const { controller } = createController()
+    const terminal = harness.terminals[0]
+    const fitAddon = harness.fitAddons[0]
+    const host = document.createElement('div')
+    Object.defineProperties(host, {
+      clientHeight: { configurable: true, value: 480 },
+      clientWidth: { configurable: true, value: 800 },
+    })
+    controller.attach(host)
+    const observer = harness.resizeObservers[0]
+
+    controller.applySettings({ ...settings, fontSize: 14 })
+    observer.emit()
+    expect(requestAnimationFrame).not.toHaveBeenCalled()
+    expect(fitAddon.fit).not.toHaveBeenCalled()
+    expect(terminal.focus).not.toHaveBeenCalled()
+
+    controller.setVisible(true)
+    controller.applySettings({ ...settings, lineHeight: 1.3 })
+    observer.emit()
+    expect(requestAnimationFrame).toHaveBeenCalledOnce()
+
+    controller.setVisible(false)
+    vi.mocked(requestAnimationFrame).mock.calls[0][0](0)
+    expect(fitAddon.fit).not.toHaveBeenCalled()
+    expect(terminal.focus).not.toHaveBeenCalled()
+
+    controller.setVisible(true)
+    observer.emit()
+    expect(requestAnimationFrame).toHaveBeenCalledTimes(2)
+    vi.mocked(requestAnimationFrame).mock.calls[1][0](16)
+    expect(fitAddon.fit).toHaveBeenCalledOnce()
+    expect(terminal.focus).toHaveBeenCalledOnce()
+
+    observer.emit()
+    observer.emit()
+    expect(requestAnimationFrame).toHaveBeenCalledTimes(3)
+    vi.mocked(requestAnimationFrame).mock.calls[2][0](32)
+    expect(fitAddon.fit).toHaveBeenCalledTimes(2)
+    expect(terminal.focus).toHaveBeenCalledOnce()
+
+    terminal.emitRender()
+    expect(controller.renderCount()).toBe(1)
+    controller.setVisible(false)
+    controller.setVisible(true)
+    expect(requestAnimationFrame).toHaveBeenCalledTimes(4)
+    controller.dispose()
+    expect(cancelAnimationFrame).toHaveBeenCalledWith(1)
+    vi.mocked(requestAnimationFrame).mock.calls[3][0](48)
+    expect(fitAddon.fit).toHaveBeenCalledTimes(2)
+    expect(observer.disconnect).toHaveBeenCalledOnce()
   })
 
   it('clears scrollback and resets only the local live terminal', () => {

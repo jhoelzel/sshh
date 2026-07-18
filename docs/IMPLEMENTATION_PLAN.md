@@ -969,10 +969,13 @@ Tests and exit gate:
 - [ ] React component tests and Playwright flows cover focus, shortcuts, tab close,
   split layout, and shutdown decisions.
 - [ ] Native Wails smoke tests cover window close interception and lifecycle hooks.
-- [ ] Add measured coverage proving an inactive persistent tab consumes no redraw
-  work unless its model changes.
-- [ ] Stress tests cover at least 50 open tabs, sustained output in several hidden
-  tabs, repeated active-tab changes, and deterministic controller disposal.
+- [x] Measured controller and native Wails-smoke coverage prove hidden panes
+  schedule no fit or focus work, xterm renderer events remain unchanged during
+  a real PTY/Wails output probe, and one refresh occurs after visibility returns.
+- [x] A rendered App stress test opens 50 persistent tabs, routes 1,024 output
+  frames across four hidden sessions, performs 137 active-tab changes, preserves
+  one host attachment per controller, and closes and disposes every controller
+  exactly once.
 
 ### M4: Profiles, Configuration, and Migration
 

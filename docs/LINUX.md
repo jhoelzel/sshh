@@ -37,14 +37,16 @@ The `native-linux` CI job performs three independent checks:
 2. The ordinary production Wails host compiles against the WebKitGTK 4.1 ABI.
 3. A benchmark-flagged production host launches under a private D-Bus session
    and Xvfb. It restores focus from an external input to the real xterm control,
-   performs and restores a native clipboard round trip, streams 128 KiB through
-   a same-executable PTY child, performs five live resizes, closes under output,
-   and records the app, PTY child, and WebKitGTK helper process tree. The smaller
-   stream keeps this a functional gate under Xvfb; the PTY suite separately
-   closes during a 2 MiB flood and macOS retains the 10 MiB performance gate.
-   Smoke and performance modes send an explicit bounded byte count to the same
-   fixture protocol, which rejects zero, malformed, and greater-than-10-MiB
-   requests.
+   performs and restores a native clipboard round trip, and hides the real
+   terminal while a line-oriented render probe crosses the PTY and Wails bridge.
+   The xterm render count must remain unchanged while hidden and advance after
+   the host is restored. The smoke then streams 128 KiB through the same-executable
+   PTY child, performs five live resizes, closes under output, and records the
+   app, PTY child, and WebKitGTK helper process tree. The smaller stream keeps
+   this a functional gate under Xvfb; the PTY suite separately closes during a
+   2 MiB flood and macOS retains the 10 MiB performance gate. Smoke and
+   performance modes send an explicit bounded byte count to the same fixture
+   protocol, which rejects zero, malformed, and greater-than-10-MiB requests.
 
 The smoke report contains only booleans, timing, byte/sequence counters, queue
 high-water marks, process counts, host facts, and the WebKitGTK version. It does

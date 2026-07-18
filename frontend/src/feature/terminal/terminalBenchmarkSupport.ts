@@ -9,6 +9,7 @@ import { TerminalController } from './TerminalController'
 
 export const markerReady = 'SHHH_BENCH_READY'
 export const markerEcho = 'SHHH_BENCH_ECHO:'
+export const markerRenderProbe = 'SHHH_BENCH_RENDER_PROBE'
 export const markerResize = 'SHHH_BENCH_RESIZE:'
 export const markerDone = 'SHHH_BENCH_DONE:'
 export const markerCloseFlood = 'SHHH_BENCH_CLOSE_FLOOD'

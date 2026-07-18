@@ -17,6 +17,7 @@ import {
   markerDone,
   markerEcho,
   markerReady,
+  markerRenderProbe,
   markerResize,
   operationTimeout,
   sanitizeFailure,
@@ -99,6 +100,11 @@ async function runTerminalBenchmark(host: HTMLElement, setStatus: (status: strin
 
     setStatus('Checking native terminal focus and clipboard')
     report.native = await checkNativeInteractions(controller)
+
+    setStatus('Checking inactive terminal render suspension')
+    if (!await checkInactiveRendererPause(controller, host, tracker, timeout)) {
+      report.failures.push('inactive xterm renderer did not pause and resume correctly')
+    }
 
     setStatus('Measuring idle input and resize latency')
     report.idleEchoMilliseconds = await measureEcho(controller, tracker, 'idle', config.minimumLatencySamples, timeout)
@@ -201,6 +207,55 @@ async function checkClipboardRoundTrip(): Promise<boolean> {
     }
   }
   return passed
+}
+
+async function checkInactiveRendererPause(
+  controller: TerminalController,
+  host: HTMLElement,
+  tracker: TitleTracker,
+  timeout: number,
+): Promise<boolean> {
+  const display = host.style.display
+  let restored = false
+  try {
+    host.style.display = 'none'
+    controller.setVisible(false)
+    await delay(100)
+    await nextAnimationFrame()
+    const beforeProbe = controller.renderCount()
+
+    const completed = tracker.wait(markerRenderProbe, timeout)
+    await controller.sendText('RENDER_PROBE', true)
+    await completed
+    await delay(100)
+    await nextAnimationFrame()
+    const afterProbe = controller.renderCount()
+
+    host.style.display = display
+    controller.setVisible(true)
+    restored = true
+    const resumed = await waitForRenderAfter(controller, afterProbe, Math.min(timeout, 2_000))
+    await delay(100)
+    return afterProbe === beforeProbe && resumed
+  } finally {
+    if (!restored) {
+      host.style.display = display
+      controller.setVisible(true)
+    }
+  }
+}
+
+async function waitForRenderAfter(
+  controller: TerminalController,
+  renderCount: number,
+  timeout: number,
+): Promise<boolean> {
+  const deadline = performance.now() + timeout
+  while (performance.now() < deadline) {
+    if (controller.renderCount() > renderCount) return true
+    await nextAnimationFrame()
+  }
+  return false
 }
 
 function nextAnimationFrame(): Promise<void> {

@@ -73,6 +73,10 @@ func runFixture(input *os.File, output *os.File) error {
 			if err := writeTitle(MarkerEchoPrefix + strings.TrimPrefix(command, "PING:")); err != nil {
 				return err
 			}
+		case command == commandRenderProbe:
+			if err := writeRenderProbe(output, &writes); err != nil {
+				return err
+			}
 		case strings.HasPrefix(command, commandFlood):
 			byteCount, valid := parseFloodCommand(command)
 			if valid {

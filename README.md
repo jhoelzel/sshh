@@ -11,7 +11,8 @@ native desktop application.
   native ConPTY on supported Windows systems.
 - xterm.js rendering, input, resize, search, titles, bells, and persistent tabs.
 - Searchable terminal-tab switching, pointer and command reordering, Ctrl+Tab
-  cycling, and accessible roving tab focus without remounting live terminals.
+  cycling, and accessible roving tab focus without remounting live terminals,
+  backed by a rendered 50-tab switching, hidden-output, and disposal stress test.
 - State-aware terminal actions for retry-in-place, reconnecting while preserving
   old output, duplicating running tabs, clearing scrollback, and resetting the
   local terminal emulator.
@@ -61,12 +62,13 @@ native desktop application.
   or sidecar process required at runtime.
 
 The current packaged application and full terminal-performance proof target is
-macOS arm64. Linux has a native PTY and headless WebKitGTK focus/clipboard CI
-gate on Ubuntu 24.04 amd64. The Windows ConPTY backend has a native Windows CI
-gate, while WebView2 focus, AltGr, IME, clipboard, and broader interaction
-validation remain open. Signed/notarized release automation, advanced
-reconnect/proxy preferences, and remaining cross-platform UX are also future
-milestones; see the implementation plan for the release gates.
+macOS arm64. Linux has a native PTY and headless WebKitGTK focus, clipboard, and
+inactive-render-suspension CI gate on Ubuntu 24.04 amd64. The Windows ConPTY
+backend has a native Windows CI gate, while WebView2 focus, AltGr, IME,
+clipboard, and broader interaction validation remain open. Signed/notarized
+release automation, advanced reconnect/proxy preferences, and remaining
+cross-platform UX are also future milestones; see the implementation plan for
+the release gates.
 
 ## Prerequisites
 
@@ -124,8 +126,9 @@ regenerates the Go-to-TypeScript bridge, normalizes generator-only whitespace,
 and fails if any binding differs from the committed contract. The Linux job
 checks the documented WebKitGTK floor, runs real PTY resize/process-tree cleanup
 tests, compiles the product host, and launches a production-mode xterm/Wails
-smoke under Xvfb for native focus and clipboard checks. The Windows job runs the
-real ConPTY adapter tests before compiling the Wails desktop host.
+smoke under Xvfb for native focus, clipboard, and hidden-render pause/resume
+checks. The Windows job runs the real ConPTY adapter tests before compiling the
+Wails desktop host.
 
 The security job runs the Go team's call-graph vulnerability scanner and fails
 for reachable advisories. It also runs `npm audit --audit-level=high`; moderate

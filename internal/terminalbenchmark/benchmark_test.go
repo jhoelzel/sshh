@@ -260,6 +260,21 @@ func TestFloodWritesExactDeterministicPayload(t *testing.T) {
 	}
 }
 
+func TestRenderProbeWritesRowsBeforeCompletionMarker(t *testing.T) {
+	var output bytes.Buffer
+	var writes sync.Mutex
+	if err := writeRenderProbe(&output, &writes); err != nil {
+		t.Fatalf("write render probe: %v", err)
+	}
+	wantPayload := strings.Repeat(renderProbeLine, 1_024)
+	if !strings.HasPrefix(output.String(), wantPayload) {
+		t.Fatal("render probe did not write its line-oriented payload first")
+	}
+	if !strings.HasSuffix(output.String(), "\x1b]0;"+MarkerRenderProbe+"\x07") {
+		t.Fatal("render probe did not finish with its title marker")
+	}
+}
+
 func TestFloodCommandAcceptsOnlyBoundedByteCounts(t *testing.T) {
 	tests := []struct {
 		command string

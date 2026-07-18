@@ -45,8 +45,11 @@ export class TerminalController {
   private host?: HTMLElement
   private resizeObserver?: ResizeObserver
   private resizeTimer?: number
+  private layoutFrame?: number
+  private focusAfterLayout = false
   private visible = false
   private disposed = false
+  private renderEventCount = 0
   private outputFailed = false
   private readyResolve!: () => void
   private readonly readyPromise: Promise<void>
@@ -129,6 +132,7 @@ export class TerminalController {
       this.terminal.onResize(({ cols, rows }) => this.scheduleResize(cols, rows)),
       this.terminal.onTitleChange(callbacks.onTitle),
       this.terminal.onSelectionChange(() => callbacks.onSelectionChange(this.terminal.hasSelection())),
+      this.terminal.onRender(() => this.renderEventCount++),
       this.terminal.onBell(() => {
         if (this.bellEnabled) callbacks.onBell()
       }),
@@ -152,11 +156,7 @@ export class TerminalController {
 
     this.host = host
     this.terminal.open(host)
-    this.resizeObserver = new ResizeObserver(() => {
-      if (this.visible) {
-        this.fit()
-      }
-    })
+    this.resizeObserver = new ResizeObserver(() => this.scheduleVisibleLayout(false))
     this.resizeObserver.observe(host)
     this.readyResolve()
   }
@@ -166,13 +166,13 @@ export class TerminalController {
   }
 
   setVisible(visible: boolean): void {
+    if (this.disposed || this.visible === visible) return
     this.visible = visible
-    if (visible) {
-      requestAnimationFrame(() => {
-        this.fit()
-        this.terminal.focus()
-      })
+    if (!visible) {
+      this.focusAfterLayout = false
+      return
     }
+    this.scheduleVisibleLayout(true)
   }
 
   acceptOutput(event: TerminalOutput): void {
@@ -302,6 +302,10 @@ export class TerminalController {
     }
   }
 
+  renderCount(): number {
+    return this.renderEventCount
+  }
+
   visibleText(): string {
     if (this.disposed) return ''
     return visibleBufferText(this.terminal.buffer.active, this.terminal.rows)
@@ -334,7 +338,7 @@ export class TerminalController {
     this.terminal.options.cursorStyle = settings.cursorStyle
     this.terminal.options.cursorBlink = settings.cursorBlink
     this.terminal.options.scrollback = settings.scrollback
-    if (this.visible) requestAnimationFrame(() => this.fit())
+    this.scheduleVisibleLayout(false)
   }
 
   async sendText(text: string, submit: boolean): Promise<void> {
@@ -358,6 +362,11 @@ export class TerminalController {
     if (this.acknowledgementFrame !== undefined) {
       cancelAnimationFrame(this.acknowledgementFrame)
     }
+    if (this.layoutFrame !== undefined) {
+      cancelAnimationFrame(this.layoutFrame)
+      this.layoutFrame = undefined
+    }
+    this.focusAfterLayout = false
     this.resizeObserver?.disconnect()
     for (const disposable of this.disposables) {
       disposable.dispose()
@@ -370,6 +379,20 @@ export class TerminalController {
       return
     }
     this.fitAddon.fit()
+  }
+
+  private scheduleVisibleLayout(focus: boolean): void {
+    if (this.disposed || !this.visible) return
+    this.focusAfterLayout ||= focus
+    if (this.layoutFrame !== undefined) return
+    this.layoutFrame = requestAnimationFrame(() => {
+      this.layoutFrame = undefined
+      const shouldFocus = this.focusAfterLayout
+      this.focusAfterLayout = false
+      if (this.disposed || !this.visible) return
+      this.fit()
+      if (shouldFocus) this.terminal.focus()
+    })
   }
 
   private requestLink(event: MouseEvent, value: string): void {

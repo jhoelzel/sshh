@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+import { memo, useEffect, useRef } from 'react'
 import type { TerminalController } from './TerminalController'
 import { terminalPanelId, terminalTabId } from './terminalTabIds'
 
@@ -8,7 +8,7 @@ interface TerminalPaneProps {
   tabId: string
 }
 
-export function TerminalPane({ controller, active, tabId }: TerminalPaneProps) {
+export const TerminalPane = memo(function TerminalPane({ controller, active, tabId }: TerminalPaneProps) {
   const host = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -31,4 +31,4 @@ export function TerminalPane({ controller, active, tabId }: TerminalPaneProps) {
       aria-labelledby={terminalTabId(tabId)}
     />
   )
-}
+})

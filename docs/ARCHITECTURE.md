@@ -189,6 +189,18 @@ manual-activation ARIA tabs with roving Arrow, Home, and End focus. Saved
 workspace layouts naturally capture the resulting order without persisting a
 live runtime.
 
+Persistent pane components are memoized, so selecting a tab only re-renders the
+previous and next terminal hosts. Visible-pane fit, settings, and resize-observer
+requests share one animation-frame scheduler; queued work rechecks visibility
+and disposal before fitting or focusing. Inactive hosts use `display: none`,
+which activates xterm 6's IntersectionObserver renderer suspension while its
+parser and bounded flow-control path continue accepting that session's output.
+The native smoke streams a line-oriented render probe while hidden, requires
+the render-event count to remain unchanged, and then requires one refresh after
+the host becomes visible. A rendered 50-tab App stress test separately verifies
+persistent attachment, hidden-session output routing, repeated selection, and
+exactly-once disposal.
+
 Terminal text actions are read-only controller operations. Copy Visible reads
 the active xterm viewport and sends it directly to the Wails native clipboard;
 Export Selection reads xterm's exact selection and passes it to a bounded

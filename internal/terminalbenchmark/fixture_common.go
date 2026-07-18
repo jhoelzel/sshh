@@ -11,15 +11,28 @@ import (
 )
 
 const (
-	MarkerReady       = "SHHH_BENCH_READY"
-	MarkerEchoPrefix  = "SHHH_BENCH_ECHO:"
-	MarkerResize      = "SHHH_BENCH_RESIZE:"
-	MarkerDone        = "SHHH_BENCH_DONE:"
-	MarkerCloseFlood  = "SHHH_BENCH_CLOSE_FLOOD"
-	MarkerSoakStarted = "SHHH_BENCH_SOAK_STARTED"
-	MarkerSoakDone    = "SHHH_BENCH_SOAK_DONE"
-	commandFlood      = "FLOOD:"
+	MarkerReady        = "SHHH_BENCH_READY"
+	MarkerEchoPrefix   = "SHHH_BENCH_ECHO:"
+	MarkerRenderProbe  = "SHHH_BENCH_RENDER_PROBE"
+	MarkerResize       = "SHHH_BENCH_RESIZE:"
+	MarkerDone         = "SHHH_BENCH_DONE:"
+	MarkerCloseFlood   = "SHHH_BENCH_CLOSE_FLOOD"
+	MarkerSoakStarted  = "SHHH_BENCH_SOAK_STARTED"
+	MarkerSoakDone     = "SHHH_BENCH_SOAK_DONE"
+	commandFlood       = "FLOOD:"
+	commandRenderProbe = "RENDER_PROBE"
 )
+
+const renderProbeLine = "render-probe.................................................................\r\n"
+
+func writeRenderProbe(output io.Writer, writes *sync.Mutex) error {
+	writes.Lock()
+	defer writes.Unlock()
+	if err := writeAll(output, []byte(strings.Repeat(renderProbeLine, 1_024))); err != nil {
+		return err
+	}
+	return writeAll(output, []byte("\x1b]0;"+MarkerRenderProbe+"\x07"))
+}
 
 func RunFixtureIfRequested(arguments []string) (bool, error) {
 	if len(arguments) != 1 || arguments[0] != FixtureArgument {
