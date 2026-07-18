@@ -149,12 +149,16 @@ jobs:
           LIBGL_ALWAYS_SOFTWARE: '1'
           WEBKIT_DISABLE_COMPOSITING_MODE: '1'
         run: |
+          status=0
           dbus-run-session -- xvfb-run -a go run ./cmd/terminalbench \
             -mode smoke \
             -app "$GITHUB_WORKSPACE/build/bin/shhh-linux-smoke" \
             -report "$RUNNER_TEMP/m2-linux-amd64-smoke.json" \
-            -timeout 90s
-          cat "$RUNNER_TEMP/m2-linux-amd64-smoke.json"
+            -timeout 90s || status=$?
+          if test -f "$RUNNER_TEMP/m2-linux-amd64-smoke.json"; then
+            cat "$RUNNER_TEMP/m2-linux-amd64-smoke.json"
+          fi
+          exit "$status"
 
   native-windows:
     name: Windows desktop build

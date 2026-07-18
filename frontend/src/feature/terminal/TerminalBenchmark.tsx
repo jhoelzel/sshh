@@ -103,7 +103,7 @@ async function runTerminalBenchmark(host: HTMLElement, setStatus: (status: strin
     report.idleEchoMilliseconds = await measureEcho(controller, tracker, 'idle', config.minimumLatencySamples, timeout)
     report.resizeMilliseconds = await measureResize(controller, tracker, config.minimumLatencySamples, timeout)
 
-    setStatus('Streaming 10 MiB through PTY, Go, Wails, and xterm')
+    setStatus('Streaming fixture output through PTY, Go, Wails, and xterm')
     const completed = tracker.wait(`${markerDone}${config.payloadBytes}`, timeout)
     const outputStarted = performance.now()
     await controller.sendText('FLOOD', true)

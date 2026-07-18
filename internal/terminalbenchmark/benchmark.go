@@ -25,7 +25,7 @@ const (
 
 	SchemaVersion                  = 2
 	PayloadBytes            uint64 = 10 * 1024 * 1024
-	SmokePayloadBytes       uint64 = 2 * 1024 * 1024
+	SmokePayloadBytes       uint64 = 128 * 1024
 	MaximumQueueBytes       uint64 = 1024 * 1024
 	MaximumOutputMS                = 10_000
 	MaximumIdleEchoP95MS           = 50
