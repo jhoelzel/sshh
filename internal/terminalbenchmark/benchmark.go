@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -22,22 +23,26 @@ const (
 	EnvironmentMode       = "SHHH_TERMINAL_BENCHMARK_MODE"
 	FixtureArgument       = "--shhh-terminal-benchmark-fixture"
 
-	SchemaVersion                = 1
-	PayloadBytes          uint64 = 10 * 1024 * 1024
-	MaximumQueueBytes     uint64 = 1024 * 1024
-	MaximumOutputMS              = 10_000
-	MaximumIdleEchoP95MS         = 50
-	MaximumFloodEchoP95MS        = 150
-	MaximumResizeP95MS           = 150
-	MaximumCloseMS               = 1_000
-	MaximumProcessRSS     uint64 = 512 * 1024 * 1024
-	MinimumSamples               = 20
+	SchemaVersion                  = 2
+	PayloadBytes            uint64 = 10 * 1024 * 1024
+	SmokePayloadBytes       uint64 = 2 * 1024 * 1024
+	MaximumQueueBytes       uint64 = 1024 * 1024
+	MaximumOutputMS                = 10_000
+	MaximumIdleEchoP95MS           = 50
+	MaximumFloodEchoP95MS          = 150
+	MaximumResizeP95MS             = 150
+	MaximumCloseMS                 = 1_000
+	MaximumProcessRSS       uint64 = 512 * 1024 * 1024
+	MinimumSamples                 = 20
+	SmokeMinimumSamples            = 5
+	MinimumWebKitGTKVersion        = "2.41.0"
 )
 
 type Mode string
 
 const (
 	ModeBurst Mode = "burst"
+	ModeSmoke Mode = "smoke"
 	ModeSoak  Mode = "soak"
 )
 
@@ -99,27 +104,34 @@ type HostMetrics struct {
 	SteadyStateGrowthRSSBytes uint64 `json:"steadyStateGrowthRssBytes,omitempty"`
 	SteadyStateStartSamples   int    `json:"steadyStateStartSamples,omitempty"`
 	SteadyStateEndSamples     int    `json:"steadyStateEndSamples,omitempty"`
+	WebKitGTKVersion          string `json:"webKitGtkVersion,omitempty"`
+}
+
+type NativeInteractionChecks struct {
+	TerminalFocus      bool `json:"terminalFocus"`
+	ClipboardRoundTrip bool `json:"clipboardRoundTrip"`
 }
 
 type Report struct {
-	SchemaVersion              int                   `json:"schemaVersion"`
-	StartedAt                  string                `json:"startedAt"`
-	FinishedAt                 string                `json:"finishedAt"`
-	PayloadBytes               uint64                `json:"payloadBytes"`
-	OutputDurationMilliseconds float64               `json:"outputDurationMilliseconds"`
-	IdleEchoMilliseconds       []float64             `json:"idleEchoMilliseconds"`
-	FloodEchoMilliseconds      []float64             `json:"floodEchoMilliseconds"`
-	ResizeMilliseconds         []float64             `json:"resizeMilliseconds"`
-	IdleEchoP95Milliseconds    float64               `json:"idleEchoP95Milliseconds"`
-	FloodEchoP95Milliseconds   float64               `json:"floodEchoP95Milliseconds"`
-	ResizeP95Milliseconds      float64               `json:"resizeP95Milliseconds"`
-	CloseDurationMilliseconds  float64               `json:"closeDurationMilliseconds"`
-	Controller                 ControllerDiagnostics `json:"controller"`
-	Backend                    BackendDiagnostics    `json:"backend"`
-	Runtime                    RuntimeMetrics        `json:"runtime"`
-	Host                       HostMetrics           `json:"host"`
-	Passed                     bool                  `json:"passed"`
-	Failures                   []string              `json:"failures"`
+	SchemaVersion              int                     `json:"schemaVersion"`
+	StartedAt                  string                  `json:"startedAt"`
+	FinishedAt                 string                  `json:"finishedAt"`
+	PayloadBytes               uint64                  `json:"payloadBytes"`
+	OutputDurationMilliseconds float64                 `json:"outputDurationMilliseconds"`
+	IdleEchoMilliseconds       []float64               `json:"idleEchoMilliseconds"`
+	FloodEchoMilliseconds      []float64               `json:"floodEchoMilliseconds"`
+	ResizeMilliseconds         []float64               `json:"resizeMilliseconds"`
+	IdleEchoP95Milliseconds    float64                 `json:"idleEchoP95Milliseconds"`
+	FloodEchoP95Milliseconds   float64                 `json:"floodEchoP95Milliseconds"`
+	ResizeP95Milliseconds      float64                 `json:"resizeP95Milliseconds"`
+	CloseDurationMilliseconds  float64                 `json:"closeDurationMilliseconds"`
+	Controller                 ControllerDiagnostics   `json:"controller"`
+	Backend                    BackendDiagnostics      `json:"backend"`
+	Native                     NativeInteractionChecks `json:"native"`
+	Runtime                    RuntimeMetrics          `json:"runtime"`
+	Host                       HostMetrics             `json:"host"`
+	Passed                     bool                    `json:"passed"`
+	Failures                   []string                `json:"failures"`
 }
 
 type Service struct {
@@ -183,6 +195,8 @@ func ParseMode(value string) (Mode, error) {
 	switch Mode(strings.TrimSpace(value)) {
 	case "", ModeBurst:
 		return ModeBurst, nil
+	case ModeSmoke:
+		return ModeSmoke, nil
 	case ModeSoak:
 		return ModeSoak, nil
 	default:
@@ -194,14 +208,20 @@ func (service *Service) Configuration() Configuration {
 	if service == nil {
 		return Configuration{}
 	}
+	payloadBytes := PayloadBytes
+	minimumSamples := MinimumSamples
+	if service.mode == ModeSmoke {
+		payloadBytes = SmokePayloadBytes
+		minimumSamples = SmokeMinimumSamples
+	}
 	return Configuration{
 		Enabled:                   true,
 		Mode:                      service.mode,
 		ProcessID:                 os.Getpid(),
-		PayloadBytes:              PayloadBytes,
+		PayloadBytes:              payloadBytes,
 		MaximumBackendQueueBytes:  MaximumQueueBytes,
 		MaximumFrontendQueueBytes: MaximumQueueBytes,
-		MinimumLatencySamples:     MinimumSamples,
+		MinimumLatencySamples:     minimumSamples,
 		SoakDurationMilliseconds:  SoakDurationMilliseconds,
 		SoakSessionCount:          SoakSessionCount,
 		SoakHeartbeatMilliseconds: SoakHeartbeatMilliseconds,
@@ -251,8 +271,8 @@ func (service *Service) Complete(report Report) (Report, error) {
 	if service == nil {
 		return Report{}, errors.New("terminal benchmark is disabled")
 	}
-	if service.mode != ModeBurst {
-		return Report{}, errors.New("terminal burst benchmark is not configured")
+	if service.mode != ModeBurst && service.mode != ModeSmoke {
+		return Report{}, errors.New("terminal burst or smoke benchmark is not configured")
 	}
 	report.Runtime = RuntimeMetrics{
 		OperatingSystem: runtime.GOOS,
@@ -260,7 +280,11 @@ func (service *Service) Complete(report Report) (Report, error) {
 		GoVersion:       runtime.Version(),
 		ProcessID:       os.Getpid(),
 	}
-	evaluateFrontend(&report)
+	if service.mode == ModeSmoke {
+		evaluateSmokeFrontend(&report)
+	} else {
+		evaluateFrontend(&report)
+	}
 	if err := validateReport(report); err != nil {
 		return Report{}, err
 	}
@@ -287,6 +311,38 @@ func EvaluateHost(report *Report) {
 	}
 	if report.Host.WebKitPeakProcesses < 1 {
 		report.Failures = append(report.Failures, "process tree sampler did not observe a benchmark-owned WebKit process")
+	}
+	report.Passed = len(report.Failures) == 0
+}
+
+func EvaluateLinuxSmokeHost(report *Report) {
+	if report == nil {
+		return
+	}
+	report.Failures = removeFailurePrefix(report.Failures, "native host ")
+	if report.Runtime.OperatingSystem != "linux" {
+		report.Failures = append(report.Failures, fmt.Sprintf(
+			"native host operating system was %q, need linux", report.Runtime.OperatingSystem,
+		))
+	}
+	if report.Runtime.Architecture != "amd64" {
+		report.Failures = append(report.Failures, fmt.Sprintf(
+			"native host architecture was %q, need amd64", report.Runtime.Architecture,
+		))
+	}
+	if report.Host.RSSSamples < 1 {
+		report.Failures = append(report.Failures, "native host process tree RSS was not sampled")
+	}
+	if report.Host.ProcessTreePeakProcesses < 2 {
+		report.Failures = append(report.Failures, "native host process sampler did not observe the PTY fixture child")
+	}
+	if report.Host.WebKitPeakProcesses < 1 {
+		report.Failures = append(report.Failures, "native host process sampler did not observe a WebKitGTK helper")
+	}
+	if !versionAtLeast(report.Host.WebKitGTKVersion, MinimumWebKitGTKVersion) {
+		report.Failures = append(report.Failures, fmt.Sprintf(
+			"native host WebKitGTK version %q is below %s", report.Host.WebKitGTKVersion, MinimumWebKitGTKVersion,
+		))
 	}
 	report.Passed = len(report.Failures) == 0
 }
@@ -349,28 +405,9 @@ func writeJSONAtomic(filename string, value any) error {
 
 func evaluateFrontend(report *Report) {
 	report.Failures = slices.Clone(report.Failures)
-	report.OutputDurationMilliseconds = roundedMilliseconds(report.OutputDurationMilliseconds)
-	report.CloseDurationMilliseconds = roundedMilliseconds(report.CloseDurationMilliseconds)
-	for _, samples := range [][]float64{report.IdleEchoMilliseconds, report.FloodEchoMilliseconds, report.ResizeMilliseconds} {
-		for index := range samples {
-			samples[index] = roundedMilliseconds(samples[index])
-		}
-	}
-	report.IdleEchoP95Milliseconds = percentile95(report.IdleEchoMilliseconds)
-	report.FloodEchoP95Milliseconds = percentile95(report.FloodEchoMilliseconds)
-	report.ResizeP95Milliseconds = percentile95(report.ResizeMilliseconds)
+	normalizeFrontendMetrics(report)
+	evaluateFunctionalFrontend(report, PayloadBytes, MinimumSamples)
 
-	checkSamples := func(name string, samples []float64) {
-		if len(samples) < MinimumSamples {
-			report.Failures = append(report.Failures, fmt.Sprintf("%s has %d samples; need %d", name, len(samples), MinimumSamples))
-		}
-	}
-	checkSamples("idle input echo", report.IdleEchoMilliseconds)
-	checkSamples("flood input echo", report.FloodEchoMilliseconds)
-	checkSamples("resize", report.ResizeMilliseconds)
-	if report.PayloadBytes != PayloadBytes {
-		report.Failures = append(report.Failures, fmt.Sprintf("payload was %d bytes; need %d", report.PayloadBytes, PayloadBytes))
-	}
 	if report.OutputDurationMilliseconds > MaximumOutputMS {
 		report.Failures = append(report.Failures, fmt.Sprintf("output duration %.2f ms exceeded %d ms", report.OutputDurationMilliseconds, MaximumOutputMS))
 	}
@@ -386,11 +423,52 @@ func evaluateFrontend(report *Report) {
 	if report.CloseDurationMilliseconds > MaximumCloseMS {
 		report.Failures = append(report.Failures, fmt.Sprintf("close duration %.2f ms exceeded %d ms", report.CloseDurationMilliseconds, MaximumCloseMS))
 	}
+	report.Passed = len(report.Failures) == 0
+}
+
+func evaluateSmokeFrontend(report *Report) {
+	report.Failures = slices.Clone(report.Failures)
+	normalizeFrontendMetrics(report)
+	evaluateFunctionalFrontend(report, SmokePayloadBytes, SmokeMinimumSamples)
+	report.Passed = len(report.Failures) == 0
+}
+
+func normalizeFrontendMetrics(report *Report) {
+	report.OutputDurationMilliseconds = roundedMilliseconds(report.OutputDurationMilliseconds)
+	report.CloseDurationMilliseconds = roundedMilliseconds(report.CloseDurationMilliseconds)
+	for _, samples := range [][]float64{report.IdleEchoMilliseconds, report.FloodEchoMilliseconds, report.ResizeMilliseconds} {
+		for index := range samples {
+			samples[index] = roundedMilliseconds(samples[index])
+		}
+	}
+	report.IdleEchoP95Milliseconds = percentile95(report.IdleEchoMilliseconds)
+	report.FloodEchoP95Milliseconds = percentile95(report.FloodEchoMilliseconds)
+	report.ResizeP95Milliseconds = percentile95(report.ResizeMilliseconds)
+}
+
+func evaluateFunctionalFrontend(report *Report, payloadBytes uint64, minimumSamples int) {
+	checkSamples := func(name string, samples []float64) {
+		if len(samples) < minimumSamples {
+			report.Failures = append(report.Failures, fmt.Sprintf("%s has %d samples; need %d", name, len(samples), minimumSamples))
+		}
+	}
+	checkSamples("idle input echo", report.IdleEchoMilliseconds)
+	checkSamples("flood input echo", report.FloodEchoMilliseconds)
+	checkSamples("resize", report.ResizeMilliseconds)
+	if report.PayloadBytes != payloadBytes {
+		report.Failures = append(report.Failures, fmt.Sprintf("payload was %d bytes; need %d", report.PayloadBytes, payloadBytes))
+	}
+	if !report.Native.TerminalFocus {
+		report.Failures = append(report.Failures, "native WebView did not restore terminal focus")
+	}
+	if !report.Native.ClipboardRoundTrip {
+		report.Failures = append(report.Failures, "native clipboard round trip failed")
+	}
 	if report.Controller.OutputFailed {
 		report.Failures = append(report.Failures, "xterm output parsing failed")
 	}
-	if report.Backend.EmittedBytes < PayloadBytes || report.Controller.AcceptedBytes < PayloadBytes {
-		report.Failures = append(report.Failures, "10 MiB fixture payload did not traverse the complete terminal path")
+	if report.Backend.EmittedBytes < payloadBytes || report.Controller.AcceptedBytes < payloadBytes {
+		report.Failures = append(report.Failures, "fixture payload did not traverse the complete terminal path")
 	}
 	if report.Controller.PendingBytes != 0 || report.Backend.UnacknowledgedBytes != 0 || report.Backend.PendingChunks != 0 {
 		report.Failures = append(report.Failures, "terminal output did not drain before measurement")
@@ -407,7 +485,49 @@ func evaluateFrontend(report *Report) {
 	if report.Backend.PeakUnacknowledgedBytes > MaximumQueueBytes || report.Backend.MaximumUnacknowledged != MaximumQueueBytes {
 		report.Failures = append(report.Failures, "backend output queue exceeded or misreported its cap")
 	}
-	report.Passed = len(report.Failures) == 0
+}
+
+func versionAtLeast(actual, minimum string) bool {
+	actualParts, actualOK := numericVersion(actual)
+	minimumParts, minimumOK := numericVersion(minimum)
+	if !actualOK || !minimumOK {
+		return false
+	}
+	for index := range actualParts {
+		if actualParts[index] != minimumParts[index] {
+			return actualParts[index] > minimumParts[index]
+		}
+	}
+	return true
+}
+
+func numericVersion(value string) ([3]int, bool) {
+	var result [3]int
+	parts := strings.Split(strings.TrimSpace(value), ".")
+	if len(parts) < 2 {
+		return result, false
+	}
+	for index := range result {
+		if index >= len(parts) {
+			break
+		}
+		part := parts[index]
+		for end, character := range part {
+			if character < '0' || character > '9' {
+				part = part[:end]
+				break
+			}
+		}
+		if part == "" {
+			return result, false
+		}
+		parsed, err := strconv.Atoi(part)
+		if err != nil {
+			return result, false
+		}
+		result[index] = parsed
+	}
+	return result, true
 }
 
 func validateReport(report Report) error {

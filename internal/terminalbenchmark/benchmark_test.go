@@ -78,6 +78,68 @@ func TestEvaluationRejectsBudgetAndMemoryRegressions(t *testing.T) {
 	}
 }
 
+func TestSmokeModeUsesFunctionalWorkloadAndNativeChecks(t *testing.T) {
+	resultPath := filepath.Join(t.TempDir(), "smoke.json")
+	executable, err := os.Executable()
+	if err != nil {
+		t.Fatalf("locate test executable: %v", err)
+	}
+	service, err := NewServiceWithMode(executable, resultPath, ModeSmoke)
+	if err != nil {
+		t.Fatalf("create smoke service: %v", err)
+	}
+	config := service.Configuration()
+	if config.Mode != ModeSmoke || config.PayloadBytes != SmokePayloadBytes ||
+		config.MinimumLatencySamples != SmokeMinimumSamples {
+		t.Fatalf("unexpected smoke configuration: %#v", config)
+	}
+
+	completed, err := service.Complete(passingSmokeReport())
+	if err != nil {
+		t.Fatalf("complete native smoke: %v", err)
+	}
+	if !completed.Passed || len(completed.Failures) != 0 {
+		t.Fatalf("passing native smoke failed: %#v", completed.Failures)
+	}
+
+	report := passingSmokeReport()
+	report.Native.ClipboardRoundTrip = false
+	completed, err = service.Complete(report)
+	if err != nil {
+		t.Fatalf("complete failing native smoke: %v", err)
+	}
+	if completed.Passed || !containsFailure(completed.Failures, "clipboard") {
+		t.Fatalf("missing clipboard check passed native smoke: %#v", completed.Failures)
+	}
+}
+
+func TestLinuxSmokeHostRequiresRuntimeProcessTreeAndWebKitGTKFloor(t *testing.T) {
+	report := passingSmokeReport()
+	evaluateSmokeFrontend(&report)
+	report.Runtime = RuntimeMetrics{OperatingSystem: "linux", Architecture: "amd64"}
+	report.Host = HostMetrics{
+		ProcessTreePeakProcesses: 2,
+		WebKitPeakProcesses:      2,
+		RSSSamples:               4,
+		WebKitGTKVersion:         "2.41.0",
+	}
+	EvaluateLinuxSmokeHost(&report)
+	if !report.Passed || len(report.Failures) != 0 {
+		t.Fatalf("valid Linux smoke host failed: %#v", report.Failures)
+	}
+
+	report.Host.WebKitGTKVersion = "2.40.9"
+	EvaluateLinuxSmokeHost(&report)
+	if report.Passed || !containsFailure(report.Failures, "below 2.41.0") {
+		t.Fatalf("unsupported WebKitGTK runtime passed: %#v", report.Failures)
+	}
+	report.Host.WebKitGTKVersion = "2.48.3-0ubuntu0.24.04.1"
+	EvaluateLinuxSmokeHost(&report)
+	if !report.Passed || len(report.Failures) != 0 {
+		t.Fatalf("packaged WebKitGTK version failed: %#v", report.Failures)
+	}
+}
+
 func TestServiceCompletesPassingSoakReport(t *testing.T) {
 	resultPath := filepath.Join(t.TempDir(), "soak.json")
 	executable, err := os.Executable()
@@ -174,6 +236,11 @@ func TestEnvironmentSelectsOnlySupportedBenchmarkModes(t *testing.T) {
 	if err != nil || service.Configuration().Mode != ModeSoak {
 		t.Fatalf("load soak mode: %#v, %v", service, err)
 	}
+	t.Setenv(EnvironmentMode, string(ModeSmoke))
+	service, err = NewServiceFromEnvironment()
+	if err != nil || service.Configuration().Mode != ModeSmoke {
+		t.Fatalf("load smoke mode: %#v, %v", service, err)
+	}
 	t.Setenv(EnvironmentMode, "unbounded")
 	if _, err := NewServiceFromEnvironment(); err == nil {
 		t.Fatal("unsupported benchmark mode was accepted")
@@ -221,7 +288,21 @@ func passingReport() Report {
 			NextSequence: 10, EmittedBytes: PayloadBytes + 100, AcknowledgedSequence: 10, AcknowledgedBytes: PayloadBytes + 100,
 			PeakUnacknowledgedBytes: 10_000, PeakPendingChunks: 2, MaximumUnacknowledged: MaximumQueueBytes,
 		},
+		Native: NativeInteractionChecks{TerminalFocus: true, ClipboardRoundTrip: true},
 	}
+}
+
+func passingSmokeReport() Report {
+	report := passingReport()
+	report.PayloadBytes = SmokePayloadBytes
+	report.IdleEchoMilliseconds = report.IdleEchoMilliseconds[:SmokeMinimumSamples]
+	report.FloodEchoMilliseconds = report.FloodEchoMilliseconds[:SmokeMinimumSamples]
+	report.ResizeMilliseconds = report.ResizeMilliseconds[:SmokeMinimumSamples]
+	report.Controller.AcceptedBytes = SmokePayloadBytes + 100
+	report.Controller.ConsumedBytes = SmokePayloadBytes + 100
+	report.Backend.EmittedBytes = SmokePayloadBytes + 100
+	report.Backend.AcknowledgedBytes = SmokePayloadBytes + 100
+	return report
 }
 
 func passingSoakReport() SoakReport {

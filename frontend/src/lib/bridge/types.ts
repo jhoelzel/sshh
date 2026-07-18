@@ -207,7 +207,7 @@ export interface TerminalDiagnostics {
 
 export interface TerminalBenchmarkConfig {
   enabled: boolean
-  mode: 'burst' | 'soak'
+  mode: 'burst' | 'smoke' | 'soak'
   processId: number
   payloadBytes: number
   maximumBackendQueueBytes: number
@@ -273,6 +273,7 @@ export interface TerminalBenchmarkReport {
   closeDurationMilliseconds: number
   controller: TerminalBenchmarkControllerDiagnostics
   backend: TerminalBenchmarkBackendDiagnostics
+  native: { terminalFocus: boolean; clipboardRoundTrip: boolean }
   runtime: { operatingSystem: string; architecture: string; goVersion: string; processId: number }
   host: TerminalBenchmarkHostMetrics
   passed: boolean

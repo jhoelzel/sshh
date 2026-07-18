@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { ClipboardGetText, ClipboardSetText } from '../../../wailsjs/runtime/runtime'
 import { backend, onTerminalOutput } from '../../lib/bridge/client'
 import type {
   FrontendLease,
@@ -83,6 +84,9 @@ async function runTerminalBenchmark(host: HTMLElement, setStatus: (status: strin
     await backend.activateTerminal(lease.id, session.id, session.generation)
     await tracker.wait(markerReady, operationTimeout)
 
+    setStatus('Checking native terminal focus and clipboard')
+    report.native = await checkNativeInteractions(controller)
+
     setStatus('Measuring idle input and resize latency')
     report.idleEchoMilliseconds = await measureEcho(controller, tracker, 'idle', config.minimumLatencySamples)
     report.resizeMilliseconds = await measureResize(controller, tracker, config.minimumLatencySamples)
@@ -137,6 +141,58 @@ async function runTerminalBenchmark(host: HTMLElement, setStatus: (status: strin
   }
 }
 
+async function checkNativeInteractions(controller: TerminalController): Promise<TerminalBenchmarkReport['native']> {
+  return {
+    terminalFocus: await checkTerminalFocus(controller),
+    clipboardRoundTrip: await checkClipboardRoundTrip(),
+  }
+}
+
+async function checkTerminalFocus(controller: TerminalController): Promise<boolean> {
+  const probe = document.createElement('input')
+  probe.type = 'text'
+  probe.tabIndex = -1
+  probe.style.cssText = 'position:fixed;left:-10000px;top:0;width:1px;height:1px;opacity:0'
+  document.body.append(probe)
+  try {
+    probe.focus()
+    if (document.activeElement !== probe) return false
+    controller.focus()
+    await nextAnimationFrame()
+    return controller.hasFocus()
+  } finally {
+    probe.remove()
+  }
+}
+
+async function checkClipboardRoundTrip(): Promise<boolean> {
+  let previous: string
+  try {
+    previous = await ClipboardGetText()
+  } catch {
+    return false
+  }
+
+  let passed = false
+  try {
+    const marker = `shhh-native-clipboard-${crypto.randomUUID()}`
+    passed = await ClipboardSetText(marker) && await ClipboardGetText() === marker
+  } catch {
+    passed = false
+  } finally {
+    try {
+      passed = await ClipboardSetText(previous) && passed
+    } catch {
+      passed = false
+    }
+  }
+  return passed
+}
+
+function nextAnimationFrame(): Promise<void> {
+  return new Promise((resolve) => requestAnimationFrame(() => resolve()))
+}
+
 async function measureEcho(
   controller: TerminalController,
   tracker: TitleTracker,
@@ -174,7 +230,7 @@ async function measureResize(
 
 function emptyReport(started: Date): TerminalBenchmarkReport {
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     startedAt: started.toISOString(),
     finishedAt: started.toISOString(),
     payloadBytes: 0,
@@ -196,6 +252,7 @@ function emptyReport(started: Date): TerminalBenchmarkReport {
       unacknowledgedBytes: 0, pendingChunks: 0, peakUnacknowledgedBytes: 0,
       peakPendingChunks: 0, maximumUnacknowledged: 0,
     },
+    native: { terminalFocus: false, clipboardRoundTrip: false },
     runtime: { operatingSystem: '', architecture: '', goVersion: '', processId: 0 },
     host: {
       model: '', processor: '', operatingSystemVersion: '', memoryBytes: 0,

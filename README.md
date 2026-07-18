@@ -54,11 +54,12 @@ native desktop application.
   or sidecar process required at runtime.
 
 The current packaged application and full terminal-performance proof target is
-macOS arm64. The Windows ConPTY backend has a native Windows CI gate, while
-WebView2 focus, AltGr, IME, clipboard, and broader interaction validation remain
-open. Signed/notarized release automation, advanced reconnect/proxy preferences,
-and remaining cross-platform UX are also future milestones; see the
-implementation plan for the release gates.
+macOS arm64. Linux has a native PTY and headless WebKitGTK focus/clipboard CI
+gate on Ubuntu 24.04 amd64. The Windows ConPTY backend has a native Windows CI
+gate, while WebView2 focus, AltGr, IME, clipboard, and broader interaction
+validation remain open. Signed/notarized release automation, advanced
+reconnect/proxy preferences, and remaining cross-platform UX are also future
+milestones; see the implementation plan for the release gates.
 
 ## Prerequisites
 
@@ -66,6 +67,8 @@ implementation plan for the release gates.
 - Node.js 24.18 or newer and npm 11 for frontend development.
 - Windows 10 version 1809 or newer for ConPTY sessions, plus a supported system
   WebView2 runtime for the desktop UI.
+- Linux builds require GTK 3 and WebKitGTK 2.41 or newer through the
+  `webkit2gtk-4.1` ABI. Ubuntu 24.04 amd64 is the current native CI baseline.
 
 Node and npm are build-time dependencies only. Make installs the pinned Wails
 v2.13.0 CLI into the ignored local `bin/` directory when it is first needed.
@@ -111,8 +114,11 @@ GitHub Actions runs normal and race-enabled Go tests, `go vet`, frontend lint,
 tests, and production compilation on Ubuntu. A macOS job installs the pinned
 Wails CLI from a clean checkout, performs a production-mode native compile,
 regenerates the Go-to-TypeScript bridge, normalizes generator-only whitespace,
-and fails if any binding differs from the committed contract. The Windows job
-runs the real ConPTY adapter tests before compiling the Wails desktop host.
+and fails if any binding differs from the committed contract. The Linux job
+checks the documented WebKitGTK floor, runs real PTY resize/process-tree cleanup
+tests, compiles the product host, and launches a production-mode xterm/Wails
+smoke under Xvfb for native focus and clipboard checks. The Windows job runs the
+real ConPTY adapter tests before compiling the Wails desktop host.
 
 The security job runs the Go team's call-graph vulnerability scanner and fails
 for reachable advisories. It also runs `npm audit --audit-level=high`; moderate
@@ -243,8 +249,8 @@ executable is `build/bin/shh-h.app/Contents/MacOS/shhh`.
 ## Structure
 
 - `cmd/shhh`: executable entry point and Wails project configuration.
-- `cmd/terminalbench`: development-only packaged-macOS benchmark host and RSS
-  sampler; it is not included in release artifacts.
+- `cmd/terminalbench`: development-only packaged-macOS benchmark and Linux
+  native-smoke host and process sampler; it is not included in release artifacts.
 - `internal/app`: composition root and desktop lifecycle configuration.
 - `internal/buildinfo`: linker-provided and Go VCS build identity.
 - `internal/domain`: pure profile, transfer, SSH, tunnel, snippet, workspace,
@@ -264,6 +270,8 @@ executable is `build/bin/shh-h.app/Contents/MacOS/shhh`.
 - `docs/SECURITY.md`: automated audit policy and reviewed advisory notes.
 - `docs/WINDOWS.md`: ConPTY requirements, lifecycle contract, native tests, and
   remaining Windows interaction gates.
+- `docs/LINUX.md`: WebKitGTK baseline, native PTY/WebView smoke gate, local
+  reproduction, and remaining Linux coverage.
 - `docs/TERMINAL_STRESS.md`: real-PTY lifecycle, process, descriptor, goroutine,
   and frontend-listener stress evidence.
 - `docs/TERMINAL_BENCHMARK.md`: reproducible packaged WKWebView terminal

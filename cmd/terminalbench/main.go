@@ -39,10 +39,14 @@ func run() error {
 	var reportPath string
 	var timeout time.Duration
 	var modeValue string
-	flag.StringVar(&appPath, "app", "build/bin/shh-h.app/Contents/MacOS/shhh", "packaged benchmark executable")
+	defaultAppPath := "build/bin/shh-h.app/Contents/MacOS/shhh"
+	if runtime.GOOS == "linux" {
+		defaultAppPath = "build/bin/shhh-linux-smoke"
+	}
+	flag.StringVar(&appPath, "app", defaultAppPath, "packaged benchmark executable")
 	flag.StringVar(&reportPath, "report", "", "final benchmark report")
 	flag.DurationVar(&timeout, "timeout", 0, "maximum packaged benchmark duration")
-	flag.StringVar(&modeValue, "mode", string(terminalbenchmark.ModeBurst), "benchmark mode: burst or soak")
+	flag.StringVar(&modeValue, "mode", string(terminalbenchmark.ModeBurst), "benchmark mode: burst, smoke, or soak")
 	flag.Parse()
 	mode, err := terminalbenchmark.ParseMode(modeValue)
 	if err != nil {
@@ -58,11 +62,22 @@ func run() error {
 		reportPath = "docs/benchmarks/m1-macos-arm64.json"
 		if mode == terminalbenchmark.ModeSoak {
 			reportPath = "docs/benchmarks/m1-macos-arm64-soak.json"
+		} else if mode == terminalbenchmark.ModeSmoke {
+			reportPath = filepath.Join(os.TempDir(), "m2-linux-amd64-smoke.json")
 		}
 	}
 
-	if runtime.GOOS != "darwin" {
-		return fmt.Errorf("packaged WKWebView benchmark requires macOS, got %s", runtime.GOOS)
+	switch runtime.GOOS {
+	case "darwin":
+		if mode == terminalbenchmark.ModeSmoke {
+			return errors.New("Linux native smoke mode requires Linux")
+		}
+	case "linux":
+		if mode != terminalbenchmark.ModeSmoke {
+			return errors.New("Linux supports only native smoke mode")
+		}
+	default:
+		return fmt.Errorf("packaged WebView benchmark does not support %s", runtime.GOOS)
 	}
 	appPath, err = filepath.Abs(appPath)
 	if err != nil {
@@ -153,6 +168,9 @@ running:
 	if mode == terminalbenchmark.ModeSoak {
 		return completeSoak(rawReport, reportPath, output.String(), host, rssReadings)
 	}
+	if mode == terminalbenchmark.ModeSmoke {
+		return completeLinuxSmoke(rawReport, reportPath, output.String(), host)
+	}
 	return completeBurst(rawReport, reportPath, output.String(), host)
 }
 
@@ -207,6 +225,29 @@ func completeBurst(rawReport, reportPath, processOutput string, host terminalben
 	)
 	if !report.Passed {
 		return fmt.Errorf("terminal benchmark failed: %s", strings.Join(report.Failures, "; "))
+	}
+	return nil
+}
+
+func completeLinuxSmoke(rawReport, reportPath, processOutput string, host terminalbenchmark.HostMetrics) error {
+	report, err := terminalbenchmark.ReadReport(rawReport)
+	if err != nil {
+		return fmt.Errorf("read packaged Linux smoke result: %w\n%s", err, boundedOutput(processOutput))
+	}
+	report.Host = host
+	terminalbenchmark.EvaluateLinuxSmokeHost(&report)
+	if err := terminalbenchmark.WriteReportAtomic(reportPath, report); err != nil {
+		return err
+	}
+
+	fmt.Printf("Linux native smoke: WebKitGTK %s, %d process samples, %d WebKit helpers, %.1f MiB peak RSS\n",
+		report.Host.WebKitGTKVersion,
+		report.Host.RSSSamples,
+		report.Host.WebKitPeakProcesses,
+		float64(report.Host.ProcessTreePeakRSSBytes)/(1024*1024),
+	)
+	if !report.Passed {
+		return fmt.Errorf("Linux native smoke failed: %s", strings.Join(report.Failures, "; "))
 	}
 	return nil
 }
@@ -379,7 +420,7 @@ func webKitProcessIDs() (map[int]bool, error) {
 }
 
 func processTable() ([]byte, error) {
-	data, err := exec.Command("ps", "-axo", "pid=,ppid=,rss=,comm=").Output()
+	data, err := exec.Command("ps", "-axo", "pid=,ppid=,rss=,command=").Output()
 	if err != nil {
 		return nil, fmt.Errorf("sample process table: %w", err)
 	}
@@ -410,16 +451,75 @@ func parseProcessTable(data []byte) ([]processSample, error) {
 }
 
 func isWebKitHelper(command string) bool {
-	return strings.Contains(command, "/WebKit.framework/") && strings.Contains(command, "/com.apple.WebKit.")
+	if strings.Contains(command, "/WebKit.framework/") && strings.Contains(command, "/com.apple.WebKit.") {
+		return true
+	}
+	fields := strings.Fields(command)
+	if len(fields) == 0 {
+		return false
+	}
+	base := filepath.Base(fields[0])
+	return strings.HasPrefix(base, "WebKit") && strings.HasSuffix(base, "Process")
 }
 
 func collectHostMetrics() terminalbenchmark.HostMetrics {
+	if runtime.GOOS == "linux" {
+		return collectLinuxHostMetrics()
+	}
 	return terminalbenchmark.HostMetrics{
 		Model:                  commandValue("sysctl", "-n", "hw.model"),
 		Processor:              firstValue(commandValue("sysctl", "-n", "machdep.cpu.brand_string"), commandValue("sysctl", "-n", "hw.machine")),
 		OperatingSystemVersion: strings.TrimSpace(commandValue("sw_vers", "-productVersion") + " (" + commandValue("sw_vers", "-buildVersion") + ")"),
 		MemoryBytes:            uintValue(commandValue("sysctl", "-n", "hw.memsize")),
 	}
+}
+
+func collectLinuxHostMetrics() terminalbenchmark.HostMetrics {
+	cpuInfo, _ := os.ReadFile("/proc/cpuinfo")
+	memoryInfo, _ := os.ReadFile("/proc/meminfo")
+	return terminalbenchmark.HostMetrics{
+		Model:                  firstValue(fileValue("/sys/devices/virtual/dmi/id/product_name"), commandValue("uname", "-m")),
+		Processor:              firstValue(colonValue(cpuInfo, "model name", "hardware"), commandValue("uname", "-m")),
+		OperatingSystemVersion: firstValue(commandValue("uname", "-sr"), "unknown"),
+		MemoryBytes:            memoryBytes(memoryInfo),
+		WebKitGTKVersion:       commandValue("pkg-config", "--modversion", "webkit2gtk-4.1"),
+	}
+}
+
+func fileValue(path string) string {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(data))
+}
+
+func colonValue(data []byte, keys ...string) string {
+	for _, line := range strings.Split(string(data), "\n") {
+		key, value, found := strings.Cut(line, ":")
+		if !found {
+			continue
+		}
+		for _, candidate := range keys {
+			if strings.EqualFold(strings.TrimSpace(key), candidate) {
+				return strings.TrimSpace(value)
+			}
+		}
+	}
+	return ""
+}
+
+func memoryBytes(data []byte) uint64 {
+	value := colonValue(data, "MemTotal")
+	fields := strings.Fields(value)
+	if len(fields) == 0 {
+		return 0
+	}
+	kilobytes, err := strconv.ParseUint(fields[0], 10, 64)
+	if err != nil {
+		return 0
+	}
+	return kilobytes * 1024
 }
 
 func commandValue(name string, arguments ...string) string {

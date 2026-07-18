@@ -92,6 +92,10 @@ Implemented and verified:
   call-graph and npm vulnerability scans, and native macOS, Linux, and Windows
   Wails compiles. Actions are pinned to immutable SHAs and dependencies receive
   weekly update checks.
+- [x] Native Linux CI enforces WebKitGTK 2.41+ through its 4.1 ABI, runs real PTY
+  resize and process-group cleanup tests, and launches the production Wails/xterm
+  path under Xvfb to prove focus restoration, reversible clipboard access,
+  ordered output, resize, drain, close, and WebKit helper-process observation.
 - [x] Go race tests cover managers and adapters. Real loopback integration tests
   cover PTY binary input and live resize, shared multi-channel SSH terminal
   lifetime, terminal exit, repeated flood-close process-tree cleanup, 100-cycle
@@ -120,9 +124,9 @@ Still required for the complete cross-platform and 1.0 gates:
 - [x] Long-run terminal soak and multi-session native stress measurements on the
   current Apple Silicon Mac. Multi-hour, larger-count, Linux, and Windows runs
   remain separate gates.
-- [ ] Accessibility-driven native interaction automation or a dedicated Wails E2E
-  harness. macOS launch and frontend attachment are verified today; runtime
-  behavior is also exercised below the WebView boundary.
+- [ ] Broader accessibility-driven native interaction automation. Linux now has
+  a dedicated Wails/WebKitGTK focus and clipboard smoke harness; native macOS
+  and Windows keyboard traversal, IME, and accessibility coverage remains open.
 - [ ] Remaining reconnect, proxy, known-hosts, and agent settings.
 - [ ] Signed/notarized macOS releases, Linux packaging validation, Windows
   WebView2 runtime and interaction validation, accessibility review, and broader
@@ -153,8 +157,10 @@ Version 1.0 will be a production-usable MobaXterm-style core client with:
 - [x] Session logs, snippets, and guarded multi-session input.
 - [ ] Complete settings for shell, terminal, appearance, connection behavior,
   and data locations.
-- [ ] Native macOS, Linux, and Windows builds from one Go codebase. macOS arm64
-  is the currently verified native package target.
+- [x] Native macOS, Linux, and Windows builds come from one Go codebase. macOS
+  arm64 has the recorded package/runtime proof, Linux amd64 has a native
+  WebKitGTK runtime smoke, and Windows amd64 compiles and runs native ConPTY
+  tests in CI.
 - [ ] One self-contained application package per target. Frontend assets are
   embedded in the Go executable and no helper daemon, local web server, Node
   runtime, or sidecar executable is required. Platform WebViews and system
@@ -848,7 +854,8 @@ Deliverables:
 - [x] Implement the common `TerminalTransport` contract.
 - [x] Productionize Unix PTY startup, input, output, resize, signal, wait, and
   process-group cleanup for Darwin and Linux builds.
-- [ ] Add native Linux PTY and WebKitGTK coverage.
+- [x] Add native Linux PTY and WebKitGTK coverage. Ubuntu 24.04 CI runs the real
+  PTY lifecycle suites and a production-mode Wails/xterm smoke under Xvfb.
 - [x] Implement Windows ConPTY startup, UTF-8 input/output, live resize, signals,
   exit-status wait, and deterministic job-tree and handle cleanup. Native
   Windows tests cover initial size, exact environment delivery, resize, nonzero
@@ -885,8 +892,10 @@ Tests and exit gate:
   close-during-output, and process-tree tests to WebView focus restoration,
   forward and reverse tab traversal, AltGr, IME composition, and clipboard
   shortcuts; browser-only tests do not satisfy this gate.
-- [ ] Native Linux tests cover WebKitGTK focus, clipboard, PTY resize, process-group
-  cleanup, and the documented minimum runtime version.
+- [x] Native Linux tests cover WebKitGTK focus, reversible clipboard round trip,
+  PTY resize, process-group cleanup, and the documented WebKitGTK 2.41+ runtime
+  through the 4.1 ABI. The functional smoke records app, PTY-child, and WebKit
+  helper processes without applying macOS performance budgets.
 
 This is the first production-quality milestone that turns the proof into a real
 cross-platform program.
@@ -1391,8 +1400,8 @@ commitments:
 | Milestone | Current status | Expected effort | Release value |
 | --- | --- | ---: | --- |
 | M0 Foundation | Complete | 4-7 days | Wails migration and honest lifecycle |
-| M1 Terminal proof | Partial; performance and native stress gates open | 7-12 days | Proven PTY/bridge/xterm vertical slice |
-| M2 Local terminal | macOS core implemented; Windows/Linux gates open | 8-14 days | First genuinely usable program |
+| M1 Terminal proof | Partial; TUI and sleep/wake gates open | 7-12 days | Proven PTY/bridge/xterm vertical slice |
+| M2 Local terminal | macOS/Linux local core implemented; Windows interaction gate open | 8-14 days | First genuinely usable program |
 | M3 Workspace | Partial; tab-management and Activity work open | 4-7 days | Reliable multi-session desktop UX |
 | M4 Profiles/config | Mostly implemented; recovery and overrides open | 4-7 days | Durable daily workflow |
 | M5 Credentials/trust | Partial; OS secret storage remains open | 5-8 days | Secure SSH foundation |

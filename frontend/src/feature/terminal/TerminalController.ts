@@ -269,6 +269,10 @@ export class TerminalController {
     this.terminal.focus()
   }
 
+  hasFocus(): boolean {
+    return this.terminal.element?.contains(document.activeElement) ?? false
+  }
+
   resize(columns: number, rows: number): void {
     if (this.disposed) {
       throw new Error('terminal is closed')

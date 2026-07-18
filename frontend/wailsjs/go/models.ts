@@ -942,6 +942,7 @@ export namespace terminalbenchmark {
 	    steadyStateGrowthRssBytes?: number;
 	    steadyStateStartSamples?: number;
 	    steadyStateEndSamples?: number;
+	    webKitGtkVersion?: string;
 
 	    static createFrom(source: any = {}) {
 	        return new HostMetrics(source);
@@ -962,6 +963,21 @@ export namespace terminalbenchmark {
 	        this.steadyStateGrowthRssBytes = source["steadyStateGrowthRssBytes"];
 	        this.steadyStateStartSamples = source["steadyStateStartSamples"];
 	        this.steadyStateEndSamples = source["steadyStateEndSamples"];
+	        this.webKitGtkVersion = source["webKitGtkVersion"];
+	    }
+	}
+	export class NativeInteractionChecks {
+	    terminalFocus: boolean;
+	    clipboardRoundTrip: boolean;
+
+	    static createFrom(source: any = {}) {
+	        return new NativeInteractionChecks(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.terminalFocus = source["terminalFocus"];
+	        this.clipboardRoundTrip = source["clipboardRoundTrip"];
 	    }
 	}
 	export class RuntimeMetrics {
@@ -997,6 +1013,7 @@ export namespace terminalbenchmark {
 	    closeDurationMilliseconds: number;
 	    controller: ControllerDiagnostics;
 	    backend: BackendDiagnostics;
+	    native: NativeInteractionChecks;
 	    runtime: RuntimeMetrics;
 	    host: HostMetrics;
 	    passed: boolean;
@@ -1022,6 +1039,7 @@ export namespace terminalbenchmark {
 	        this.closeDurationMilliseconds = source["closeDurationMilliseconds"];
 	        this.controller = this.convertValues(source["controller"], ControllerDiagnostics);
 	        this.backend = this.convertValues(source["backend"], BackendDiagnostics);
+	        this.native = this.convertValues(source["native"], NativeInteractionChecks);
 	        this.runtime = this.convertValues(source["runtime"], RuntimeMetrics);
 	        this.host = this.convertValues(source["host"], HostMetrics);
 	        this.passed = source["passed"];

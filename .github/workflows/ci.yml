@@ -107,7 +107,7 @@ jobs:
         run: make check-bindings
 
   native-linux:
-    name: Linux desktop build
+    name: Linux desktop and native smoke
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
@@ -129,12 +129,32 @@ jobs:
       - name: Install Linux desktop dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install --no-install-recommends --yes libgtk-3-dev libwebkit2gtk-4.1-dev
+          sudo apt-get install --no-install-recommends --yes dbus-x11 libgtk-3-dev libwebkit2gtk-4.1-dev xauth xvfb
+      - name: Verify supported WebKitGTK runtime
+        run: |
+          pkg-config --atleast-version=2.41.0 webkit2gtk-4.1
+          printf 'WebKitGTK %s (4.1 ABI)\n' "$(pkg-config --modversion webkit2gtk-4.1)"
       - name: Install Wails CLI
         run: go install github.com/wailsapp/wails/v2/cmd/wails@v2.13.0
+      - name: Test Linux PTY resize and process cleanup
+        run: go test -count=1 -timeout=5m ./internal/adapter/localpty ./internal/usecase/session
       - name: Compile Linux desktop host
         working-directory: cmd/shhh
         run: '"$(go env GOPATH)/bin/wails" build -clean -nopackage -trimpath -tags "webkit2_41" -o shhh-linux'
+      - name: Build Linux native smoke host
+        working-directory: cmd/shhh
+        run: 'VITE_TERMINAL_BENCHMARK=1 "$(go env GOPATH)/bin/wails" build -clean -nopackage -trimpath -tags "webkit2_41" -o shhh-linux-smoke'
+      - name: Run Linux WebKitGTK terminal smoke
+        env:
+          LIBGL_ALWAYS_SOFTWARE: '1'
+          WEBKIT_DISABLE_COMPOSITING_MODE: '1'
+        run: |
+          dbus-run-session -- xvfb-run -a go run ./cmd/terminalbench \
+            -mode smoke \
+            -app "$GITHUB_WORKSPACE/build/bin/shhh-linux-smoke" \
+            -report "$RUNNER_TEMP/m2-linux-amd64-smoke.json" \
+            -timeout 90s
+          cat "$RUNNER_TEMP/m2-linux-amd64-smoke.json"
 
   native-windows:
     name: Windows desktop build

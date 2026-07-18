@@ -55,6 +55,37 @@ func TestProcessTreeRSSIncludesOnlyNewWebKitHelpers(t *testing.T) {
 	}
 }
 
+func TestProcessTreeRSSRecognizesLinuxWebKitGTKHelpers(t *testing.T) {
+	data := []byte(`
+ 10 1 200 /tmp/shhh-linux-smoke
+ 11 10 300 /tmp/shhh-linux-smoke --fixture
+ 20 10 400 /usr/lib/x86_64-linux-gnu/webkit2gtk-4.1/WebKitWebProcess
+ 21 10 500 WebKitNetworkProcess
+ 22 1 600 WebKitWebDriver
+`)
+	rss, count, webKitCount, err := processTreeRSS(10, data, nil)
+	if err != nil {
+		t.Fatalf("calculate Linux WebKitGTK process RSS: %v", err)
+	}
+	if want := uint64((200 + 300 + 400 + 500) * 1024); rss != want || count != 4 || webKitCount != 2 {
+		t.Fatalf("usage = %d bytes, %d processes, %d WebKit; want %d, 4, 2", rss, count, webKitCount, want)
+	}
+	if isWebKitHelper("WebKitWebDriver") {
+		t.Fatal("WebKitWebDriver was classified as an application helper process")
+	}
+}
+
+func TestLinuxHostParsers(t *testing.T) {
+	cpu := []byte("processor : 0\nmodel name : Example CPU 9000\n")
+	if got := colonValue(cpu, "model name", "hardware"); got != "Example CPU 9000" {
+		t.Fatalf("processor = %q", got)
+	}
+	memory := []byte("MemTotal:       49152 kB\nMemFree: 1024 kB\n")
+	if got, want := memoryBytes(memory), uint64(49152*1024); got != want {
+		t.Fatalf("memory = %d bytes, want %d", got, want)
+	}
+}
+
 func TestSteadyStateRSSUsesWarmAndFinalMedians(t *testing.T) {
 	readings := []rssReading{
 		{elapsed: 30 * time.Second, bytes: 10},
