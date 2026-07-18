@@ -344,12 +344,21 @@ func (m *Manager) Activate(leaseID, sessionID string, generation uint64) error {
 		return err
 	}
 
-	runtime.activateOnce.Do(func() { close(runtime.activate) })
 	runtime.mu.Lock()
-	if runtime.session.State == StateStarting {
-		runtime.session.State = StateRunning
+	if runtime.session.State == StateRunning {
+		runtime.mu.Unlock()
+		runtime.activateOnce.Do(func() { close(runtime.activate) })
+		return nil
+	}
+	next, err := transitionState(runtime.session.State, StateRunning)
+	if err == nil {
+		runtime.session.State = next
 	}
 	runtime.mu.Unlock()
+	if err != nil {
+		return err
+	}
+	runtime.activateOnce.Do(func() { close(runtime.activate) })
 	m.publishState(runtime, nil, "")
 	return nil
 }
@@ -645,15 +654,21 @@ func (m *Manager) waitForProcess(runtime *runtimeSession) {
 
 	runtime.mu.Lock()
 	state := runtime.session.State
+	target := StateExited
 	if state == StateClosing {
-		runtime.session.State = StateClosed
+		target = StateClosed
 	} else if waitErr != nil {
-		runtime.session.State = StateFailed
-	} else {
-		runtime.session.State = StateExited
+		target = StateFailed
+	}
+	next, transitionErr := transitionState(state, target)
+	if transitionErr == nil {
+		runtime.session.State = next
 	}
 	runtime.mu.Unlock()
 	m.stopLogging(runtime, "")
+	if transitionErr != nil {
+		waitErr = errors.Join(waitErr, transitionErr)
+	}
 
 	if waitErr != nil {
 		m.publishState(runtime, nil, waitErr.Error())
@@ -796,17 +811,30 @@ func (m *Manager) closeRuntimeOnce(runtime *runtimeSession) {
 		runtime.mu.Unlock()
 		return
 	}
-	if state == StateExited || state == StateFailed {
-		runtime.session.State = StateClosed
-		runtime.mu.Unlock()
+	target := StateClosing
+	terminal := state == StateExited || state == StateFailed
+	if terminal {
+		target = StateClosed
+	}
+	next, transitionErr := transitionState(state, target)
+	if transitionErr == nil {
+		runtime.session.State = next
+	}
+	runtime.mu.Unlock()
+	if transitionErr != nil {
+		runtime.cancel()
+		runtime.closeFlow()
+		_ = runtime.transport.Close()
+		m.publishState(runtime, nil, transitionErr.Error())
+		return
+	}
+	if terminal {
 		runtime.cancel()
 		runtime.closeFlow()
 		_ = runtime.transport.Close()
 		m.publishState(runtime, nil, "")
 		return
 	}
-	runtime.session.State = StateClosing
-	runtime.mu.Unlock()
 	m.publishState(runtime, nil, "")
 
 	runtime.activateOnce.Do(func() { close(runtime.activate) })

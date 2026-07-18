@@ -362,6 +362,14 @@ ID and generation. Closing a live tab closes the corresponding runtime;
 closing a disconnected tab removes only its frontend metadata. Closing the
 application coordinates shutdown of all sessions, transfers, and tunnels.
 
+One transition policy owns the terminal lifecycle graph. Starting sessions may
+run, close, exit, or fail; running sessions may close, exit, or fail; closing,
+exited, and failed sessions may only become closed. Closed is terminal. Invalid
+and unknown transitions preserve the current state and return a typed
+`conflict`. Repeating activation is idempotent only while the session remains
+running, which supports command retries without allowing a terminal outcome to
+move backward into a live state.
+
 Terminal admission is bounded to 64 open sessions across local, saved SSH,
 quick-connect, and benchmark entry points. A mutex-protected opening count
 reserves capacity before transport allocation and moves into the runtime

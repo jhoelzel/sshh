@@ -297,6 +297,37 @@ func TestManagerSerializesInputAndRejectsStaleGeneration(t *testing.T) {
 	}
 }
 
+func TestManagerActivationIsIdempotentOnlyWhileRunning(t *testing.T) {
+	transport := newFakeTransport()
+	manager := NewManager(&fakeFactory{transport: transport})
+	sink := newRecordingSink()
+	manager.SetSink(sink)
+
+	opened, err := manager.OpenLocal(context.Background(), "lease", profile.Profile{
+		ID: "local", Name: "Local", Protocol: profile.ProtocolLocal,
+	}, 80, 24)
+	if err != nil {
+		t.Fatalf("open local terminal: %v", err)
+	}
+	receiveState(t, sink.state, StateStarting)
+	if err := manager.Activate("lease", opened.ID, opened.Generation); err != nil {
+		t.Fatalf("activate terminal: %v", err)
+	}
+	receiveState(t, sink.state, StateRunning)
+	if err := manager.Activate("lease", opened.ID, opened.Generation); err != nil {
+		t.Fatalf("repeat running activation: %v", err)
+	}
+
+	transport.finish()
+	receiveState(t, sink.state, StateExited)
+	if err := manager.Activate("lease", opened.ID, opened.Generation); !apperror.IsCode(err, apperror.CodeConflict) {
+		t.Fatalf("exited activation error code = %q, want %q", apperror.CodeOf(err), apperror.CodeConflict)
+	}
+	if err := manager.Close("lease", opened.ID, opened.Generation); err != nil {
+		t.Fatalf("close exited terminal: %v", err)
+	}
+}
+
 func TestManagerPreservesArbitraryTerminalOutputBytes(t *testing.T) {
 	transport := newFakeTransport()
 	manager := NewManager(&fakeFactory{transport: transport})

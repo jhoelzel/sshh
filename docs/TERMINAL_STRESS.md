@@ -56,6 +56,21 @@ must be no higher than their post-warm-up baselines. The same workload runs
 under the Go race detector, covering concurrent process wait, output delivery,
 acknowledgement, state publication, and cleanup.
 
+### Manager lifecycle concurrency
+
+`TestTerminalStateTransitionsExhaustively` checks every pair in the six-state
+terminal lifecycle plus unknown source and target states. Allowed transitions
+reach the requested state; rejected transitions retain the prior state and
+return a typed conflict. The manager-level activation test proves retries are
+idempotent while running and rejected after process exit.
+
+`TestManagerConcurrentOpenOutputResizeAndClose` concurrently opens and
+activates eight sessions, proves each one delivered output, then overlaps 32
+rounds of output, input, and resize with close. Expected commands may observe a
+closing or already-removed runtime, but no other error is accepted. Completion
+requires zero live sessions, registered runtimes, opening reservations, and
+output dispatchers. The scenario runs in the full CI race suite.
+
 ### React and bridge listeners
 
 `App.strictmode.test.tsx` renders the complete application in React StrictMode,

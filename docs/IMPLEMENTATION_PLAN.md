@@ -423,10 +423,15 @@ typed rejection but does not enforce a separate competing limit.
 Valid state transitions are:
 
 ```text
-created -> connecting -> connected -> closing -> closed
-                    \-> failed --------^          ^
-created ----------------> canceled ---------------|
+starting -> running
+starting/running -> closing -> closed
+starting/running -> exited  -> closed
+starting/running -> failed  -> closed
 ```
+
+The transition policy rejects every other pair without mutating the current
+state. Repeated activation is idempotent only in `running`; it cannot revive an
+exited, failed, closing, or closed session.
 
 State changes are typed events. Transport output is batched into ordered,
 byte-safe chunks for the bridge. The frontend terminal controller feeds chunks
@@ -949,9 +954,12 @@ Tests and exit gate:
 - [x] Session admission tests cover concurrent saturation, rejection before PTY
   or SSH allocation, typed frontend error decoding, failed-start reservation
   release, close-and-reopen capacity recovery, and SSH credential clearing.
-- [ ] Add exhaustive state-machine transition rejection tests.
-- [ ] Add a concurrent tab open/output/resize/close race scenario; the existing
-  full Go suite passes the race detector.
+- [x] Add exhaustive state-machine tests for all 36 known state pairs, unknown
+  states, rejected-state preservation, typed conflicts, and activation
+  idempotence only while running.
+- [x] Add an eight-session concurrent open/output/input/resize/close scenario
+  that proves output delivery before the race and returns runtimes, opening
+  reservations, and the shared dispatcher to zero under the race detector.
 - [ ] React component tests and Playwright flows cover focus, shortcuts, tab close,
   split layout, and shutdown decisions.
 - [ ] Native Wails smoke tests cover window close interception and lifecycle hooks.
