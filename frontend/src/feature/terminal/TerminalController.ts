@@ -312,6 +312,19 @@ export class TerminalController {
     return this.terminal.getSelection()
   }
 
+  clearScrollback(): void {
+    if (this.disposed) return
+    this.terminal.clear()
+    if (this.visible) this.terminal.focus()
+  }
+
+  resetTerminal(): void {
+    if (this.disposed) return
+    this.terminal.reset()
+    this.callbacks.onSelectionChange(false)
+    if (this.visible) this.terminal.focus()
+  }
+
   applySettings(settings: TerminalSettings): void {
     if (this.disposed) return
     this.bellEnabled = settings.bell

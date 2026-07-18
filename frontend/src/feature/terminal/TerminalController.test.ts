@@ -2,11 +2,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Session, TerminalOutput, TerminalSettings } from '../../lib/bridge/types'
 
 interface TerminalDouble {
+  clear: ReturnType<typeof vi.fn>
   emitBinary: (value: string) => void
   emitData: (value: string) => void
   emitResize: (columns: number, rows: number) => void
+  focus: ReturnType<typeof vi.fn>
   options: Record<string, unknown>
   rejectWrites: boolean
+  reset: ReturnType<typeof vi.fn>
   resize: (columns: number, rows: number) => void
   writes: Uint8Array[]
 }
@@ -61,6 +64,7 @@ vi.mock('@xterm/xterm', () => ({
     }
 
     attachCustomKeyEventHandler = vi.fn()
+    clear = vi.fn()
     dispose = vi.fn()
     focus = vi.fn()
     getSelection = vi.fn(() => '')
@@ -70,6 +74,7 @@ vi.mock('@xterm/xterm', () => ({
     resize = vi.fn((columns: number, rows: number) => {
       this.emitResize(columns, rows)
     })
+    reset = vi.fn()
 
     onBell = vi.fn(() => disposable())
     onSelectionChange = vi.fn(() => disposable())
@@ -207,6 +212,26 @@ describe('TerminalController', () => {
     expect(harness.backend.resizeTerminal).toHaveBeenCalledWith('lease-1', 'session-1', 3, 120, 40)
     expect(terminal.resize).toHaveBeenCalledTimes(2)
     controller.dispose()
+  })
+
+  it('clears scrollback and resets only the local live terminal', () => {
+    const { callbacks, controller } = createController()
+    const terminal = harness.terminals[0]
+
+    controller.setVisible(true)
+    controller.clearScrollback()
+    controller.resetTerminal()
+
+    expect(terminal.clear).toHaveBeenCalledOnce()
+    expect(terminal.reset).toHaveBeenCalledOnce()
+    expect(terminal.focus).toHaveBeenCalledTimes(2)
+    expect(callbacks.onSelectionChange).toHaveBeenCalledWith(false)
+
+    controller.dispose()
+    controller.clearScrollback()
+    controller.resetTerminal()
+    expect(terminal.clear).toHaveBeenCalledOnce()
+    expect(terminal.reset).toHaveBeenCalledOnce()
   })
 
   it('contains malformed frames and forwards arbitrary valid bytes unchanged', async () => {

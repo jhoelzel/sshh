@@ -12,6 +12,9 @@ native desktop application.
 - xterm.js rendering, input, resize, search, titles, bells, and persistent tabs.
 - Searchable terminal-tab switching, pointer and command reordering, Ctrl+Tab
   cycling, and accessible roving tab focus without remounting live terminals.
+- State-aware terminal actions for retry-in-place, reconnecting while preserving
+  old output, duplicating running tabs, clearing scrollback, and resetting the
+  local terminal emulator.
 - Searchable local and SSH profiles with create, edit, duplicate, delete,
   grouping, tags, favorites, validated local-shell environment overrides,
   versioned atomic persistence, private JSON export, and strict atomic import
@@ -142,6 +145,20 @@ a user-chosen `.txt` or `.log` file. Exports are capped at 16 MiB, use private
 permissions, and are atomically replaced; cancelling the native dialog writes
 nothing. Both actions are available from the terminal toolbar and command
 palette.
+
+## Terminal Tab Actions
+
+The terminal-actions button and command palette expose only actions valid for
+the active tab state. `Retry terminal` releases any remaining exited or failed
+backend runtime before replacing that tab. `Reconnect in new tab` preserves the
+old tab and its output, while `Duplicate terminal tab` opens another connection
+only from a running tab. Saved profiles and transient quick-connect tabs both
+re-enter the normal host-key and credential flow; passwords and passphrases are
+never retained for reuse.
+
+`Clear scrollback` uses xterm's bounded local buffer operation. `Reset terminal`
+performs a local RIS reset of the emulator. Neither action writes bytes to the
+shell or remote host, and both become inert after controller disposal.
 
 ## Local Profile Environment
 

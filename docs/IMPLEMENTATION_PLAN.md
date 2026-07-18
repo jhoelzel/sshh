@@ -938,8 +938,11 @@ Deliverables:
   before enabling it.
 - [x] Add clear starting, running, disconnected, failed, exited, and closed states.
 - [x] Add Close and explicit reconnect for restored disconnected tabs.
-- [ ] Add Retry, Reconnect in New Tab, Duplicate Tab, Clear Scrollback, and Reset
-  Terminal actions.
+- [x] Add state-aware Retry, Reconnect in New Tab, Duplicate Tab, Clear
+  Scrollback, and Reset Terminal actions. Retry releases the old runtime before
+  replacement when one remains; reconnect preserves old output; quick
+  connections retain only a non-secret descriptor and always repeat trust and
+  credential handling.
 - [ ] Add split-terminal layout only after tabs are stable.
 - [ ] Add a global Activity view for sessions, transfers, and tunnels.
 - [x] Add coordinated shutdown and consolidated close confirmation.
@@ -960,6 +963,9 @@ Tests and exit gate:
 - [x] Add an eight-session concurrent open/output/input/resize/close scenario
   that proves output delivery before the race and returns runtimes, opening
   reservations, and the shared dispatcher to zero under the race detector.
+- [x] Controller, pure availability, and rendered application tests cover
+  disposed-safe clear/reset, per-state command enablement, duplicate tab
+  creation, retry replacement and cleanup, and reconnect-with-history behavior.
 - [ ] React component tests and Playwright flows cover focus, shortcuts, tab close,
   split layout, and shutdown decisions.
 - [ ] Native Wails smoke tests cover window close interception and lifecycle hooks.

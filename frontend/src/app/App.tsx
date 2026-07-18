@@ -8,6 +8,8 @@ import {
   CircleAlert,
   Command,
   Copy,
+  CopyPlus,
+  Eraser,
   FileText,
   FileDown,
   FileUp,
@@ -17,9 +19,12 @@ import {
   Laptop,
   ListFilter,
   LoaderCircle,
+  MoreHorizontal,
   Network,
   Pencil,
   Plus,
+  RefreshCw,
+  RotateCcw,
   Search,
   Settings2,
   Star,
@@ -41,6 +46,7 @@ import { LoggingDialog } from '../feature/terminal/LoggingDialog'
 import { copyVisibleText, exportSelectedText } from '../feature/terminal/terminalActions'
 import type { TerminalController } from '../feature/terminal/TerminalController'
 import { sanitizeTerminalLink } from '../feature/terminal/terminalLinks'
+import { terminalTabActionAvailability } from '../feature/terminal/terminalTabActions'
 import { TerminalPane } from '../feature/terminal/TerminalPane'
 import { terminalPanelId, terminalTabId } from '../feature/terminal/terminalTabIds'
 import { TerminalTabs } from '../feature/terminal/TerminalTabs'
@@ -94,12 +100,13 @@ const isMacOS = navigator.userAgent.includes('Macintosh')
 const shortcutPrefix = isMacOS ? 'Cmd Shift' : 'Ctrl Shift'
 
 type TerminalTabState = SessionState | 'disconnected'
-type PaletteScope = 'commands' | 'tabs'
+type PaletteScope = 'commands' | 'tabs' | 'terminal'
 
 interface TabModel {
   id: string
   profileId: string
   endpoint: string
+  quick?: QuickSSHInput
   session?: Session
   controller?: TerminalController
   title: string
@@ -445,6 +452,7 @@ export function App() {
           id: session.id,
           profileId: selected.id,
           endpoint: selected.endpoint,
+          quick: quick ? { ...quick } : undefined,
           session,
           controller,
           title: session.title,
@@ -602,21 +610,16 @@ export function App() {
     [startProfileAction],
   )
 
-  const connectRestoredTab = useCallback((tab: TabModel) => {
-    const selected = profiles.find((profile) => profile.id === tab.profileId)
-    if (!selected) {
-      reportError(new Error('The profile used by this layout is no longer available'))
-      return
-    }
-    void startProfileAction(selected, { kind: 'terminal', replaceTabId: tab.id })
-  }, [profiles, reportError, startProfileAction])
-
   const browseProfile = useCallback(
     (selected: Profile) => startProfileAction(selected, { kind: 'files' }),
     [startProfileAction],
   )
 
-  const startQuickConnect = useCallback(async (input: QuickSSHInput) => {
+  const startQuickSSHAction = useCallback(async (
+    input: QuickSSHInput,
+    action: Extract<SSHAction, { kind: 'terminal' }>,
+    closeQuickConnect: boolean,
+  ) => {
     if (!lease) throw new Error('Backend is not attached')
     if (openingProfile) throw new Error('Another connection is already opening')
     setOpeningProfile('quick-ssh')
@@ -630,18 +633,40 @@ export function App() {
         throw new Error(`Host key changed for ${hostKey.address}. Connection blocked (${hostKey.fingerprint}).`)
       }
       if (hostKey.status === 'unknown') {
-        setSSHPrompt({ kind: 'trust', action: { kind: 'terminal' }, profile: selected, hostKey, quick: input })
-        setQuickConnectOpen(false)
+        setSSHPrompt({ kind: 'trust', action, profile: selected, hostKey, quick: input })
+        if (closeQuickConnect) setQuickConnectOpen(false)
         return
       }
-      const connected = await inspectSSHAndConnect(selected, { kind: 'terminal' }, input)
-      setQuickConnectOpen(false)
+      const connected = await inspectSSHAndConnect(selected, action, input)
+      if (closeQuickConnect) setQuickConnectOpen(false)
       if (connected) setOpeningProfile(undefined)
     } catch (cause) {
       setOpeningProfile(undefined)
       throw cause
     }
   }, [inspectSSHAndConnect, lease, openingProfile])
+
+  const connectTerminalTab = useCallback(async (tab: TabModel, replace: boolean) => {
+    const action: Extract<SSHAction, { kind: 'terminal' }> = {
+      kind: 'terminal', replaceTabId: replace ? tab.id : undefined,
+    }
+    if (tab.quick) {
+      await startQuickSSHAction(tab.quick, action, false)
+      return
+    }
+    const selected = profiles.find((profile) => profile.id === tab.profileId)
+    if (!selected) throw new Error('The profile used by this terminal is no longer available')
+    await startProfileAction(selected, action)
+  }, [profiles, startProfileAction, startQuickSSHAction])
+
+  const connectRestoredTab = useCallback((tab: TabModel) => {
+    void connectTerminalTab(tab, true).catch(reportError)
+  }, [connectTerminalTab, reportError])
+
+  const startQuickConnect = useCallback(
+    (input: QuickSSHInput) => startQuickSSHAction(input, { kind: 'terminal' }, true),
+    [startQuickSSHAction],
+  )
 
   const trustSSHHost = useCallback(
     async (permanent: boolean) => {
@@ -985,6 +1010,44 @@ export function App() {
     [lease, removeTab, reportError, tabs],
   )
 
+  const releaseTerminalRuntime = useCallback(async (tab: TabModel) => {
+    if (tab.session) {
+      if (!lease) throw new Error('Backend is not attached')
+      if (tab.state !== 'closed') {
+        await backend.closeTerminal(lease.id, tab.session.id, tab.session.generation)
+      }
+      tab.controller?.dispose()
+      controllers.current.delete(tab.id)
+      setSessionLogs((current) => current.filter((status) => status.sessionId !== tab.session?.id))
+      setLoggingSessionId((current) => current === tab.session?.id ? undefined : current)
+    }
+    setSearchOpen(false)
+    setSearchQuery('')
+    setTabs((current) => current.map((item) => item.id === tab.id ? disconnectTerminalTab(item) : item))
+  }, [lease])
+
+  const retryTerminalTab = useCallback(async (tab: TabModel) => {
+    if (openingProfile) return
+    setOpeningProfile(`retry:${tab.id}`)
+    setError(undefined)
+    try {
+      await releaseTerminalRuntime(tab)
+      setOpeningProfile(undefined)
+      await connectTerminalTab(tab, true)
+    } catch (cause) {
+      setOpeningProfile(undefined)
+      reportError(cause)
+    }
+  }, [connectTerminalTab, openingProfile, releaseTerminalRuntime, reportError])
+
+  const reconnectTerminalTab = useCallback((tab: TabModel) => {
+    void connectTerminalTab(tab, false).catch(reportError)
+  }, [connectTerminalTab, reportError])
+
+  const duplicateTerminalTab = useCallback((tab: TabModel) => {
+    void connectTerminalTab(tab, false).catch(reportError)
+  }, [connectTerminalTab, reportError])
+
   const applyWorkspaceLayout = useCallback(async (layout: WorkspaceLayout) => {
     const sessionTabs = tabs.filter((tab): tab is TabModel & { session: Session } => Boolean(tab.session))
     if (sessionTabs.length > 0) {
@@ -1070,6 +1133,13 @@ export function App() {
 
   const activeController = activeTab?.controller
   const activeHasSelection = Boolean(activeController && activeTab?.hasSelection)
+  const activeHasConnectionDescriptor = Boolean(activeTab && (activeTab.quick || activeProfile))
+  const terminalActionAvailability = terminalTabActionAvailability(
+    activeTab?.state,
+    Boolean(activeController),
+    activeHasConnectionDescriptor,
+    Boolean(openingProfile),
+  )
   const blockingOverlayOpen = Boolean(
     sshPrompt || profileEditor || profileExchange || quickConnectOpen || loggingSessionId || confirmation,
   )
@@ -1081,6 +1151,22 @@ export function App() {
     const selected = localProfiles[0]
     if (canOpenLocalTerminal && selected) void connectProfile(selected)
   }, [canOpenLocalTerminal, connectProfile, localProfiles])
+
+  const clearActiveScrollback = useCallback(() => {
+    if (!activeController) return
+    activeController.clearScrollback()
+    setSearchOpen(false)
+    setSearchQuery('')
+    reportNotice('Terminal scrollback cleared')
+  }, [activeController, reportNotice])
+
+  const resetActiveTerminal = useCallback(() => {
+    if (!activeController) return
+    activeController.resetTerminal()
+    setSearchOpen(false)
+    setSearchQuery('')
+    reportNotice('Terminal reset')
+  }, [activeController, reportNotice])
 
   const copyVisibleTerminal = useCallback(async () => {
     if (!activeController) return
@@ -1115,6 +1201,43 @@ export function App() {
     keywords: [tab.endpoint, tab.profileId, tab.state, `tab ${index + 1}`],
     run: () => selectTab(tab.id),
   })), [selectTab, tabs])
+
+  const terminalActionCommands = useMemo<PaletteCommand[]>(() => [
+    {
+      id: 'retry-terminal', label: 'Retry terminal', group: 'Connection', icon: RefreshCw,
+      keywords: ['replace', 'reconnect'], disabled: !terminalActionAvailability.retry,
+      run: () => {
+        if (activeTab) void retryTerminalTab(activeTab)
+      },
+    },
+    {
+      id: 'reconnect-terminal-new-tab', label: 'Reconnect in new tab', group: 'Connection', icon: Plus,
+      keywords: ['retry', 'preserve history'], disabled: !terminalActionAvailability.reconnectInNewTab,
+      run: () => {
+        if (activeTab) reconnectTerminalTab(activeTab)
+      },
+    },
+    {
+      id: 'duplicate-terminal-tab', label: 'Duplicate terminal tab', group: 'Connection', icon: CopyPlus,
+      keywords: ['clone', 'new session'], disabled: !terminalActionAvailability.duplicate,
+      run: () => {
+        if (activeTab) duplicateTerminalTab(activeTab)
+      },
+    },
+    {
+      id: 'clear-terminal-scrollback', label: 'Clear scrollback', group: 'Display', icon: Eraser,
+      keywords: ['history', 'buffer'], disabled: !terminalActionAvailability.clearScrollback,
+      run: clearActiveScrollback,
+    },
+    {
+      id: 'reset-terminal', label: 'Reset terminal', group: 'Display', icon: RotateCcw,
+      keywords: ['ris', 'emulator'], disabled: !terminalActionAvailability.reset,
+      run: resetActiveTerminal,
+    },
+  ], [
+    activeTab, clearActiveScrollback, duplicateTerminalTab, reconnectTerminalTab, resetActiveTerminal,
+    retryTerminalTab, terminalActionAvailability,
+  ])
 
   const paletteCommands = useMemo<PaletteCommand[]>(() => [
     {
@@ -1196,6 +1319,7 @@ export function App() {
       group: 'Active terminal', icon: FileText, keywords: ['record', 'capture'],
       disabled: !activeTab || activeTab.state !== 'running', run: () => void toggleSessionLogging(),
     },
+    ...terminalActionCommands,
     {
       id: 'close-terminal', label: 'Close active terminal', group: 'Active terminal', icon: X,
       keywords: ['tab', 'session'], disabled: !activeId,
@@ -1225,7 +1349,8 @@ export function App() {
     activeController, activeHasSelection, activeId, activeLog, activeTab, activeTabIndex, canOpenLocalTerminal,
     closeTab, copyVisibleTerminal, exportProfiles, exportTerminalSelection, importProfiles, lease,
     moveActiveTab, openLocalTerminal, openingProfile, profileExchangeAction, settings, reportError,
-    restoreWorkspaceLayout, selectRelativeTab, tabCommands, tabs.length, toggleSessionLogging, workspaceLayouts,
+    restoreWorkspaceLayout, selectRelativeTab, tabCommands, tabs.length, terminalActionCommands,
+    toggleSessionLogging, workspaceLayouts,
   ])
 
   useEffect(() => {
@@ -1387,6 +1512,16 @@ export function App() {
               onClick={() => setPaletteScope('tabs')}
             >
               <ListFilter size={16} />
+            </button>
+            <button
+              className="icon-button"
+              type="button"
+              title="Terminal actions"
+              aria-label="Terminal actions"
+              disabled={!activeTab}
+              onClick={() => setPaletteScope('terminal')}
+            >
+              <MoreHorizontal size={17} />
             </button>
             <button
               className={`icon-button${searchOpen ? ' is-pressed' : ''}`}
@@ -1644,11 +1779,27 @@ export function App() {
 
       {paletteScope && (
         <CommandPalette
-          commands={paletteScope === 'tabs' ? tabCommands : paletteCommands}
-          emptyLabel={paletteScope === 'tabs' ? 'No matching terminal tabs' : undefined}
+          commands={paletteScope === 'tabs'
+            ? tabCommands
+            : paletteScope === 'terminal'
+              ? terminalActionCommands
+              : paletteCommands}
+          emptyLabel={paletteScope === 'tabs'
+            ? 'No matching terminal tabs'
+            : paletteScope === 'terminal'
+              ? 'No matching terminal actions'
+              : undefined}
           onClose={() => setPaletteScope(undefined)}
-          searchLabel={paletteScope === 'tabs' ? 'Search terminal tabs' : undefined}
-          title={paletteScope === 'tabs' ? 'Find terminal tab' : undefined}
+          searchLabel={paletteScope === 'tabs'
+            ? 'Search terminal tabs'
+            : paletteScope === 'terminal'
+              ? 'Search terminal actions'
+              : undefined}
+          title={paletteScope === 'tabs'
+            ? 'Find terminal tab'
+            : paletteScope === 'terminal'
+              ? 'Terminal actions'
+              : undefined}
         />
       )}
 
@@ -1754,6 +1905,20 @@ function updateTabState(tabs: TabModel[], event: SessionStateEvent): TabModel[] 
     }
     return { ...tab, state: event.state, exitSummary }
   })
+}
+
+function disconnectTerminalTab(tab: TabModel): TabModel {
+  return {
+    id: tab.id,
+    profileId: tab.profileId,
+    endpoint: tab.endpoint,
+    quick: tab.quick,
+    title: tab.title,
+    state: 'disconnected',
+    exitSummary: tab.exitSummary,
+    attention: false,
+    hasSelection: false,
+  }
 }
 
 function isLive(state: TerminalTabState): boolean {

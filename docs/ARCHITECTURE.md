@@ -235,6 +235,20 @@ creates a runtime. Connect is a separate user action that resolves the current
 profile and enters the existing host-key and credential workflow. Quick-connect
 targets are transient and are omitted when capturing a layout.
 
+A live tab retains either a saved profile reference or the non-sensitive host,
+port, username, authentication mode, and identity-file path of its transient
+quick connection. Retry first releases any remaining backend runtime and
+disposes its controller, then replaces the same tab through the ordinary
+connection flow. Reconnect in New Tab keeps the old controller and output for
+inspection; Duplicate Tab is the running-session form of the same new connection
+flow. No action retains or replays a password, passphrase, trust decision,
+process, or SSH channel.
+
+Clear Scrollback and Reset Terminal are controller-local xterm operations.
+They do not cross the Wails bridge or write escape bytes to the transport. The
+controller ignores both after disposal, and Reset clears frontend selection
+state so command availability remains synchronized with xterm.
+
 ## Transfer Policy Ownership
 
 Transfer preferences are durable application settings, while each transfer
