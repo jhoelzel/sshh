@@ -14,7 +14,7 @@ func TestPortableJSONRoundTripExcludesRuntimeIdentity(t *testing.T) {
 		ID: "private-runtime-id", Name: "Production", Protocol: profiledomain.ProtocolSSH,
 		Host: "prod.example.com", Port: 2222, Username: "deploy",
 		Authentication: profiledomain.AuthenticationKey, IdentityFile: "~/.ssh/id_ed25519",
-		Environment: map[string]string{"TERM": "xterm-256color"}, Tags: []string{"prod"},
+		Environment: map[string]string{"LANG": "en_US.UTF-8"}, Tags: []string{"prod"},
 		CreatedAt: time.Now(), UpdatedAt: time.Now(),
 	}}
 
@@ -34,7 +34,7 @@ func TestPortableJSONRoundTripExcludesRuntimeIdentity(t *testing.T) {
 		t.Fatalf("unexpected parse result: %#v", parsed)
 	}
 	profile := parsed.Profiles[0]
-	if profile.ID != "" || profile.Host != "prod.example.com" || profile.Environment["TERM"] != "xterm-256color" {
+	if profile.ID != "" || profile.Host != "prod.example.com" || profile.Environment["LANG"] != "en_US.UTF-8" {
 		t.Fatalf("unexpected round trip profile: %#v", profile)
 	}
 }

@@ -16,8 +16,8 @@ import (
 
 func TestFactoryRunsCommandInRealPTY(t *testing.T) {
 	transport, err := NewFactory().Open(context.Background(), port.TerminalSpec{
-		Command: "/bin/sh", Arguments: []string{"-c", "printf 'ready\\n'; stty size"},
-		Columns: 91, Rows: 33,
+		Command: "/bin/sh", Arguments: []string{"-c", "printf 'ready:%s\\n' \"$SHHH_PROFILE_TEST\"; stty size"},
+		Environment: []string{"SHHH_PROFILE_TEST=exact value"}, Columns: 91, Rows: 33,
 	})
 	if err != nil {
 		t.Fatalf("open PTY: %v", err)
@@ -41,7 +41,7 @@ func TestFactoryRunsCommandInRealPTY(t *testing.T) {
 	select {
 	case output := <-readDone:
 		text := strings.ReplaceAll(string(output), "\r", "")
-		if !strings.Contains(text, "ready\n") || !strings.Contains(text, "33 91") {
+		if !strings.Contains(text, "ready:exact value\n") || !strings.Contains(text, "33 91") {
 			t.Fatalf("unexpected PTY output %q", text)
 		}
 	case <-time.After(2 * time.Second):

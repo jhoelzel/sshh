@@ -128,6 +128,14 @@ repository. Quick SSH targets are normalized into transient profile values by
 the SSH connection use case; caller IDs and persistence metadata are discarded,
 and no quick-connect operation can write the profile repository.
 
+Local-profile environment overrides are validated in the profile domain before
+persistence or import. The React editor preserves values exactly while
+requiring portable, case-insensitively unique names. The session manager emits
+overrides in deterministic order and adds its owned session identifier; the PTY
+adapter then merges them over the inherited process environment while retaining
+runtime ownership of terminal capability variables. Environment values are
+never emitted as diagnostics or lifecycle events.
+
 ### `internal/adapter`
 
 Concrete local PTY, Windows ConPTY, SSH, SFTP, config, known-hosts, and native

@@ -32,6 +32,21 @@ go run golang.org/x/vuln/cmd/govulncheck@v1.1.4 ./...
 Use `-show verbose` with `govulncheck` during release review to include
 module-only findings that are not imported or reachable.
 
+## Profile Environment Values
+
+Local-shell environment overrides are ordinary profile configuration. They use
+the same private atomic storage as the rest of a profile and are included in
+portable profile exports. They must not contain passwords, tokens, private
+keys, or other credentials. shh-h does not include valid override names or
+values in its session lifecycle events or diagnostics. Validation errors may
+identify an invalid variable name. A launched child process receives valid
+overrides and may expose them through its own tools or diagnostics.
+
+Both the frontend and Go domain reject malformed names, case-insensitive name
+collisions, null bytes, more than 128 entries, and variables owned by the
+terminal runtime. Backend validation remains authoritative for bridge, import,
+and manually edited configuration paths.
+
 ## Reviewed Module-Only Advisory
 
 The verbose scan on 2026-07-17 reported `GO-2026-5932` against

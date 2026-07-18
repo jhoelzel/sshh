@@ -24,7 +24,8 @@ Implemented and verified:
 - [x] The macOS arm64 application launches as a self-signed `.app` with all
   frontend assets embedded in its Go executable.
 - [x] Profiles use a strict versioned schema, atomic private-file replacement,
-  external-change detection, and legacy migration backup.
+  external-change detection, and legacy migration backup. Local profiles expose
+  validated environment overrides with exact value preservation.
 - [x] Profile exchange uses a versioned credential-field-free JSON document,
   private atomic exports, and one-save imports. Concrete OpenSSH hosts import
   with first-value precedence and visible diagnostics; unsafe proxy directives
@@ -141,8 +142,8 @@ Version 1.0 will be a production-usable MobaXterm-style core client with:
   reporting.
 - [x] UTF-8 terminal sessions in 1.0. Legacy character-set conversion is a
   post-1.0 feature and is never guessed silently from terminal output.
-- [x] Profile create, edit, duplicate, delete, import, group, tag, and quick-connect
-  workflows.
+- [x] Profile create, edit, duplicate, delete, import, group, tag, local
+  environment, and quick-connect workflows.
 - [ ] Add a dedicated local file pane beside the implemented remote SFTP browser
   and visible transfer queue.
 - [x] Saved local, remote, and dynamic SSH tunnels with explicit lifecycle state.
@@ -842,8 +843,9 @@ Deliverables:
 - [ ] Implement Windows ConPTY startup, input, output, resize, wait, and cleanup.
 - [x] Add local shell discovery and profile options for executable, arguments,
   working directory, and login-shell behavior.
-- [ ] Expose profile environment overrides in the frontend editor; the backend
-  model and PTY environment merge already support them.
+- [x] Expose portable local-profile environment overrides in an accessible
+  key/value editor, with frontend and authoritative domain validation, exact
+  persistence, and real-PTY delivery coverage.
 - [x] Wire explicit New Local Terminal and Connect actions to a live runtime.
 - [x] Replace the scaffold terminal label with reusable xterm-backed session tabs.
 - [x] Update terminal title and visible exit status from runtime metadata.
@@ -944,8 +946,8 @@ Tests and exit gate:
 - [ ] Corrupt and truncated config files produce a recoverable UI flow with backup
   options.
 - [x] Duplicate IDs and names do not overwrite profiles.
-- [ ] Expand profile validation tests beyond current host, port, name, and IPv6
-  coverage to shell paths, proxy chains, and invalid combinations.
+- [ ] Expand profile validation tests beyond current host, port, name, IPv6, and
+  environment coverage to shell paths, proxy chains, and invalid combinations.
 
 ### M5: Credentials and SSH Trust
 

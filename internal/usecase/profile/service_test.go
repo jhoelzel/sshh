@@ -142,6 +142,42 @@ func TestServiceCRUDAndDuplicate(t *testing.T) {
 	}
 }
 
+func TestServicePersistsEnvironmentOverridesWithoutAliasing(t *testing.T) {
+	repository := &memoryRepository{}
+	service, err := NewService(repository)
+	if err != nil {
+		t.Fatalf("create service: %v", err)
+	}
+
+	environment := map[string]string{"EMPTY": "", "LANG": "C.UTF-8"}
+	created, err := service.Create(profiledomain.Profile{
+		Name: "Development shell", Protocol: profiledomain.ProtocolLocal, Environment: environment,
+	})
+	if err != nil {
+		t.Fatalf("create profile with environment: %v", err)
+	}
+	environment["LANG"] = "mutated input"
+	created.Environment["EMPTY"] = "mutated result"
+
+	stored, found := service.Find(created.ID)
+	if !found {
+		t.Fatal("created profile was not found")
+	}
+	if stored.Environment["LANG"] != "C.UTF-8" || stored.Environment["EMPTY"] != "" {
+		t.Fatalf("stored environment was aliased: %#v", stored.Environment)
+	}
+
+	duplicated, err := service.Duplicate(created.ID)
+	if err != nil {
+		t.Fatalf("duplicate profile with environment: %v", err)
+	}
+	duplicated.Environment["LANG"] = "mutated duplicate"
+	original, _ := service.Find(created.ID)
+	if original.Environment["LANG"] != "C.UTF-8" {
+		t.Fatalf("duplicate environment was aliased to original: %#v", original.Environment)
+	}
+}
+
 func TestServiceDoesNotMutateStateWhenPersistenceFails(t *testing.T) {
 	repository := &memoryRepository{profiles: []profiledomain.Profile{
 		{ID: "local", Name: "Local", Protocol: profiledomain.ProtocolLocal},

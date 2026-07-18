@@ -4,6 +4,8 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -21,7 +23,11 @@ const (
 	AuthenticationAgent    Authentication = "agent"
 	AuthenticationKey      Authentication = "key"
 	AuthenticationPassword Authentication = "password"
+
+	maxEnvironmentOverrides = 128
 )
+
+var portableEnvironmentName = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]{0,127}$`)
 
 type Profile struct {
 	ID               string            `json:"id"`
@@ -50,6 +56,9 @@ func (p Profile) Validate() error {
 	if strings.TrimSpace(p.Name) == "" {
 		return errors.New("name is required")
 	}
+	if err := validateEnvironment(p.Environment); err != nil {
+		return err
+	}
 
 	switch p.Protocol {
 	case ProtocolLocal:
@@ -73,6 +82,43 @@ func (p Profile) Validate() error {
 	default:
 		return fmt.Errorf("unsupported protocol %q", p.Protocol)
 	}
+}
+
+func validateEnvironment(environment map[string]string) error {
+	if len(environment) > maxEnvironmentOverrides {
+		return fmt.Errorf("environment supports at most %d overrides", maxEnvironmentOverrides)
+	}
+
+	names := make([]string, 0, len(environment))
+	for name := range environment {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+
+	canonicalNames := make(map[string]string, len(names))
+	for _, name := range names {
+		if !portableEnvironmentName.MatchString(name) {
+			return fmt.Errorf(
+				"environment variable %q must start with a letter or underscore and contain only letters, digits, and underscores",
+				name,
+			)
+		}
+
+		canonical := strings.ToUpper(name)
+		if previous, exists := canonicalNames[canonical]; exists {
+			return fmt.Errorf("environment variables %q and %q differ only by case", previous, name)
+		}
+		canonicalNames[canonical] = name
+
+		switch canonical {
+		case "TERM", "COLORTERM", "SHHH_SESSION_ID":
+			return fmt.Errorf("environment variable %q is managed by shh-h", name)
+		}
+		if strings.IndexByte(environment[name], 0) >= 0 {
+			return fmt.Errorf("environment variable %q contains a null byte", name)
+		}
+	}
+	return nil
 }
 
 func (p Profile) WithDefaults(now time.Time) Profile {

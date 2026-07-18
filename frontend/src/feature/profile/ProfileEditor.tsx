@@ -1,6 +1,11 @@
-import { useMemo, useState, type FormEvent } from 'react'
+import { useMemo, useRef, useState, type FormEvent } from 'react'
 import { Copy, KeyRound, Laptop, Server, Star, Trash2, X } from 'lucide-react'
 import type { Profile, ProfileInput, SSHAuthentication } from '../../lib/bridge/types'
+import { ProfileEnvironmentEditor } from './ProfileEnvironmentEditor'
+import {
+  profileEnvironmentEntries,
+  validateProfileEnvironment,
+} from './profileEnvironment'
 
 interface ProfileEditorProps {
   profile?: Profile
@@ -33,6 +38,8 @@ export function ProfileEditor({ profile, onCancel, onSave, onDuplicate, onDelete
   const [draft, setDraft] = useState<ProfileInput>(initial)
   const [argumentsText, setArgumentsText] = useState(initial.arguments.join('\n'))
   const [tagsText, setTagsText] = useState(initial.tags.join(', '))
+  const [environmentEntries, setEnvironmentEntries] = useState(() => profileEnvironmentEntries(initial.environment))
+  const nextEnvironmentEntryID = useRef(environmentEntries.length)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string>()
 
@@ -42,12 +49,21 @@ export function ProfileEditor({ profile, onCancel, onSave, onDuplicate, onDelete
 
   const submit = async (event: FormEvent) => {
     event.preventDefault()
-    setBusy(true)
     setError(undefined)
+    const environment = draft.protocol === 'local'
+      ? validateProfileEnvironment(environmentEntries)
+      : { ok: true as const, environment: {} }
+    if (!environment.ok) {
+      setError(environment.error)
+      return
+    }
+
+    setBusy(true)
     try {
       await onSave({
         ...draft,
         arguments: splitLines(argumentsText),
+        environment: environment.environment,
         tags: tagsText.split(',').map((tag) => tag.trim()).filter(Boolean),
       })
     } catch (cause) {
@@ -55,6 +71,23 @@ export function ProfileEditor({ profile, onCancel, onSave, onDuplicate, onDelete
     } finally {
       setBusy(false)
     }
+  }
+
+  const addEnvironmentEntry = () => {
+    const id = `added:${nextEnvironmentEntryID.current}`
+    nextEnvironmentEntryID.current++
+    setEnvironmentEntries((current) => [...current, { id, name: '', value: '' }])
+    setError(undefined)
+  }
+
+  const updateEnvironmentEntry = (id: string, field: 'name' | 'value', value: string) => {
+    setEnvironmentEntries((current) => current.map((entry) => entry.id === id ? { ...entry, [field]: value } : entry))
+    setError(undefined)
+  }
+
+  const removeEnvironmentEntry = (id: string) => {
+    setEnvironmentEntries((current) => current.filter((entry) => entry.id !== id))
+    setError(undefined)
   }
 
   const duplicate = async () => {
@@ -114,7 +147,15 @@ export function ProfileEditor({ profile, onCancel, onSave, onDuplicate, onDelete
           {draft.protocol === 'ssh' ? (
             <SSHFields draft={draft} setField={setField} />
           ) : (
-            <LocalFields draft={draft} argumentsText={argumentsText} setArgumentsText={setArgumentsText} setField={setField} />
+            <>
+              <LocalFields draft={draft} argumentsText={argumentsText} setArgumentsText={setArgumentsText} setField={setField} />
+              <ProfileEnvironmentEditor
+                entries={environmentEntries}
+                onAdd={addEnvironmentEntry}
+                onChange={updateEnvironmentEntry}
+                onRemove={removeEnvironmentEntry}
+              />
+            </>
           )}
 
           <label className="field">
@@ -235,7 +276,7 @@ function profileToInput(profile?: Profile): ProfileInput {
     shell: profile.shell,
     arguments: [...profile.arguments],
     workingDirectory: profile.workingDirectory,
-    environment: { ...profile.environment },
+    environment: { ...(profile.environment ?? {}) },
     tags: [...profile.tags],
     group: profile.group,
     favorite: profile.favorite,

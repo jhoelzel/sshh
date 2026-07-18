@@ -10,8 +10,9 @@ native desktop application.
 - Real interactive local shells through a pseudoterminal on macOS and Linux.
 - xterm.js rendering, input, resize, search, titles, bells, and persistent tabs.
 - Searchable local and SSH profiles with create, edit, duplicate, delete,
-  grouping, tags, favorites, versioned atomic persistence, private JSON export,
-  and strict atomic import from shh-h JSON or concrete OpenSSH hosts.
+  grouping, tags, favorites, validated local-shell environment overrides,
+  versioned atomic persistence, private JSON export, and strict atomic import
+  from shh-h JSON or concrete OpenSSH hosts.
 - One-off SSH quick connect with transient validated targets and the same strict
   host-key verification and credential handling as saved profiles.
 - Interactive SSH terminals with strict known-host verification, explicit
@@ -125,6 +126,20 @@ a user-chosen `.txt` or `.log` file. Exports are capped at 16 MiB, use private
 permissions, and are atomically replaced; cancelling the native dialog writes
 nothing. Both actions are available from the terminal toolbar and command
 palette.
+
+## Local Profile Environment
+
+Local profiles expose environment overrides as explicit variable/value rows in
+the profile editor. Names must use the portable shell form
+`[A-Za-z_][A-Za-z0-9_]*`, contain at most 128 characters, and are unique without
+regard to letter case. Profiles are limited to 128 entries. Empty values are
+preserved. Overrides replace matching values from the inherited process
+environment when the PTY starts.
+
+`TERM`, `COLORTERM`, and `SHHH_SESSION_ID` are owned by the terminal runtime and
+cannot be overridden. Environment values are stored in private profile
+configuration and included in profile exports. They are not a secret store; do
+not use them for passwords, access tokens, or other credentials.
 
 ## SSH Connection Policy
 
