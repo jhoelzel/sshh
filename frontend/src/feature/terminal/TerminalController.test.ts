@@ -6,6 +6,7 @@ interface TerminalDouble {
   emitData: (value: string) => void
   emitResize: (columns: number, rows: number) => void
   rejectWrites: boolean
+  resize: (columns: number, rows: number) => void
   writes: Uint8Array[]
 }
 
@@ -56,6 +57,9 @@ vi.mock('@xterm/xterm', () => ({
     hasSelection = vi.fn(() => false)
     loadAddon = vi.fn()
     open = vi.fn()
+    resize = vi.fn((columns: number, rows: number) => {
+      this.emitResize(columns, rows)
+    })
 
     onBell = vi.fn(() => disposable())
     onSelectionChange = vi.fn(() => disposable())
@@ -156,15 +160,16 @@ describe('TerminalController', () => {
     const { controller } = createController()
     const terminal = harness.terminals[0]
 
-    terminal.emitResize(81, 25)
+    controller.resize(81, 25)
     await vi.advanceTimersByTimeAsync(40)
-    terminal.emitResize(120, 40)
+    controller.resize(120, 40)
     await vi.advanceTimersByTimeAsync(79)
     expect(harness.backend.resizeTerminal).not.toHaveBeenCalled()
 
     await vi.advanceTimersByTimeAsync(1)
     expect(harness.backend.resizeTerminal).toHaveBeenCalledOnce()
     expect(harness.backend.resizeTerminal).toHaveBeenCalledWith('lease-1', 'session-1', 3, 120, 40)
+    expect(terminal.resize).toHaveBeenCalledTimes(2)
     controller.dispose()
   })
 
@@ -209,6 +214,17 @@ describe('TerminalController', () => {
     expect(harness.backend.acknowledgeTerminalOutput).toHaveBeenCalledWith(
       'lease-1', 'session-1', 3, 2, malformedStream.byteLength + 1,
     )
+    expect(controller.diagnostics()).toEqual({
+      acceptedSequence: 2,
+      acceptedBytes: malformedStream.byteLength + 1,
+      consumedSequence: 2,
+      consumedBytes: malformedStream.byteLength + 1,
+      acknowledgedSequence: 2,
+      pendingBytes: 0,
+      peakPendingBytes: malformedStream.byteLength,
+      maximumPendingBytes: 1024 * 1024,
+      outputFailed: false,
+    })
     controller.dispose()
   })
 

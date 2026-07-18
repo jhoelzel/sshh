@@ -91,6 +91,22 @@ type SessionLogStatus struct {
 	Message        string `json:"message"`
 }
 
+// Diagnostics is a content-free flow-control snapshot for native performance
+// verification. It deliberately exposes counters only, never terminal bytes.
+type Diagnostics struct {
+	SessionID               string `json:"sessionId"`
+	Generation              uint64 `json:"generation"`
+	NextSequence            uint64 `json:"nextSequence"`
+	EmittedBytes            uint64 `json:"emittedBytes"`
+	AcknowledgedSequence    uint64 `json:"acknowledgedSequence"`
+	AcknowledgedBytes       uint64 `json:"acknowledgedBytes"`
+	UnacknowledgedBytes     uint64 `json:"unacknowledgedBytes"`
+	PendingChunks           int    `json:"pendingChunks"`
+	PeakUnacknowledgedBytes uint64 `json:"peakUnacknowledgedBytes"`
+	PeakPendingChunks       int    `json:"peakPendingChunks"`
+	MaximumUnacknowledged   uint64 `json:"maximumUnacknowledged"`
+}
+
 type Manager struct {
 	mu         sync.RWMutex
 	factory    port.TerminalFactory
@@ -125,6 +141,8 @@ type runtimeSession struct {
 	ackedBytes    uint64
 	ackedSequence uint64
 	pending       []outputMeta
+	peakUnacked   uint64
+	peakPending   int
 	flowClosed    bool
 	flowWake      chan struct{}
 	logMu         sync.Mutex
@@ -346,6 +364,14 @@ func (m *Manager) Acknowledge(leaseID, sessionID string, generation, throughSequ
 		return err
 	}
 	return runtime.acknowledge(throughSequence, bytesConsumed)
+}
+
+func (m *Manager) Diagnostics(leaseID, sessionID string, generation uint64) (Diagnostics, error) {
+	runtime, err := m.runtime(leaseID, sessionID, generation)
+	if err != nil {
+		return Diagnostics{}, err
+	}
+	return runtime.diagnostics(), nil
 }
 
 func (m *Manager) StartLogging(leaseID, sessionID string, generation uint64, timestampLines bool) (SessionLogStatus, error) {
@@ -792,6 +818,13 @@ func (r *runtimeSession) reserveOutput(byteCount int) (uint64, uint64, error) {
 			r.emittedBytes += uint64(byteCount)
 			meta := outputMeta{sequence: r.nextSequence, endOffset: r.emittedBytes}
 			r.pending = append(r.pending, meta)
+			unacked := r.emittedBytes - r.ackedBytes
+			if unacked > r.peakUnacked {
+				r.peakUnacked = unacked
+			}
+			if len(r.pending) > r.peakPending {
+				r.peakPending = len(r.pending)
+			}
 			r.flowMu.Unlock()
 			return meta.sequence, meta.endOffset, nil
 		}
@@ -802,6 +835,25 @@ func (r *runtimeSession) reserveOutput(byteCount int) (uint64, uint64, error) {
 			return 0, 0, r.ctx.Err()
 		case <-r.flowWake:
 		}
+	}
+}
+
+func (r *runtimeSession) diagnostics() Diagnostics {
+	snapshot := r.snapshot()
+	r.flowMu.Lock()
+	defer r.flowMu.Unlock()
+	return Diagnostics{
+		SessionID:               snapshot.ID,
+		Generation:              snapshot.Generation,
+		NextSequence:            r.nextSequence,
+		EmittedBytes:            r.emittedBytes,
+		AcknowledgedSequence:    r.ackedSequence,
+		AcknowledgedBytes:       r.ackedBytes,
+		UnacknowledgedBytes:     r.emittedBytes - r.ackedBytes,
+		PendingChunks:           len(r.pending),
+		PeakUnacknowledgedBytes: r.peakUnacked,
+		PeakPendingChunks:       r.peakPending,
+		MaximumUnacknowledged:   maxUnackedBytes,
 	}
 }
 

@@ -72,6 +72,7 @@ make test      # Go and frontend unit/integration tests
 make lint      # ESLint and go vet
 make build     # native package with embedded build identity
 make check-bindings # regenerate, normalize, and verify Wails bridge contracts
+./scripts/run-terminal-benchmark-macos.sh # packaged WKWebView performance gate
 ```
 
 `make run` is intentionally a foreground developer command and exits with its
@@ -220,6 +221,8 @@ executable is `build/bin/shh-h.app/Contents/MacOS/shhh`.
 ## Structure
 
 - `cmd/shhh`: executable entry point and Wails project configuration.
+- `cmd/terminalbench`: development-only packaged-macOS benchmark host and RSS
+  sampler; it is not included in release artifacts.
 - `internal/app`: composition root and desktop lifecycle configuration.
 - `internal/buildinfo`: linker-provided and Go VCS build identity.
 - `internal/domain`: pure profile, transfer, SSH, tunnel, snippet, workspace,
@@ -229,6 +232,8 @@ executable is `build/bin/shh-h.app/Contents/MacOS/shhh`.
   notification, profile exchange, and configuration adapters.
 - `internal/usecase`: profile, session, transfer, SSH, tunnel, snippet,
   remote-path favorite, notification, and workspace orchestration.
+- `internal/terminalbenchmark`: guarded content-free metrics, fixed same-binary
+  PTY fixture, report validation, and provisional performance budgets.
 - `internal/bridge`: narrow typed Wails command and event boundary.
 - `frontend`: React terminal, profile, file, transfer, tunnel, snippet, layout,
   and settings workspaces.
@@ -236,13 +241,17 @@ executable is `build/bin/shh-h.app/Contents/MacOS/shhh`.
   scope.
 - `docs/SECURITY.md`: automated audit policy and reviewed advisory notes.
 - `docs/TERMINAL_STRESS.md`: real-PTY lifecycle, process, descriptor, goroutine,
-  and frontend-listener stress evidence and the remaining native benchmark gap.
+  and frontend-listener stress evidence.
+- `docs/TERMINAL_BENCHMARK.md`: reproducible packaged WKWebView terminal
+  throughput, latency, queue, memory, and close-response evidence.
 - `docs/REMOTE_PROJECTS_PLAN.md`: proposed self-hosted remote code editor,
   provisioning, project lifecycle, and browser-authentication design.
 - `docs/TELEPORT_INTEGRATION_PLAN.md`: proposed Teleport cluster, browser
   authentication, resource discovery, terminal, and compliance design.
 - `docs/adr/0001-desktop-frontend-stack.md`: accepted frontend decision and
   tradeoffs.
+- `docs/adr/0002-terminal-performance-budgets.md`: accepted native terminal
+  queue, latency, completion, close, scrollback, and process-memory budgets.
 
 The dependency direction and runtime ownership rules are documented in
 `docs/ARCHITECTURE.md`.

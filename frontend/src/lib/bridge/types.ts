@@ -191,6 +191,83 @@ export interface TerminalOutput {
   final: boolean
 }
 
+export interface TerminalDiagnostics {
+  sessionId: string
+  generation: number
+  nextSequence: number
+  emittedBytes: number
+  acknowledgedSequence: number
+  acknowledgedBytes: number
+  unacknowledgedBytes: number
+  pendingChunks: number
+  peakUnacknowledgedBytes: number
+  peakPendingChunks: number
+  maximumUnacknowledged: number
+}
+
+export interface TerminalBenchmarkConfig {
+  enabled: boolean
+  processId: number
+  payloadBytes: number
+  maximumBackendQueueBytes: number
+  maximumFrontendQueueBytes: number
+  minimumLatencySamples: number
+}
+
+export interface TerminalBenchmarkControllerDiagnostics {
+  acceptedSequence: number
+  acceptedBytes: number
+  consumedSequence: number
+  consumedBytes: number
+  acknowledgedSequence: number
+  pendingBytes: number
+  peakPendingBytes: number
+  maximumPendingBytes: number
+  outputFailed: boolean
+}
+
+export interface TerminalBenchmarkBackendDiagnostics {
+  nextSequence: number
+  emittedBytes: number
+  acknowledgedSequence: number
+  acknowledgedBytes: number
+  unacknowledgedBytes: number
+  pendingChunks: number
+  peakUnacknowledgedBytes: number
+  peakPendingChunks: number
+  maximumUnacknowledged: number
+}
+
+export interface TerminalBenchmarkReport {
+  schemaVersion: number
+  startedAt: string
+  finishedAt: string
+  payloadBytes: number
+  outputDurationMilliseconds: number
+  idleEchoMilliseconds: number[]
+  floodEchoMilliseconds: number[]
+  resizeMilliseconds: number[]
+  idleEchoP95Milliseconds: number
+  floodEchoP95Milliseconds: number
+  resizeP95Milliseconds: number
+  closeDurationMilliseconds: number
+  controller: TerminalBenchmarkControllerDiagnostics
+  backend: TerminalBenchmarkBackendDiagnostics
+  runtime: { operatingSystem: string; architecture: string; goVersion: string; processId: number }
+  host: {
+    model: string
+    processor: string
+    operatingSystemVersion: string
+    memoryBytes: number
+    processTreePeakRssBytes: number
+    processTreePeakProcesses: number
+    webKitPeakProcesses: number
+    rssSamples: number
+  }
+  passed: boolean
+  failures: string[]
+}
+
 export interface TerminalTextExportResult {
   cancelled: boolean
   filename: string

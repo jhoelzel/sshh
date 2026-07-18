@@ -68,12 +68,14 @@ The PTY flood test completed its warm-up and four measured cycles in 5.07
 seconds. This timing is a test-run observation, not a rendering throughput
 budget.
 
-## Open Native Performance Gate
+## Native Performance Gate
 
-This lifecycle suite does not exercise Wails event serialization inside a
-packaged WKWebView, xterm rendering or paint latency, WebView heap growth,
-scrollback memory, IME behavior, or sleep/wake timer suspension. It therefore
-does not close the M1 10 MiB latency, throughput, responsiveness, and memory
-gate. That gate requires a packaged native harness with recorded hardware,
-workload, p95 input and resize latency, completion time, queue high-water marks,
-and memory before and after scrollback reclamation.
+The separate packaged WKWebView harness now exercises Wails serialization,
+xterm parsing, a capped scrollback buffer, input, resize, close under output,
+queue high-water marks, and app/fixture/WebKit RSS with a 10 MiB PTY fixture. The
+recorded run passes the M1 provisional budgets. Its implementation, reproduction
+command, measurements, and remaining scope are documented in
+[`TERMINAL_BENCHMARK.md`](TERMINAL_BENCHMARK.md).
+
+Pixel-paint timing, IME behavior, sleep/wake timer suspension, and long-duration
+soak behavior remain outside both focused gates.

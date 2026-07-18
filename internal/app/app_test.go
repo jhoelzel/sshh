@@ -9,10 +9,12 @@ import (
 
 	"shh-h/internal/apperror"
 	"shh-h/internal/bridge"
+	"shh-h/internal/terminalbenchmark"
 	sessionusecase "shh-h/internal/usecase/session"
 )
 
 func TestApplicationDefersCompositionUntilDomReady(t *testing.T) {
+	t.Setenv(terminalbenchmark.EnvironmentEnabled, "")
 	composeCalls := 0
 	closeCalls := 0
 	application := newApplication(func() (*runtimeComposition, error) {
@@ -67,6 +69,17 @@ func TestApplicationDefersCompositionUntilDomReady(t *testing.T) {
 	appOptions.OnShutdown(context.Background())
 	if closeCalls != 1 {
 		t.Fatalf("runtime close calls = %d, want 1", closeCalls)
+	}
+}
+
+func TestBenchmarkUsesAnIndependentSingleInstanceLock(t *testing.T) {
+	t.Setenv(terminalbenchmark.EnvironmentEnabled, " 1 ")
+	application := newApplication(nil)
+	appOptions := application.options(fstest.MapFS{
+		"index.html": {Data: []byte("<!doctype html>")},
+	})
+	if appOptions.SingleInstanceLock == nil || appOptions.SingleInstanceLock.UniqueId != benchmarkInstanceUnique {
+		t.Fatal("benchmark Wails single-instance lock is not isolated from the product application")
 	}
 }
 

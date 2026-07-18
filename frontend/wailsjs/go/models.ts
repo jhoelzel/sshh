@@ -747,6 +747,38 @@ export namespace filetransfer {
 
 export namespace session {
 
+	export class Diagnostics {
+	    sessionId: string;
+	    generation: number;
+	    nextSequence: number;
+	    emittedBytes: number;
+	    acknowledgedSequence: number;
+	    acknowledgedBytes: number;
+	    unacknowledgedBytes: number;
+	    pendingChunks: number;
+	    peakUnacknowledgedBytes: number;
+	    peakPendingChunks: number;
+	    maximumUnacknowledged: number;
+
+	    static createFrom(source: any = {}) {
+	        return new Diagnostics(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.sessionId = source["sessionId"];
+	        this.generation = source["generation"];
+	        this.nextSequence = source["nextSequence"];
+	        this.emittedBytes = source["emittedBytes"];
+	        this.acknowledgedSequence = source["acknowledgedSequence"];
+	        this.acknowledgedBytes = source["acknowledgedBytes"];
+	        this.unacknowledgedBytes = source["unacknowledgedBytes"];
+	        this.pendingChunks = source["pendingChunks"];
+	        this.peakUnacknowledgedBytes = source["peakUnacknowledgedBytes"];
+	        this.peakPendingChunks = source["peakPendingChunks"];
+	        this.maximumUnacknowledged = source["maximumUnacknowledged"];
+	    }
+	}
 	export class Session {
 	    id: string;
 	    generation: number;
@@ -804,6 +836,197 @@ export namespace session {
 	        this.stoppedAt = source["stoppedAt"];
 	        this.message = source["message"];
 	    }
+	}
+
+}
+
+export namespace terminalbenchmark {
+
+	export class BackendDiagnostics {
+	    nextSequence: number;
+	    emittedBytes: number;
+	    acknowledgedSequence: number;
+	    acknowledgedBytes: number;
+	    unacknowledgedBytes: number;
+	    pendingChunks: number;
+	    peakUnacknowledgedBytes: number;
+	    peakPendingChunks: number;
+	    maximumUnacknowledged: number;
+
+	    static createFrom(source: any = {}) {
+	        return new BackendDiagnostics(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.nextSequence = source["nextSequence"];
+	        this.emittedBytes = source["emittedBytes"];
+	        this.acknowledgedSequence = source["acknowledgedSequence"];
+	        this.acknowledgedBytes = source["acknowledgedBytes"];
+	        this.unacknowledgedBytes = source["unacknowledgedBytes"];
+	        this.pendingChunks = source["pendingChunks"];
+	        this.peakUnacknowledgedBytes = source["peakUnacknowledgedBytes"];
+	        this.peakPendingChunks = source["peakPendingChunks"];
+	        this.maximumUnacknowledged = source["maximumUnacknowledged"];
+	    }
+	}
+	export class Configuration {
+	    enabled: boolean;
+	    processId: number;
+	    payloadBytes: number;
+	    maximumBackendQueueBytes: number;
+	    maximumFrontendQueueBytes: number;
+	    minimumLatencySamples: number;
+
+	    static createFrom(source: any = {}) {
+	        return new Configuration(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.enabled = source["enabled"];
+	        this.processId = source["processId"];
+	        this.payloadBytes = source["payloadBytes"];
+	        this.maximumBackendQueueBytes = source["maximumBackendQueueBytes"];
+	        this.maximumFrontendQueueBytes = source["maximumFrontendQueueBytes"];
+	        this.minimumLatencySamples = source["minimumLatencySamples"];
+	    }
+	}
+	export class ControllerDiagnostics {
+	    acceptedSequence: number;
+	    acceptedBytes: number;
+	    consumedSequence: number;
+	    consumedBytes: number;
+	    acknowledgedSequence: number;
+	    pendingBytes: number;
+	    peakPendingBytes: number;
+	    maximumPendingBytes: number;
+	    outputFailed: boolean;
+
+	    static createFrom(source: any = {}) {
+	        return new ControllerDiagnostics(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.acceptedSequence = source["acceptedSequence"];
+	        this.acceptedBytes = source["acceptedBytes"];
+	        this.consumedSequence = source["consumedSequence"];
+	        this.consumedBytes = source["consumedBytes"];
+	        this.acknowledgedSequence = source["acknowledgedSequence"];
+	        this.pendingBytes = source["pendingBytes"];
+	        this.peakPendingBytes = source["peakPendingBytes"];
+	        this.maximumPendingBytes = source["maximumPendingBytes"];
+	        this.outputFailed = source["outputFailed"];
+	    }
+	}
+	export class HostMetrics {
+	    model: string;
+	    processor: string;
+	    operatingSystemVersion: string;
+	    memoryBytes: number;
+	    processTreePeakRssBytes: number;
+	    processTreePeakProcesses: number;
+	    webKitPeakProcesses: number;
+	    rssSamples: number;
+
+	    static createFrom(source: any = {}) {
+	        return new HostMetrics(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.model = source["model"];
+	        this.processor = source["processor"];
+	        this.operatingSystemVersion = source["operatingSystemVersion"];
+	        this.memoryBytes = source["memoryBytes"];
+	        this.processTreePeakRssBytes = source["processTreePeakRssBytes"];
+	        this.processTreePeakProcesses = source["processTreePeakProcesses"];
+	        this.webKitPeakProcesses = source["webKitPeakProcesses"];
+	        this.rssSamples = source["rssSamples"];
+	    }
+	}
+	export class RuntimeMetrics {
+	    operatingSystem: string;
+	    architecture: string;
+	    goVersion: string;
+	    processId: number;
+
+	    static createFrom(source: any = {}) {
+	        return new RuntimeMetrics(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.operatingSystem = source["operatingSystem"];
+	        this.architecture = source["architecture"];
+	        this.goVersion = source["goVersion"];
+	        this.processId = source["processId"];
+	    }
+	}
+	export class Report {
+	    schemaVersion: number;
+	    startedAt: string;
+	    finishedAt: string;
+	    payloadBytes: number;
+	    outputDurationMilliseconds: number;
+	    idleEchoMilliseconds: number[];
+	    floodEchoMilliseconds: number[];
+	    resizeMilliseconds: number[];
+	    idleEchoP95Milliseconds: number;
+	    floodEchoP95Milliseconds: number;
+	    resizeP95Milliseconds: number;
+	    closeDurationMilliseconds: number;
+	    controller: ControllerDiagnostics;
+	    backend: BackendDiagnostics;
+	    runtime: RuntimeMetrics;
+	    host: HostMetrics;
+	    passed: boolean;
+	    failures: string[];
+
+	    static createFrom(source: any = {}) {
+	        return new Report(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.schemaVersion = source["schemaVersion"];
+	        this.startedAt = source["startedAt"];
+	        this.finishedAt = source["finishedAt"];
+	        this.payloadBytes = source["payloadBytes"];
+	        this.outputDurationMilliseconds = source["outputDurationMilliseconds"];
+	        this.idleEchoMilliseconds = source["idleEchoMilliseconds"];
+	        this.floodEchoMilliseconds = source["floodEchoMilliseconds"];
+	        this.resizeMilliseconds = source["resizeMilliseconds"];
+	        this.idleEchoP95Milliseconds = source["idleEchoP95Milliseconds"];
+	        this.floodEchoP95Milliseconds = source["floodEchoP95Milliseconds"];
+	        this.resizeP95Milliseconds = source["resizeP95Milliseconds"];
+	        this.closeDurationMilliseconds = source["closeDurationMilliseconds"];
+	        this.controller = this.convertValues(source["controller"], ControllerDiagnostics);
+	        this.backend = this.convertValues(source["backend"], BackendDiagnostics);
+	        this.runtime = this.convertValues(source["runtime"], RuntimeMetrics);
+	        this.host = this.convertValues(source["host"], HostMetrics);
+	        this.passed = source["passed"];
+	        this.failures = source["failures"];
+	    }
+
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
 	}
 
 }

@@ -18,6 +18,7 @@ import (
 	"shh-h/internal/adapter/wailsnotification"
 	"shh-h/internal/adapter/workspacestore"
 	"shh-h/internal/bridge"
+	"shh-h/internal/terminalbenchmark"
 	filetransferusecase "shh-h/internal/usecase/filetransfer"
 	notificationusecase "shh-h/internal/usecase/notification"
 	profileusecase "shh-h/internal/usecase/profile"
@@ -51,6 +52,10 @@ func (composition *runtimeComposition) Shutdown() error {
 }
 
 func composeRuntime() (_ *runtimeComposition, resultErr error) {
+	benchmark, err := terminalbenchmark.NewServiceFromEnvironment()
+	if err != nil {
+		return nil, err
+	}
 	store, err := configstore.New(appID)
 	if err != nil {
 		return nil, err
@@ -141,6 +146,7 @@ func composeRuntime() (_ *runtimeComposition, resultErr error) {
 			Manager: manager, Profiles: profiles, Remote: remote, Files: files, Tunnels: tunnels,
 			Snippets: snippets, Workspaces: workspaces, RemotePaths: remotePaths,
 			Notifications: notifications, Settings: settingsService,
+			Benchmark: benchmark,
 		},
 		close: sshClients.Shutdown,
 	}, nil

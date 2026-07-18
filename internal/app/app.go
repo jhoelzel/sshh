@@ -14,11 +14,13 @@ import (
 
 	"shh-h/internal/apperror"
 	"shh-h/internal/bridge"
+	"shh-h/internal/terminalbenchmark"
 )
 
 const (
-	appID                = "dev.johannes.shhh"
-	singleInstanceUnique = "3a20ab4f-f760-4f88-8105-99b8f347bc99"
+	appID                   = "dev.johannes.shhh"
+	singleInstanceUnique    = "3a20ab4f-f760-4f88-8105-99b8f347bc99"
+	benchmarkInstanceUnique = "57696e64-f39d-4b07-a26c-cdaf26395558"
 )
 
 type compositionFactory func() (*runtimeComposition, error)
@@ -52,6 +54,10 @@ func Run(assets fs.FS) error {
 }
 
 func (application *application) options(assets fs.FS) *options.App {
+	instanceUnique := singleInstanceUnique
+	if terminalbenchmark.EnabledInEnvironment() {
+		instanceUnique = benchmarkInstanceUnique
+	}
 	return &options.App{
 		Title:                    "shh-h",
 		Width:                    1240,
@@ -70,7 +76,7 @@ func (application *application) options(assets fs.FS) *options.App {
 		BindingsAllowedOrigins:   "",
 		DragAndDrop:              &options.DragAndDrop{DisableWebViewDrop: true},
 		SingleInstanceLock: &options.SingleInstanceLock{
-			UniqueId:               singleInstanceUnique,
+			UniqueId:               instanceUnique,
 			OnSecondInstanceLaunch: bridge.SecondInstanceHandler(application.desktop),
 		},
 		Mac:  &mac.Options{DisableZoom: false},

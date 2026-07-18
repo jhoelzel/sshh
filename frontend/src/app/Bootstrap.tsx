@@ -2,11 +2,17 @@ import { Component, lazy, StrictMode, Suspense, type ErrorInfo, type ReactNode }
 import { AwaitReady } from '../../wailsjs/go/bridge/Desktop'
 import { asBackendError } from '../lib/bridge/errors'
 
-const App = lazy(async () => {
+const benchmarkBuild = import.meta.env.VITE_TERMINAL_BENCHMARK === '1'
+
+const Root = lazy(async () => {
   try {
     await AwaitReady()
   } catch (cause) {
     throw asBackendError(cause)
+  }
+  if (benchmarkBuild) {
+    const module = await import('../feature/terminal/TerminalBenchmark')
+    return { default: module.TerminalBenchmark }
   }
   const module = await import('./App')
   return { default: module.App }
@@ -41,13 +47,17 @@ class StartupBoundary extends Component<{ children: ReactNode }, StartupBoundary
 }
 
 export function Bootstrap() {
+  const content = (
+    <StartupBoundary>
+      <Suspense fallback={<main className="startup-loading">Starting shh-h...</main>}>
+        <Root />
+      </Suspense>
+    </StartupBoundary>
+  )
+  if (benchmarkBuild) return content
   return (
     <StrictMode>
-      <StartupBoundary>
-        <Suspense fallback={<main className="startup-loading">Starting shh-h...</main>}>
-          <App />
-        </Suspense>
-      </StartupBoundary>
+      {content}
     </StrictMode>
   )
 }

@@ -176,8 +176,26 @@ func TestManagerActivatesBeforePublishingAndAcknowledgesCumulatively(t *testing.
 	if err := <-writeDone; err != nil {
 		t.Fatalf("write output fixture: %v", err)
 	}
+	pressure, err := manager.Diagnostics("lease", opened.ID, opened.Generation)
+	if err != nil {
+		t.Fatalf("read terminal diagnostics: %v", err)
+	}
+	if pressure.EmittedBytes != 5 || pressure.UnacknowledgedBytes != 5 || pressure.PendingChunks != 1 ||
+		pressure.PeakUnacknowledgedBytes != 5 || pressure.PeakPendingChunks != 1 ||
+		pressure.MaximumUnacknowledged != maxUnackedBytes {
+		t.Fatalf("unexpected terminal pressure before acknowledgement: %#v", pressure)
+	}
 	if err := manager.Acknowledge("lease", opened.ID, opened.Generation, chunk.Sequence, chunk.EndOffset); err != nil {
 		t.Fatalf("acknowledge output: %v", err)
+	}
+	pressure, err = manager.Diagnostics("lease", opened.ID, opened.Generation)
+	if err != nil {
+		t.Fatalf("read acknowledged terminal diagnostics: %v", err)
+	}
+	if pressure.AcknowledgedSequence != 1 || pressure.AcknowledgedBytes != 5 ||
+		pressure.UnacknowledgedBytes != 0 || pressure.PendingChunks != 0 ||
+		pressure.PeakUnacknowledgedBytes != 5 || pressure.PeakPendingChunks != 1 {
+		t.Fatalf("unexpected terminal pressure after acknowledgement: %#v", pressure)
 	}
 	if err := manager.Acknowledge("lease", opened.ID, opened.Generation, chunk.Sequence, chunk.EndOffset); err != nil {
 		t.Fatalf("repeat cumulative acknowledgement: %v", err)

@@ -6,6 +6,8 @@ import (
 	"encoding/base64"
 	"errors"
 	"io"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -18,6 +20,7 @@ import (
 	remotepathdomain "shh-h/internal/domain/remotepath"
 	settingsdomain "shh-h/internal/domain/settings"
 	"shh-h/internal/port"
+	"shh-h/internal/terminalbenchmark"
 	profileusecase "shh-h/internal/usecase/profile"
 	remotepathusecase "shh-h/internal/usecase/remotepath"
 	sessionusecase "shh-h/internal/usecase/session"
@@ -231,6 +234,87 @@ func TestAttachFrontendRejectsInvalidNonce(t *testing.T) {
 
 	if _, err := desktop.AttachFrontend("  "); !apperror.IsCode(err, apperror.CodeInvalidArgument) {
 		t.Fatalf("empty frontend nonce error code = %q, want %q", apperror.CodeOf(err), apperror.CodeInvalidArgument)
+	}
+}
+
+func TestTerminalBenchmarkIsDisabledByDefault(t *testing.T) {
+	desktop := NewDesktop(sessionusecase.NewManager(nil), nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	if config := desktop.GetTerminalBenchmarkConfig(); config.Enabled {
+		t.Fatalf("ordinary desktop exposed benchmark mode: %#v", config)
+	}
+	lease, err := desktop.AttachFrontend("benchmark-disabled")
+	if err != nil {
+		t.Fatalf("attach frontend: %v", err)
+	}
+	if _, err := desktop.OpenTerminalBenchmark(lease.ID, 80, 24); !apperror.IsCode(err, apperror.CodeUnavailable) {
+		t.Fatalf("disabled benchmark error code = %q, want %q", apperror.CodeOf(err), apperror.CodeUnavailable)
+	}
+}
+
+func TestGuardedTerminalBenchmarkOpensReportsAndQuits(t *testing.T) {
+	executable, err := os.Executable()
+	if err != nil {
+		t.Fatalf("locate test executable: %v", err)
+	}
+	benchmark, err := terminalbenchmark.NewService(executable, filepath.Join(t.TempDir(), "result.json"))
+	if err != nil {
+		t.Fatalf("create terminal benchmark: %v", err)
+	}
+	transport := newBridgeTerminalTransport()
+	manager := sessionusecase.NewManager(&bridgeTerminalFactory{transport: transport})
+	desktop, controller := NewDeferredDesktop()
+	if err := controller.Start(context.Background(), Dependencies{Manager: manager, Benchmark: benchmark}); err != nil {
+		t.Fatalf("start benchmark desktop: %v", err)
+	}
+	manager.SetSink(nil)
+	t.Cleanup(func() { controller.Shutdown(context.Background()) })
+	quit := make(chan struct{}, 1)
+	desktop.quitApplication = func(context.Context) { quit <- struct{}{} }
+
+	config := desktop.GetTerminalBenchmarkConfig()
+	if !config.Enabled || config.PayloadBytes != terminalbenchmark.PayloadBytes || config.ProcessID != os.Getpid() {
+		t.Fatalf("unexpected terminal benchmark config: %#v", config)
+	}
+	lease, err := desktop.AttachFrontend("benchmark-enabled")
+	if err != nil {
+		t.Fatalf("attach frontend: %v", err)
+	}
+	opened, err := desktop.OpenTerminalBenchmark(lease.ID, 80, 24)
+	if err != nil {
+		t.Fatalf("open terminal benchmark: %v", err)
+	}
+	if err := desktop.ActivateTerminal(lease.ID, opened.ID, opened.Generation); err != nil {
+		t.Fatalf("activate terminal benchmark: %v", err)
+	}
+	diagnostics, err := desktop.GetTerminalDiagnostics(lease.ID, opened.ID, opened.Generation)
+	if err != nil || diagnostics.SessionID != opened.ID {
+		t.Fatalf("terminal diagnostics = %#v, %v", diagnostics, err)
+	}
+	if err := desktop.CloseTerminal(lease.ID, opened.ID, opened.Generation); err != nil {
+		t.Fatalf("close terminal benchmark: %v", err)
+	}
+
+	now := time.Now().UTC()
+	samples := make([]float64, terminalbenchmark.MinimumSamples)
+	report := terminalbenchmark.Report{
+		SchemaVersion: terminalbenchmark.SchemaVersion,
+		StartedAt:     now.Format(time.RFC3339Nano), FinishedAt: now.Add(time.Second).Format(time.RFC3339Nano),
+		PayloadBytes:         terminalbenchmark.PayloadBytes,
+		IdleEchoMilliseconds: samples, FloodEchoMilliseconds: samples, ResizeMilliseconds: samples,
+		Controller: terminalbenchmark.ControllerDiagnostics{MaximumPendingBytes: terminalbenchmark.MaximumQueueBytes},
+		Backend:    terminalbenchmark.BackendDiagnostics{MaximumUnacknowledged: terminalbenchmark.MaximumQueueBytes},
+	}
+	completed, err := desktop.CompleteTerminalBenchmark(lease.ID, report)
+	if err != nil {
+		t.Fatalf("complete terminal benchmark: %v", err)
+	}
+	if completed.Passed || len(completed.Failures) == 0 {
+		t.Fatal("empty fake transport unexpectedly passed the terminal benchmark")
+	}
+	select {
+	case <-quit:
+	case <-time.After(time.Second):
+		t.Fatal("completed terminal benchmark did not request application quit")
 	}
 }
 

@@ -32,6 +32,7 @@ import (
 	tunneldomain "shh-h/internal/domain/tunnel"
 	workspacedomain "shh-h/internal/domain/workspace"
 	"shh-h/internal/port"
+	"shh-h/internal/terminalbenchmark"
 	filetransferusecase "shh-h/internal/usecase/filetransfer"
 	notificationusecase "shh-h/internal/usecase/notification"
 	profileusecase "shh-h/internal/usecase/profile"
@@ -305,6 +306,7 @@ type Dependencies struct {
 	RemotePaths   *remotepathusecase.Service
 	Notifications *notificationusecase.Service
 	Settings      *settingsusecase.Service
+	Benchmark     *terminalbenchmark.Service
 }
 
 // DesktopController owns host-only bridge initialization. It is deliberately
@@ -333,6 +335,7 @@ type Desktop struct {
 	remotePaths   *remotepathusecase.Service
 	notifications *notificationusecase.Service
 	settings      *settingsusecase.Service
+	benchmark     *terminalbenchmark.Service
 
 	ctxMu sync.RWMutex
 	ctx   context.Context
@@ -358,6 +361,7 @@ type Desktop struct {
 	activationMu      sync.Mutex
 	pendingActivation bool
 	activateWindow    func(context.Context)
+	quitApplication   func(context.Context)
 }
 
 type eventSink struct {
@@ -392,6 +396,7 @@ func newDeferredDesktop() *Desktop {
 			wailsruntime.WindowShow(ctx)
 			wailsruntime.WindowUnminimise(ctx)
 		},
+		quitApplication: wailsruntime.Quit,
 	}
 }
 
@@ -416,6 +421,7 @@ func (d *Desktop) configure(dependencies Dependencies) error {
 	d.remotePaths = dependencies.RemotePaths
 	d.notifications = dependencies.Notifications
 	d.settings = dependencies.Settings
+	d.benchmark = dependencies.Benchmark
 	d.configured = true
 
 	sink := &eventSink{desktop: d}
@@ -1031,6 +1037,28 @@ func (d *Desktop) OpenLocalTerminal(leaseID, profileID string, columns, rows uin
 	return session, err
 }
 
+func (d *Desktop) GetTerminalBenchmarkConfig() terminalbenchmark.Configuration {
+	return d.benchmark.Configuration()
+}
+
+func (d *Desktop) OpenTerminalBenchmark(leaseID string, columns, rows uint16) (sessionusecase.Session, error) {
+	if _, err := d.touchLease(leaseID); err != nil {
+		return sessionusecase.Session{}, err
+	}
+	if d.benchmark == nil {
+		return sessionusecase.Session{}, apperror.New(apperror.CodeUnavailable, "Terminal benchmark mode is disabled.")
+	}
+	selected, err := d.benchmark.Profile()
+	if err != nil {
+		return sessionusecase.Session{}, apperror.Wrap(
+			apperror.CodeUnavailable, "prepare terminal benchmark", "Terminal benchmark mode is unavailable.", err,
+		)
+	}
+	opened, err := d.manager.OpenLocal(d.context(), leaseID, selected, columns, rows)
+	notify(d.leaseWake)
+	return opened, err
+}
+
 func (d *Desktop) ProbeSSHHostKey(leaseID, profileID string) (SSHHostKeyDTO, error) {
 	if _, err := d.touchLease(leaseID); err != nil {
 		return SSHHostKeyDTO{}, err
@@ -1368,6 +1396,13 @@ func (d *Desktop) AcknowledgeTerminalOutput(leaseID, sessionID string, generatio
 	return d.manager.Acknowledge(leaseID, sessionID, generation, throughSequence, bytesConsumed)
 }
 
+func (d *Desktop) GetTerminalDiagnostics(leaseID, sessionID string, generation uint64) (sessionusecase.Diagnostics, error) {
+	if _, err := d.touchLease(leaseID); err != nil {
+		return sessionusecase.Diagnostics{}, err
+	}
+	return d.manager.Diagnostics(leaseID, sessionID, generation)
+}
+
 func (d *Desktop) StartSessionLogging(leaseID, sessionID string, generation uint64, timestampLines bool) (sessionusecase.SessionLogStatus, error) {
 	if _, err := d.touchLease(leaseID); err != nil {
 		return sessionusecase.SessionLogStatus{}, err
@@ -1396,6 +1431,29 @@ func (d *Desktop) CloseTerminal(leaseID, sessionID string, generation uint64) er
 	err := d.manager.Close(leaseID, sessionID, generation)
 	notify(d.leaseWake)
 	return err
+}
+
+func (d *Desktop) CompleteTerminalBenchmark(leaseID string, report terminalbenchmark.Report) (terminalbenchmark.Report, error) {
+	if _, err := d.touchLease(leaseID); err != nil {
+		return terminalbenchmark.Report{}, err
+	}
+	if d.benchmark == nil {
+		return terminalbenchmark.Report{}, apperror.New(apperror.CodeUnavailable, "Terminal benchmark mode is disabled.")
+	}
+	if d.manager.LiveCount() != 0 {
+		return terminalbenchmark.Report{}, apperror.New(apperror.CodeConflict, "Close the benchmark terminal before completing its report.")
+	}
+	completed, err := d.benchmark.Complete(report)
+	if err != nil {
+		return terminalbenchmark.Report{}, apperror.Wrap(
+			apperror.CodeInvalidArgument, "complete terminal benchmark", "Terminal benchmark results were invalid.", err,
+		)
+	}
+	d.allowClose.Store(true)
+	if d.quitApplication != nil {
+		d.quitApplication(d.context())
+	}
+	return completed, nil
 }
 
 func (d *Desktop) ConfirmApplicationClose(leaseID string) error {

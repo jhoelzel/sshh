@@ -97,13 +97,18 @@ Implemented and verified:
   tests cover mixed text, binary mouse, and paste ordering, resize coalescing,
   malformed frames, the real xterm parser, and listener disposal during output.
   TypeScript, ESLint, Vitest, vet, and production builds pass.
+- [x] A guarded packaged-macOS WKWebView harness measures the complete PTY,
+  bridge, xterm, input, resize, and close path without recording terminal
+  content. The accepted 10 MiB run records hardware, queue high-water marks,
+  p95 latency, completion time, and app/fixture/WebKit RSS.
 
 Still required for the complete cross-platform and 1.0 gates:
 
 - [ ] ConPTY support and Windows validation.
-- [ ] Native throughput, memory, and long-run stress measurements. Deterministic
-  multi-session scheduler coverage now proves that a 10 MiB noisy stream cannot
-  starve a low-volume peer or terminal control and lifecycle traffic.
+- [x] Native macOS throughput and memory measurements for the 10 MiB terminal
+  path, including deterministic scheduler fairness and explicit queue,
+  scrollback, latency, close, and whole-application RSS budgets.
+- [ ] Long-run terminal soak and multi-session native stress measurements.
 - [ ] Accessibility-driven native interaction automation or a dedicated Wails E2E
   harness. macOS launch and frontend attachment are verified today; runtime
   behavior is also exercised below the WebView boundary.
@@ -788,9 +793,10 @@ Tests and exit gate:
 - [x] Invalid UTF-8 and malformed terminal streams do not crash Go, Wails, or the
   WebView. Raw-byte manager and DTO tests, bounded controller validation, parser
   failure containment, and the real xterm parser test cover the complete path.
-- [ ] A 10 MiB output burst remains interactive and memory stays within explicit
+- [x] A 10 MiB output burst remains interactive and memory stays within explicit
   queue and scrollback caps and passes the provisional latency, fairness, and
-  completion budgets in section 5.3.
+  completion budgets in section 5.3. The packaged arm64 macOS run and hardware
+  record are in `docs/TERMINAL_BENCHMARK.md` and its machine-readable report.
 - [x] The same flood in one diagnostic session cannot starve input, resize,
   close, lifecycle events, or a second low-volume diagnostic session at the
   manager scheduler boundary. Native WebView latency and memory measurements
@@ -1180,8 +1186,11 @@ Deliverables:
   the current local scans pass and the module-only advisory is recorded.
 - [ ] Complete release-time dependency review, broader static analysis, and a
   manual threat-model review.
-- [ ] Profile startup, idle CPU, terminal flood, scrollback memory, large
-  directory listing, large transfer, and many-session behavior.
+- [ ] Profile startup and idle CPU behavior.
+- [x] Packaged-macOS terminal flood and bounded scrollback memory behavior under
+  the M1 10 MiB workload.
+- [ ] Large directory listing, large transfer, long-run soak, and many-session
+  behavior.
 - [ ] Add structured local diagnostics and a user-controlled diagnostic export
   with redaction.
 - [ ] Complete user documentation for profiles, trust prompts, credentials,

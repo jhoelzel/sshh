@@ -34,6 +34,10 @@ export function CloseTerminal(arg1, arg2, arg3) {
   return window['go']['bridge']['Desktop']['CloseTerminal'](arg1, arg2, arg3);
 }
 
+export function CompleteTerminalBenchmark(arg1, arg2) {
+  return window['go']['bridge']['Desktop']['CompleteTerminalBenchmark'](arg1, arg2);
+}
+
 export function ConfirmApplicationClose(arg1) {
   return window['go']['bridge']['Desktop']['ConfirmApplicationClose'](arg1);
 }
@@ -114,6 +118,14 @@ export function GetSettings() {
   return window['go']['bridge']['Desktop']['GetSettings']();
 }
 
+export function GetTerminalBenchmarkConfig() {
+  return window['go']['bridge']['Desktop']['GetTerminalBenchmarkConfig']();
+}
+
+export function GetTerminalDiagnostics(arg1, arg2, arg3) {
+  return window['go']['bridge']['Desktop']['GetTerminalDiagnostics'](arg1, arg2, arg3);
+}
+
 export function ImportProfiles() {
   return window['go']['bridge']['Desktop']['ImportProfiles']();
 }
@@ -176,6 +188,10 @@ export function OpenSFTP(arg1, arg2, arg3) {
 
 export function OpenSSHTerminal(arg1, arg2, arg3, arg4, arg5) {
   return window['go']['bridge']['Desktop']['OpenSSHTerminal'](arg1, arg2, arg3, arg4, arg5);
+}
+
+export function OpenTerminalBenchmark(arg1, arg2, arg3) {
+  return window['go']['bridge']['Desktop']['OpenTerminalBenchmark'](arg1, arg2, arg3);
 }
 
 export function ProbeQuickSSHHostKey(arg1, arg2) {

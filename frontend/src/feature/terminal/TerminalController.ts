@@ -18,6 +18,18 @@ interface ControllerCallbacks {
   onSelectionChange: (selected: boolean) => void
 }
 
+export interface TerminalControllerDiagnostics {
+  acceptedSequence: number
+  acceptedBytes: number
+  consumedSequence: number
+  consumedBytes: number
+  acknowledgedSequence: number
+  pendingBytes: number
+  peakPendingBytes: number
+  maximumPendingBytes: number
+  outputFailed: boolean
+}
+
 export class TerminalController {
   readonly session: Session
 
@@ -38,6 +50,7 @@ export class TerminalController {
   private expectedOutputSequence = 1
   private expectedOutputOffset = 0
   private pendingOutputBytes = 0
+  private peakPendingOutputBytes = 0
   private consumedSequence = 0
   private consumedOffset = 0
   private acknowledgedSequence = 0
@@ -219,6 +232,7 @@ export class TerminalController {
     this.expectedOutputSequence++
     this.expectedOutputOffset = event.endOffset
     this.pendingOutputBytes += data.byteLength
+    this.peakPendingOutputBytes = Math.max(this.peakPendingOutputBytes, this.pendingOutputBytes)
     let consumedOnce = false
     const consumed = () => {
       if (consumedOnce) return
@@ -253,6 +267,27 @@ export class TerminalController {
 
   focus(): void {
     this.terminal.focus()
+  }
+
+  resize(columns: number, rows: number): void {
+    if (this.disposed) {
+      throw new Error('terminal is closed')
+    }
+    this.terminal.resize(columns, rows)
+  }
+
+  diagnostics(): TerminalControllerDiagnostics {
+    return {
+      acceptedSequence: this.expectedOutputSequence - 1,
+      acceptedBytes: this.expectedOutputOffset,
+      consumedSequence: this.consumedSequence,
+      consumedBytes: this.consumedOffset,
+      acknowledgedSequence: this.acknowledgedSequence,
+      pendingBytes: this.pendingOutputBytes,
+      peakPendingBytes: this.peakPendingOutputBytes,
+      maximumPendingBytes: maxPendingOutput,
+      outputFailed: this.outputFailed,
+    }
   }
 
   visibleText(): string {

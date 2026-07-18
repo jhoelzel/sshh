@@ -6,6 +6,7 @@ import {
   ChmodRemotePath,
   CloseSFTP,
   CloseTerminal,
+  CompleteTerminalBenchmark,
   ConfirmApplicationClose,
   CreateProfile,
   CreateRemotePathFavorite,
@@ -26,6 +27,8 @@ import {
   GetBuildInfo,
   GetNotificationStatus,
   GetSettings,
+  GetTerminalBenchmarkConfig,
+  GetTerminalDiagnostics,
   ListProfiles,
   ListRemotePathFavorites,
   ListRemoteFiles,
@@ -42,6 +45,7 @@ import {
   OpenQuickSSHTerminal,
   OpenSFTP,
   OpenSSHTerminal,
+  OpenTerminalBenchmark,
   ProbeSSHHostKey,
   ProbeQuickSSHHostKey,
   RequestNotificationPermission,
@@ -66,7 +70,7 @@ import {
   TrustSSHHostKey,
   WriteTerminal,
 } from '../../../wailsjs/go/bridge/Desktop'
-import { bridge } from '../../../wailsjs/go/models'
+import { bridge, terminalbenchmark } from '../../../wailsjs/go/models'
 import { ClipboardSetText, EventsOn } from '../../../wailsjs/runtime/runtime'
 import { asBackendError } from './errors'
 import type {
@@ -93,6 +97,9 @@ import type {
   RemoteFile,
   RemotePathFavorite,
   TerminalOutput,
+  TerminalBenchmarkConfig,
+  TerminalBenchmarkReport,
+  TerminalDiagnostics,
   TerminalTextExportResult,
   Transfer,
   TransferResume,
@@ -166,6 +173,9 @@ const rawBackend = {
   deleteTunnel: (configId: string) => DeleteTunnel(configId),
   openLocalTerminal: (leaseId: string, profileId: string, columns: number, rows: number) =>
     OpenLocalTerminal(leaseId, profileId, columns, rows) as Promise<Session>,
+  getTerminalBenchmarkConfig: () => GetTerminalBenchmarkConfig() as Promise<TerminalBenchmarkConfig>,
+  openTerminalBenchmark: (leaseId: string, columns: number, rows: number) =>
+    OpenTerminalBenchmark(leaseId, columns, rows) as Promise<Session>,
   probeSSHHostKey: (leaseId: string, profileId: string) =>
     ProbeSSHHostKey(leaseId, profileId) as Promise<SSHHostKey>,
   probeQuickSSHHostKey: async (leaseId: string, input: QuickSSHInput) => {
@@ -210,8 +220,15 @@ const rawBackend = {
     throughSequence: number,
     bytesConsumed: number,
   ) => AcknowledgeTerminalOutput(leaseId, sessionId, generation, throughSequence, bytesConsumed),
+  getTerminalDiagnostics: (leaseId: string, sessionId: string, generation: number) =>
+    GetTerminalDiagnostics(leaseId, sessionId, generation) as Promise<TerminalDiagnostics>,
   closeTerminal: (leaseId: string, sessionId: string, generation: number) =>
     CloseTerminal(leaseId, sessionId, generation),
+  completeTerminalBenchmark: (leaseId: string, report: TerminalBenchmarkReport) =>
+    CompleteTerminalBenchmark(
+      leaseId,
+      terminalbenchmark.Report.createFrom(report),
+    ) as Promise<TerminalBenchmarkReport>,
   startSessionLogging: (leaseId: string, sessionId: string, generation: number, timestampLines: boolean) =>
     StartSessionLogging(leaseId, sessionId, generation, timestampLines) as Promise<SessionLogStatus>,
   stopSessionLogging: (leaseId: string, sessionId: string, generation: number) =>
