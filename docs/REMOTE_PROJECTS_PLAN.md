@@ -17,6 +17,11 @@ SSH trust boundary.
 This is an optional post-1.0 track. It is not a small extension of saved
 workspace layouts or generic user-configured tunnels.
 
+The initial project transport uses an ordinary SSH profile. A future
+Teleport-backed project is gated on Teleport-specific remote execution,
+transfer, forwarding, reauthentication, and cleanup proofs; it must never fall
+back to a node's direct address. See `docs/TELEPORT_INTEGRATION_PLAN.md`.
+
 ## 1. User Outcome
 
 The complete happy path is:

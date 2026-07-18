@@ -237,6 +237,8 @@ executable is `build/bin/shh-h.app/Contents/MacOS/shhh`.
 - `docs/SECURITY.md`: automated audit policy and reviewed advisory notes.
 - `docs/REMOTE_PROJECTS_PLAN.md`: proposed self-hosted remote code editor,
   provisioning, project lifecycle, and browser-authentication design.
+- `docs/TELEPORT_INTEGRATION_PLAN.md`: proposed Teleport cluster, browser
+  authentication, resource discovery, terminal, and compliance design.
 - `docs/adr/0001-desktop-frontend-stack.md`: accepted frontend decision and
   tradeoffs.
 

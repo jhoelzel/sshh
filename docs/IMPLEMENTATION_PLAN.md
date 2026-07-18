@@ -176,6 +176,26 @@ chain, extension, and OAuth boundaries. It therefore requires its own ADRs and
 release gates and is not folded into M9 workspace layouts. The proposed design
 and acceptance criteria are in `docs/REMOTE_PROJECTS_PLAN.md`.
 
+### 2.4 Optional Teleport Integration Track
+
+A post-1.0 Teleport track may register administrator-managed Teleport Proxies,
+authenticate through the cluster's external-browser, SSO, and MFA flows,
+discover authorized SSH nodes and leaf clusters, save target shortcuts, and
+open `tsh ssh` sessions through the existing terminal lifecycle.
+
+The initial design requires a separately installed, user- or
+administrator-provided `tsh` on the computer running `shh-h`. It does not
+bundle, download, update, or redistribute the Teleport client, and it does not
+install or administer Teleport services on target infrastructure. Teleport
+clusters, dynamic resources, short-lived identities, access requests, and
+recording policy remain distinct from ordinary SSH profiles and host-key trust.
+
+This track changes the self-contained-runtime promise and introduces external
+binary, license, TLS, SSO callback, certificate lifecycle, policy, and session
+recording boundaries. It requires dedicated ADRs and release gates. The
+proposed architecture, phased delivery plan, threat model, and acceptance
+criteria are in `docs/TELEPORT_INTEGRATION_PLAN.md`.
+
 ## 3. Non-Negotiable Behavior
 
 ### 3.1 Session Visibility and Background Work
