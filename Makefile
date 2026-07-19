@@ -14,7 +14,7 @@ BUILD_LDFLAGS = \
 	-X shh-h/internal/buildinfo.BuildDate=$(BUILD_DATE) \
 	-X shh-h/internal/buildinfo.Dirty=$(DIRTY)
 
-.PHONY: bootstrap-wails build run dev test test-go test-frontend lint check-bindings tidy clean
+.PHONY: bootstrap-wails build run dev test test-go test-frontend test-e2e lint check-bindings tidy clean
 
 $(WAILS_STAMP):
 	mkdir -p $(TOOLS_DIR)
@@ -38,6 +38,9 @@ test-go:
 
 test-frontend:
 	cd frontend && npm test
+
+test-e2e:
+	cd frontend && npm run test:e2e
 
 lint:
 	cd frontend && npm run lint

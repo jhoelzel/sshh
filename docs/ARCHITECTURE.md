@@ -230,6 +230,17 @@ keyboard divider. Creating a split selects another existing tab and never opens
 a backend session. Selecting a hidden tab replaces only the focused pane, and
 closing the split hides rather than closes the other tab.
 
+The browser interaction gate loads the production React entry point through
+Vite and installs a deterministic in-page implementation of the generated
+Wails boundary before navigation. The mock owns only bridge return values,
+native runtime events, and call observation; the real App, xterm controller,
+keyboard handlers, focus effects, dialogs, and split components run unchanged.
+Playwright verifies platform-appropriate application shortcuts, forward and
+reverse tab cycling, xterm focus, split keyboard resizing, guarded tab close,
+and both outcomes of the consolidated shutdown decision. This browser gate is
+kept separate from packaged Wails smoke because it cannot prove WKWebView,
+WebView2, WebKitGTK, or operating-system window behavior.
+
 Persistent pane components are memoized, so selecting a tab only re-renders the
 previous and next terminal hosts. Visible-pane fit, settings, and resize-observer
 requests share one animation-frame scheduler; queued work rechecks visibility

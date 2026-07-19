@@ -92,9 +92,9 @@ Implemented and verified:
   state. Settings exposes that identity with the Go version and target platform;
   direct Go builds fall back to embedded VCS metadata.
 - [x] Read-only GitHub Actions run Go and frontend quality gates, race tests,
-  call-graph and npm vulnerability scans, and native macOS, Linux, and Windows
-  Wails compiles. Actions are pinned to immutable SHAs and dependencies receive
-  weekly update checks.
+  pinned-Chromium workspace interactions, call-graph and npm vulnerability
+  scans, and native macOS, Linux, and Windows Wails compiles. Actions are pinned
+  to immutable SHAs and dependencies receive weekly update checks.
 - [x] Native Linux CI enforces WebKitGTK 2.41+ through its 4.1 ABI, runs real PTY
   resize and process-group cleanup tests, and launches the production Wails/xterm
   path under Xvfb to prove focus restoration, reversible clipboard access,
@@ -105,8 +105,8 @@ Implemented and verified:
   short-lived PTY churn, SFTP operations, and bidirectional local, remote, and
   SOCKS forwarding. Controller tests cover mixed text, binary mouse, and paste
   ordering, resize coalescing, malformed frames, the real xterm parser, and
-  listener disposal during output. TypeScript, ESLint, Vitest, vet, and
-  production builds pass.
+  listener disposal during output. TypeScript, ESLint, Vitest, Playwright, vet,
+  and production builds pass.
 - [x] A guarded packaged-macOS WKWebView harness measures the complete PTY,
   bridge, xterm, input, resize, and close path without recording terminal
   content. The accepted 10 MiB run records hardware, queue high-water marks,
@@ -1005,8 +1005,11 @@ Tests and exit gate:
 - [x] Controller, pure availability, and rendered application tests cover
   disposed-safe clear/reset, per-state command enablement, duplicate tab
   creation, retry replacement and cleanup, and reconnect-with-history behavior.
-- [ ] React component tests and Playwright flows cover focus, shortcuts, tab close,
-  split layout, and shutdown decisions.
+- [x] React component tests and a pinned-Chromium Playwright flow cover xterm
+  focus, platform-appropriate new-terminal shortcuts, forward and reverse tab
+  cycling, split creation and keyboard resize, guarded tab close, and cancel and
+  confirm shutdown decisions. The browser harness runs the production React and
+  xterm path while replacing only the Wails bridge and native runtime boundary.
 - [ ] Native Wails smoke tests cover window close interception and lifecycle hooks.
 - [x] Measured controller and native Wails-smoke coverage prove hidden panes
   schedule no fit or focus work, xterm renderer events remain unchanged during

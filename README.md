@@ -97,6 +97,7 @@ v2.13.0 CLI into the ignored local `bin/` directory when it is first needed.
 ```sh
 make run       # foreground Wails development mode; Ctrl+C stops it
 make test      # Go and frontend unit/integration tests
+make test-e2e  # Chromium workspace interaction flow
 make lint      # ESLint and go vet
 make build     # native package with embedded build identity
 make check-bindings # regenerate, normalize, and verify Wails bridge contracts
@@ -107,6 +108,11 @@ make check-bindings # regenerate, normalize, and verify Wails bridge contracts
 `make run` is intentionally a foreground developer command and exits with its
 terminal. Packaged applications launch through Finder or the target operating
 system's desktop application launcher and do not require a parent terminal.
+
+Before the first local browser run, install the Playwright-managed Chromium
+build with `cd frontend && npm run test:e2e:install`. The browser suite loads
+the real React/xterm entry point and mocks only the native Wails boundary; it is
+an interaction regression gate, not a substitute for packaged native smoke.
 
 ## Build Identity
 
@@ -130,15 +136,17 @@ Their build date remains `unknown` unless supplied through the linker.
 ## Continuous Integration
 
 GitHub Actions runs normal and race-enabled Go tests, `go vet`, frontend lint,
-tests, and production compilation on Ubuntu. A macOS job installs the pinned
-Wails CLI from a clean checkout, performs a production-mode native compile,
-regenerates the Go-to-TypeScript bridge, normalizes generator-only whitespace,
-and fails if any binding differs from the committed contract. The Linux job
-checks the documented WebKitGTK floor, runs real PTY resize/process-tree cleanup
-tests, compiles the product host, and launches a production-mode xterm/Wails
-smoke under Xvfb for native focus, clipboard, and hidden-render pause/resume
-checks. The Windows job runs the real ConPTY adapter tests before compiling the
-Wails desktop host.
+tests, and production compilation on Ubuntu. A separate browser job installs
+the Playwright-pinned Chromium build and exercises application shortcuts, xterm
+focus, tab cycling and close decisions, split layout, and consolidated shutdown.
+A macOS job installs the pinned Wails CLI from a clean checkout, performs a
+production-mode native compile, regenerates the Go-to-TypeScript bridge,
+normalizes generator-only whitespace, and fails if any binding differs from the
+committed contract. The Linux job checks the documented WebKitGTK floor, runs
+real PTY resize/process-tree cleanup tests, compiles the product host, and
+launches a production-mode xterm/Wails smoke under Xvfb for native focus,
+clipboard, and hidden-render pause/resume checks. The Windows job runs the real
+ConPTY adapter tests before compiling the Wails desktop host.
 
 The security job runs the Go team's call-graph vulnerability scanner and fails
 for reachable advisories. It also runs `npm audit --audit-level=high`; moderate

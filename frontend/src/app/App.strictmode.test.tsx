@@ -67,6 +67,7 @@ const harness = vi.hoisted(() => {
     openLocalTerminal: vi.fn().mockResolvedValue(session),
     activateTerminal: vi.fn().mockResolvedValue(undefined),
     closeTerminal: vi.fn().mockResolvedValue(undefined),
+    confirmApplicationClose: vi.fn().mockResolvedValue(undefined),
     renewFrontendLease: vi.fn().mockResolvedValue(lease),
     updateUIPreferences: vi.fn(async (value) => ({ ...settings.ui, ...value })),
   }
@@ -301,6 +302,17 @@ describe('App StrictMode lifecycle', () => {
 
     emitOutputBurst(512)
     expect(harness.controllerInstances[1].acceptOutput).toHaveBeenCalledTimes(512)
+
+    act(() => harness.emit('close'))
+    expect(await screen.findByRole('dialog', { name: 'Close running sessions?' })).toBeTruthy()
+    expect(screen.getByText('1 active resource will be closed.')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+    expect(harness.backend.confirmApplicationClose).not.toHaveBeenCalled()
+
+    act(() => harness.emit('close'))
+    fireEvent.click(await screen.findByRole('button', { name: 'Close' }))
+    await waitFor(() => expect(harness.backend.confirmApplicationClose).toHaveBeenCalledOnce())
+    expect(harness.backend.confirmApplicationClose).toHaveBeenCalledWith('lease-1')
 
     second.unmount()
     expect(harness.activeListenerCount()).toBe(0)

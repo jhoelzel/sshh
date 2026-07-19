@@ -5,6 +5,8 @@ bin/
 coverage.out
 frontend/node_modules/
 frontend/coverage/
+frontend/playwright-report/
+frontend/test-results/
 frontend/package.json.md5
 build/bin/
 internal/frontendassets/dist/
