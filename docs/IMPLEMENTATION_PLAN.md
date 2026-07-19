@@ -98,7 +98,8 @@ Implemented and verified:
 - [x] Native Linux CI enforces WebKitGTK 2.41+ through its 4.1 ABI, runs real PTY
   resize and process-group cleanup tests, and launches the production Wails/xterm
   path under Xvfb to prove focus restoration, reversible clipboard access,
-  ordered output, resize, drain, close, and WebKit helper-process observation.
+  ordered output, resize, drain, close, native close interception, coordinated
+  shutdown, lifecycle-hook ordering, and WebKit helper-process observation.
 - [x] Go race tests cover managers and adapters. Real loopback integration tests
   cover PTY binary input and live resize, shared multi-channel SSH terminal
   lifetime, terminal exit, repeated flood-close process-tree cleanup, 100-cycle
@@ -1010,7 +1011,13 @@ Tests and exit gate:
   cycling, split creation and keyboard resize, guarded tab close, and cancel and
   confirm shutdown decisions. The browser harness runs the production React and
   xterm path while replacing only the Wails bridge and native runtime boundary.
-- [ ] Native Wails smoke tests cover window close interception and lifecycle hooks.
+- [x] A guarded packaged Wails lifecycle smoke opens a real same-binary PTY,
+  requests native `Quit`, proves the first `OnBeforeClose` retains one live
+  terminal and emits the consolidated frontend decision, waits at least 200 ms,
+  confirms coordinated shutdown, and proves the second close sees zero live
+  terminals before `OnShutdown` completes. The external host requires PTY and
+  WebView process evidence; it passes on packaged macOS arm64 and runs under
+  Linux WebKitGTK/Xvfb in CI.
 - [x] Measured controller and native Wails-smoke coverage prove hidden panes
   schedule no fit or focus work, xterm renderer events remain unchanged during
   a real PTY/Wails output probe, and one refresh occurs after visibility returns.

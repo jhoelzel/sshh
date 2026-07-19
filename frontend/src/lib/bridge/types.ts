@@ -207,7 +207,7 @@ export interface TerminalDiagnostics {
 
 export interface TerminalBenchmarkConfig {
   enabled: boolean
-  mode: 'burst' | 'smoke' | 'soak'
+  mode: 'burst' | 'smoke' | 'soak' | 'lifecycle'
   processId: number
   payloadBytes: number
   maximumBackendQueueBytes: number

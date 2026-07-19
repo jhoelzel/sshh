@@ -6,10 +6,14 @@ mode=burst
 if [ "${1:-}" = "--soak" ]; then
   mode=soak
   shift
+elif [ "${1:-}" = "--lifecycle" ]; then
+  mode=lifecycle
+  shift
 fi
 case "$mode" in
   burst) default_report="$root/docs/benchmarks/m1-macos-arm64.json" ;;
   soak) default_report="$root/docs/benchmarks/m1-macos-arm64-soak.json" ;;
+  lifecycle) default_report="${TMPDIR:-/tmp}/m3-macos-arm64-lifecycle.json" ;;
   *) printf 'Unsupported terminal benchmark mode: %s\n' "$mode" >&2; exit 2 ;;
 esac
 report=${1:-"$default_report"}

@@ -5,6 +5,7 @@ import (
 	"io/fs"
 	"log"
 	"sync"
+	"sync/atomic"
 
 	"github.com/wailsapp/wails/v2"
 	"github.com/wailsapp/wails/v2/pkg/logger"
@@ -31,8 +32,9 @@ type application struct {
 	desktopController bridge.DesktopController
 	compose           compositionFactory
 
-	startOnce sync.Once
-	startErr  error
+	startOnce       sync.Once
+	startErr        error
+	startupObserved atomic.Bool
 
 	lifecycleMu sync.Mutex
 	runtime     *runtimeComposition
@@ -69,7 +71,7 @@ func (application *application) options(assets fs.FS) *options.App {
 		AssetServer:              &assetserver.Options{Assets: assets},
 		OnStartup:                application.startup,
 		OnDomReady:               application.domReady,
-		OnBeforeClose:            application.desktopController.BeforeClose,
+		OnBeforeClose:            application.beforeClose,
 		OnShutdown:               application.shutdown,
 		LogLevelProduction:       logger.ERROR,
 		ErrorFormatter:           apperror.Format,
@@ -88,6 +90,7 @@ func (application *application) options(assets fs.FS) *options.App {
 func (application *application) startup(ctx context.Context) {
 	// Wails v2 invokes OnStartup before acquiring its Linux single-instance
 	// lock, so this hook must remain free of stores, migrations, and runtimes.
+	application.startupObserved.Store(true)
 	application.desktopController.Prepare(ctx)
 }
 
@@ -95,7 +98,30 @@ func (application *application) domReady(ctx context.Context) {
 	if err := application.start(ctx); err != nil {
 		log.Printf("start application services: %v", err)
 	}
+	benchmark, _ := application.benchmarkAndLiveTerminals()
+	if benchmark != nil {
+		if err := benchmark.RecordLifecycleStartup(application.startupObserved.Load()); err != nil {
+			log.Printf("record lifecycle startup: %v", err)
+		}
+	}
 	application.desktopController.DomReady(ctx)
+	if benchmark != nil {
+		if err := benchmark.RecordLifecycleDomReady(); err != nil {
+			log.Printf("record lifecycle DOM ready: %v", err)
+		}
+	}
+}
+
+func (application *application) beforeClose(ctx context.Context) bool {
+	benchmark, liveBefore := application.benchmarkAndLiveTerminals()
+	prevented := application.desktopController.BeforeClose(ctx)
+	_, liveAfter := application.benchmarkAndLiveTerminals()
+	if benchmark != nil {
+		if err := benchmark.RecordLifecycleBeforeClose(prevented, liveBefore, liveAfter); err != nil {
+			log.Printf("record lifecycle close attempt: %v", err)
+		}
+	}
+	return prevented
 }
 
 func (application *application) start(ctx context.Context) error {
@@ -146,9 +172,29 @@ func startupError(err error) error {
 }
 
 func (application *application) shutdown(ctx context.Context) {
-	if err := application.close(ctx); err != nil {
+	benchmark, _ := application.benchmarkAndLiveTerminals()
+	err := application.close(ctx)
+	if err != nil {
 		log.Printf("shut down application services: %v", err)
 	}
+	if benchmark != nil {
+		if recordErr := benchmark.RecordLifecycleShutdown(err == nil); recordErr != nil {
+			log.Printf("record lifecycle shutdown: %v", recordErr)
+		}
+	}
+}
+
+func (application *application) benchmarkAndLiveTerminals() (*terminalbenchmark.Service, int) {
+	application.lifecycleMu.Lock()
+	defer application.lifecycleMu.Unlock()
+	if application.runtime == nil {
+		return nil, 0
+	}
+	manager := application.runtime.dependencies.Manager
+	if manager == nil {
+		return application.runtime.dependencies.Benchmark, 0
+	}
+	return application.runtime.dependencies.Benchmark, manager.LiveCount()
 }
 
 func (application *application) close(ctx context.Context) error {

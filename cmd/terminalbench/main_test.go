@@ -2,6 +2,7 @@ package main
 
 import (
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -137,6 +138,57 @@ func TestTimedOutSoakPreservesPartialReport(t *testing.T) {
 	if report.Passed || !containsText(report.Failures, "frontend checkpoint failed") ||
 		!containsText(report.Failures, "did not exit before the host timeout") {
 		t.Fatalf("salvaged failures = %#v", report.Failures)
+	}
+}
+
+func TestCompleteLifecycleSmokeAddsNativeHostEvidence(t *testing.T) {
+	directory := t.TempDir()
+	raw := filepath.Join(directory, "raw-lifecycle.json")
+	final := filepath.Join(directory, "final-lifecycle.json")
+	now := time.Now().UTC()
+	report := terminalbenchmark.LifecycleReport{
+		SchemaVersion:             terminalbenchmark.LifecycleSchemaVersion,
+		StartedAt:                 now.Format(time.RFC3339Nano),
+		FinishedAt:                now.Add(time.Second).Format(time.RFC3339Nano),
+		StartupObserved:           true,
+		DomReadyObserved:          true,
+		FrontendAttached:          true,
+		TerminalOpened:            true,
+		CloseRequested:            true,
+		DecisionDelayMilliseconds: terminalbenchmark.MinimumLifecycleDecisionWait,
+		ConfirmationRequested:     true,
+		CloseAttempts: []terminalbenchmark.LifecycleCloseAttempt{
+			{Sequence: 1, Prevented: true, LiveTerminalsBefore: 1, LiveTerminalsAfter: 1},
+			{Sequence: 2, Prevented: false, LiveTerminalsBefore: 0, LiveTerminalsAfter: 0},
+		},
+		ShutdownCompleted: true,
+		ShutdownSucceeded: true,
+		Runtime: terminalbenchmark.RuntimeMetrics{
+			OperatingSystem: runtime.GOOS,
+			Architecture:    runtime.GOARCH,
+			ProcessID:       1,
+		},
+	}
+	if err := terminalbenchmark.WriteLifecycleReportAtomic(raw, report); err != nil {
+		t.Fatalf("write raw lifecycle report: %v", err)
+	}
+	host := terminalbenchmark.HostMetrics{
+		ProcessTreePeakProcesses: 2,
+		WebKitPeakProcesses:      1,
+		RSSSamples:               2,
+	}
+	if runtime.GOOS == "linux" {
+		host.WebKitGTKVersion = terminalbenchmark.MinimumWebKitGTKVersion
+	}
+	if err := completeLifecycleSmoke(raw, final, "", host); err != nil {
+		t.Fatalf("complete lifecycle smoke: %v", err)
+	}
+	completed, err := terminalbenchmark.ReadLifecycleReport(final)
+	if err != nil {
+		t.Fatalf("read completed lifecycle report: %v", err)
+	}
+	if !completed.Passed || completed.Host.ProcessTreePeakProcesses != 2 {
+		t.Fatalf("completed lifecycle host report failed: %#v", completed)
 	}
 }
 

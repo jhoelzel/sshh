@@ -166,6 +166,62 @@ func TestAttachFrontendIsIdempotentForSameInstance(t *testing.T) {
 	}
 }
 
+func TestNativeCloseIsInterceptedUntilConfirmedResourcesStop(t *testing.T) {
+	transport := newBridgeTerminalTransport()
+	manager := sessionusecase.NewManager(&bridgeTerminalFactory{transport: transport})
+	desktop, controller := NewDeferredDesktop()
+	ctx := context.Background()
+	controller.Prepare(ctx)
+	if err := controller.Start(ctx, Dependencies{Manager: manager}); err != nil {
+		t.Fatalf("start desktop: %v", err)
+	}
+	manager.SetSink(nil)
+	t.Cleanup(func() { controller.Shutdown(ctx) })
+
+	emitted := make(chan string, 1)
+	desktop.emitEvent = func(_ context.Context, name string, _ ...interface{}) { emitted <- name }
+	quitCalls := 0
+	desktop.quitApplication = func(context.Context) { quitCalls++ }
+	lease, err := desktop.AttachFrontend("native-close-test")
+	if err != nil {
+		t.Fatalf("attach frontend: %v", err)
+	}
+	opened, err := manager.OpenLocal(ctx, lease.ID, profiledomain.Profile{
+		ID: "local", Name: "Local", Protocol: profiledomain.ProtocolLocal,
+	}, 80, 24)
+	if err != nil {
+		t.Fatalf("open terminal: %v", err)
+	}
+	if err := manager.Activate(lease.ID, opened.ID, opened.Generation); err != nil {
+		t.Fatalf("activate terminal: %v", err)
+	}
+
+	if prevented := controller.BeforeClose(ctx); !prevented {
+		t.Fatal("native close was not intercepted with a live terminal")
+	}
+	select {
+	case event := <-emitted:
+		if event != EventCloseRequested {
+			t.Fatalf("close event = %q, want %q", event, EventCloseRequested)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("native close did not emit a frontend decision event")
+	}
+	if manager.LiveCount() != 1 || quitCalls != 0 {
+		t.Fatalf("intercepted close left %d terminals and requested %d quits", manager.LiveCount(), quitCalls)
+	}
+
+	if err := desktop.ConfirmApplicationClose(lease.ID); err != nil {
+		t.Fatalf("confirm application close: %v", err)
+	}
+	if manager.LiveCount() != 0 || quitCalls != 1 {
+		t.Fatalf("confirmed close left %d terminals and requested %d quits", manager.LiveCount(), quitCalls)
+	}
+	if prevented := controller.BeforeClose(ctx); prevented {
+		t.Fatal("confirmed native close remained intercepted")
+	}
+}
+
 func TestAttachFrontendReplacesPreviousInstanceAndReapsItsRuntime(t *testing.T) {
 	allowClose := make(chan struct{})
 	transport := newGatedBridgeTerminalTransport(allowClose)

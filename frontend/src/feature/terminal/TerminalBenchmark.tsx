@@ -9,6 +9,7 @@ import type {
 } from '../../lib/bridge/types'
 import { TerminalController } from './TerminalController'
 import { runTerminalSoak } from './TerminalSoakBenchmark'
+import { runTerminalLifecycleSmoke } from './TerminalLifecycleSmoke'
 import {
   benchmarkSettings,
   delay,
@@ -55,6 +56,10 @@ async function runTerminalBenchmark(host: HTMLElement, setStatus: (status: strin
   }
   if (config.mode === 'soak') {
     await runTerminalSoak(host, setStatus, config)
+    return
+  }
+  if (config.mode === 'lifecycle') {
+    await runTerminalLifecycleSmoke(host, setStatus, config)
     return
   }
 

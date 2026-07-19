@@ -485,6 +485,18 @@ Wails `OnBeforeClose` starts visible confirmation and coordinated shutdown.
 idempotent cleanup path. `SingleInstanceLock` ensures one process owns writable
 configuration and runtimes; secondary launches focus the primary window.
 
+The guarded native lifecycle smoke verifies this ownership through the packaged
+application rather than by calling the controller directly. Its benchmark-only
+frontend opens the same-binary PTY fixture and requests Wails `Quit`. The first
+native `OnBeforeClose` observation must retain one live terminal and emit the
+frontend decision event. After a bounded visible delay, the frontend calls the
+ordinary confirmation command; coordinated shutdown reduces the terminal count
+to zero before the second native close is allowed. `OnShutdown` writes the final
+content-free report only after application services close. The external host
+also requires process samples for the application, PTY child, and a platform
+WebView helper, so a browser-only or controller-only test cannot satisfy the
+gate.
+
 Starting the application starts no shell and opens no network connection. No
 tray daemon or hidden helper survives application exit.
 

@@ -397,6 +397,7 @@ type Desktop struct {
 	pendingActivation bool
 	activateWindow    func(context.Context)
 	quitApplication   func(context.Context)
+	emitEvent         func(context.Context, string, ...interface{})
 	window            windowRuntime
 }
 
@@ -443,6 +444,7 @@ func newDeferredDesktop() *Desktop {
 			isMaximised: wailsruntime.WindowIsMaximised,
 			isNormal:    wailsruntime.WindowIsNormal,
 		},
+		emitEvent: wailsruntime.EventsEmit,
 	}
 }
 
@@ -635,7 +637,9 @@ func (d *Desktop) beforeClose(ctx context.Context) bool {
 		}
 		return false
 	}
-	wailsruntime.EventsEmit(d.context(), EventCloseRequested)
+	if d.emitEvent != nil {
+		d.emitEvent(d.context(), EventCloseRequested)
+	}
 	return true
 }
 
@@ -1629,7 +1633,9 @@ func (d *Desktop) ConfirmApplicationClose(leaseID string) error {
 		d.tunnels.Shutdown()
 	}
 	d.allowClose.Store(true)
-	wailsruntime.Quit(d.context())
+	if d.quitApplication != nil {
+		d.quitApplication(d.context())
+	}
 	return nil
 }
 

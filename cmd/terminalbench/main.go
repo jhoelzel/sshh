@@ -46,7 +46,7 @@ func run() error {
 	flag.StringVar(&appPath, "app", defaultAppPath, "packaged benchmark executable")
 	flag.StringVar(&reportPath, "report", "", "final benchmark report")
 	flag.DurationVar(&timeout, "timeout", 0, "maximum packaged benchmark duration")
-	flag.StringVar(&modeValue, "mode", string(terminalbenchmark.ModeBurst), "benchmark mode: burst, smoke, or soak")
+	flag.StringVar(&modeValue, "mode", string(terminalbenchmark.ModeBurst), "benchmark mode: burst, smoke, soak, or lifecycle")
 	flag.Parse()
 	mode, err := terminalbenchmark.ParseMode(modeValue)
 	if err != nil {
@@ -62,6 +62,8 @@ func run() error {
 		reportPath = "docs/benchmarks/m1-macos-arm64.json"
 		if mode == terminalbenchmark.ModeSoak {
 			reportPath = "docs/benchmarks/m1-macos-arm64-soak.json"
+		} else if mode == terminalbenchmark.ModeLifecycle {
+			reportPath = filepath.Join(os.TempDir(), "m3-native-lifecycle-smoke.json")
 		} else if mode == terminalbenchmark.ModeSmoke {
 			reportPath = filepath.Join(os.TempDir(), "m2-linux-amd64-smoke.json")
 		}
@@ -73,8 +75,8 @@ func run() error {
 			return errors.New("Linux native smoke mode requires Linux")
 		}
 	case "linux":
-		if mode != terminalbenchmark.ModeSmoke {
-			return errors.New("Linux supports only native smoke mode")
+		if mode != terminalbenchmark.ModeSmoke && mode != terminalbenchmark.ModeLifecycle {
+			return errors.New("Linux supports only native smoke and lifecycle modes")
 		}
 	default:
 		return fmt.Errorf("packaged WebView benchmark does not support %s", runtime.GOOS)
@@ -168,10 +170,36 @@ running:
 	if mode == terminalbenchmark.ModeSoak {
 		return completeSoak(rawReport, reportPath, output.String(), host, rssReadings)
 	}
+	if mode == terminalbenchmark.ModeLifecycle {
+		return completeLifecycleSmoke(rawReport, reportPath, output.String(), host)
+	}
 	if mode == terminalbenchmark.ModeSmoke {
 		return completeLinuxSmoke(rawReport, reportPath, output.String(), host)
 	}
 	return completeBurst(rawReport, reportPath, output.String(), host)
+}
+
+func completeLifecycleSmoke(rawReport, reportPath, processOutput string, host terminalbenchmark.HostMetrics) error {
+	report, err := terminalbenchmark.ReadLifecycleReport(rawReport)
+	if err != nil {
+		return fmt.Errorf("read packaged lifecycle smoke result: %w\n%s", err, boundedOutput(processOutput))
+	}
+	report.Host = host
+	terminalbenchmark.EvaluateLifecycleHost(&report)
+	if err := terminalbenchmark.WriteLifecycleReportAtomic(reportPath, report); err != nil {
+		return err
+	}
+
+	fmt.Printf("native lifecycle smoke: %d close attempts, %d ms decision, %d process samples, %d WebView helpers\n",
+		len(report.CloseAttempts),
+		report.DecisionDelayMilliseconds,
+		report.Host.RSSSamples,
+		report.Host.WebKitPeakProcesses,
+	)
+	if !report.Passed {
+		return fmt.Errorf("native lifecycle smoke failed: %s", strings.Join(report.Failures, "; "))
+	}
+	return nil
 }
 
 func sampledHostMetrics(peakRSS uint64, peakProcesses, peakWebKitProcesses, samples int) terminalbenchmark.HostMetrics {

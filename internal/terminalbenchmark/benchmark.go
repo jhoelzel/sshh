@@ -41,9 +41,10 @@ const (
 type Mode string
 
 const (
-	ModeBurst Mode = "burst"
-	ModeSmoke Mode = "smoke"
-	ModeSoak  Mode = "soak"
+	ModeBurst     Mode = "burst"
+	ModeSmoke     Mode = "smoke"
+	ModeSoak      Mode = "soak"
+	ModeLifecycle Mode = "lifecycle"
 )
 
 type Configuration struct {
@@ -138,6 +139,7 @@ type Service struct {
 	resultPath string
 	executable string
 	mode       Mode
+	lifecycle  *lifecycleRecorder
 }
 
 func EnabledInEnvironment() bool {
@@ -169,7 +171,7 @@ func NewServiceFromEnvironment() (*Service, error) {
 	if err != nil {
 		return nil, fmt.Errorf("locate benchmark executable: %w", err)
 	}
-	return &Service{resultPath: cleanResult, executable: executable, mode: mode}, nil
+	return newService(executable, cleanResult, mode), nil
 }
 
 func NewService(executable, resultPath string) (*Service, error) {
@@ -188,7 +190,15 @@ func NewServiceWithMode(executable, resultPath string, mode Mode) (*Service, err
 	if err != nil {
 		return nil, err
 	}
-	return &Service{resultPath: cleanResult, executable: executable, mode: canonicalMode}, nil
+	return newService(executable, cleanResult, canonicalMode), nil
+}
+
+func newService(executable, resultPath string, mode Mode) *Service {
+	service := &Service{resultPath: resultPath, executable: executable, mode: mode}
+	if mode == ModeLifecycle {
+		service.lifecycle = newLifecycleRecorder()
+	}
+	return service
 }
 
 func ParseMode(value string) (Mode, error) {
@@ -199,6 +209,8 @@ func ParseMode(value string) (Mode, error) {
 		return ModeSmoke, nil
 	case ModeSoak:
 		return ModeSoak, nil
+	case ModeLifecycle:
+		return ModeLifecycle, nil
 	default:
 		return "", fmt.Errorf("unsupported terminal benchmark mode %q", value)
 	}
@@ -213,6 +225,9 @@ func (service *Service) Configuration() Configuration {
 	if service.mode == ModeSmoke {
 		payloadBytes = SmokePayloadBytes
 		minimumSamples = SmokeMinimumSamples
+	} else if service.mode == ModeLifecycle {
+		payloadBytes = 0
+		minimumSamples = 0
 	}
 	return Configuration{
 		Enabled:                   true,
@@ -231,6 +246,13 @@ func (service *Service) Configuration() Configuration {
 func (service *Service) RecordProgress(phase string, completed int) error {
 	if service == nil {
 		return errors.New("terminal benchmark is disabled")
+	}
+	if service.mode == ModeLifecycle {
+		if err := service.recordLifecycleProgress(phase, completed); err != nil {
+			return err
+		}
+		fmt.Fprintf(os.Stderr, "terminal lifecycle progress: phase=%s completed=%d\n", phase, completed)
+		return nil
 	}
 	phase = strings.TrimSpace(phase)
 	if !validProgressPhase(phase) || completed < 0 || completed > 5_000 {

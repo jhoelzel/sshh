@@ -113,6 +113,87 @@ func TestSmokeModeUsesFunctionalWorkloadAndNativeChecks(t *testing.T) {
 	}
 }
 
+func TestLifecycleModeRecordsInterceptedAndConfirmedNativeClose(t *testing.T) {
+	resultPath := filepath.Join(t.TempDir(), "lifecycle.json")
+	executable, err := os.Executable()
+	if err != nil {
+		t.Fatalf("locate test executable: %v", err)
+	}
+	service, err := NewServiceWithMode(executable, resultPath, ModeLifecycle)
+	if err != nil {
+		t.Fatalf("create lifecycle service: %v", err)
+	}
+	if config := service.Configuration(); config.Mode != ModeLifecycle || config.PayloadBytes != 0 || config.MinimumLatencySamples != 0 {
+		t.Fatalf("unexpected lifecycle configuration: %#v", config)
+	}
+
+	steps := []func() error{
+		func() error { return service.RecordLifecycleStartup(true) },
+		service.RecordLifecycleDomReady,
+		func() error { return service.RecordProgress(lifecyclePhaseFrontendAttached, 1) },
+		func() error { return service.RecordProgress(lifecyclePhaseTerminalOpened, 1) },
+		func() error { return service.RecordLifecycleBeforeClose(true, 1, 1) },
+		func() error { return service.RecordProgress(lifecyclePhaseCloseRequested, 1) },
+		func() error { return service.RecordProgress(lifecyclePhaseConfirming, 250) },
+		func() error { return service.RecordLifecycleBeforeClose(false, 0, 0) },
+		func() error { return service.RecordLifecycleShutdown(true) },
+	}
+	for index, step := range steps {
+		if err := step(); err != nil {
+			t.Fatalf("record lifecycle step %d: %v", index+1, err)
+		}
+	}
+
+	report, err := ReadLifecycleReport(resultPath)
+	if err != nil {
+		t.Fatalf("read lifecycle report: %v", err)
+	}
+	if !report.Passed || len(report.Failures) != 0 || len(report.CloseAttempts) != 2 {
+		t.Fatalf("passing lifecycle report failed: %#v", report)
+	}
+	report.Host = HostMetrics{ProcessTreePeakProcesses: 3, WebKitPeakProcesses: 1, RSSSamples: 4}
+	if runtime.GOOS == "linux" {
+		report.Host.WebKitGTKVersion = MinimumWebKitGTKVersion
+	}
+	EvaluateLifecycleHost(&report)
+	if !report.Passed || len(report.Failures) != 0 {
+		t.Fatalf("passing lifecycle host failed: %#v", report.Failures)
+	}
+	if err := WriteLifecycleReportAtomic(resultPath, report); err != nil {
+		t.Fatalf("write lifecycle host report: %v", err)
+	}
+	if _, err := service.Complete(passingReport()); err == nil {
+		t.Fatal("lifecycle service accepted a terminal throughput report")
+	}
+	if err := service.RecordProgress("unknown", 1); err == nil {
+		t.Fatal("lifecycle service accepted an unknown frontend phase")
+	}
+}
+
+func TestLifecycleEvaluationRejectsMissingInterceptionAndShutdown(t *testing.T) {
+	report := LifecycleReport{
+		SchemaVersion:             LifecycleSchemaVersion,
+		StartupObserved:           true,
+		DomReadyObserved:          true,
+		FrontendAttached:          true,
+		TerminalOpened:            true,
+		CloseRequested:            true,
+		DecisionDelayMilliseconds: MinimumLifecycleDecisionWait,
+		ConfirmationRequested:     true,
+		Runtime:                   RuntimeMetrics{OperatingSystem: "linux", Architecture: "amd64", ProcessID: 1},
+		Host: HostMetrics{
+			ProcessTreePeakProcesses: 2,
+			WebKitPeakProcesses:      1,
+			RSSSamples:               2,
+			WebKitGTKVersion:         MinimumWebKitGTKVersion,
+		},
+	}
+	EvaluateLifecycleHost(&report)
+	if report.Passed || !containsFailure(report.Failures, "close attempts") || !containsFailure(report.Failures, "OnShutdown") {
+		t.Fatalf("incomplete lifecycle report passed: %#v", report.Failures)
+	}
+}
+
 func TestLinuxSmokeHostRequiresRuntimeProcessTreeAndWebKitGTKFloor(t *testing.T) {
 	report := passingSmokeReport()
 	evaluateSmokeFrontend(&report)
@@ -240,6 +321,11 @@ func TestEnvironmentSelectsOnlySupportedBenchmarkModes(t *testing.T) {
 	service, err = NewServiceFromEnvironment()
 	if err != nil || service.Configuration().Mode != ModeSmoke {
 		t.Fatalf("load smoke mode: %#v, %v", service, err)
+	}
+	t.Setenv(EnvironmentMode, string(ModeLifecycle))
+	service, err = NewServiceFromEnvironment()
+	if err != nil || service.Configuration().Mode != ModeLifecycle {
+		t.Fatalf("load lifecycle mode: %#v, %v", service, err)
 	}
 	t.Setenv(EnvironmentMode, "unbounded")
 	if _, err := NewServiceFromEnvironment(); err == nil {

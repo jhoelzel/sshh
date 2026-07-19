@@ -3,6 +3,8 @@ package app
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"testing"
 	"testing/fstest"
 	"time"
@@ -86,6 +88,48 @@ func TestBenchmarkUsesAnIndependentSingleInstanceLock(t *testing.T) {
 	})
 	if appOptions.SingleInstanceLock == nil || appOptions.SingleInstanceLock.UniqueId != benchmarkInstanceUnique {
 		t.Fatal("benchmark Wails single-instance lock is not isolated from the product application")
+	}
+}
+
+func TestApplicationRecordsWailsLifecycleHooks(t *testing.T) {
+	executable, err := os.Executable()
+	if err != nil {
+		t.Fatalf("locate test executable: %v", err)
+	}
+	reportPath := filepath.Join(t.TempDir(), "lifecycle.json")
+	benchmark, err := terminalbenchmark.NewServiceWithMode(executable, reportPath, terminalbenchmark.ModeLifecycle)
+	if err != nil {
+		t.Fatalf("create lifecycle recorder: %v", err)
+	}
+	application := newApplication(func() (*runtimeComposition, error) {
+		return &runtimeComposition{dependencies: bridge.Dependencies{
+			Manager:   sessionusecase.NewManager(nil),
+			Benchmark: benchmark,
+		}}, nil
+	})
+	t.Cleanup(func() { _ = application.close(context.Background()) })
+
+	appOptions := application.options(fstest.MapFS{
+		"index.html": {Data: []byte("<!doctype html>")},
+	})
+	ctx := context.Background()
+	appOptions.OnStartup(ctx)
+	appOptions.OnDomReady(ctx)
+	if prevented := appOptions.OnBeforeClose(ctx); prevented {
+		t.Fatal("empty lifecycle test prevented native close")
+	}
+	appOptions.OnShutdown(ctx)
+
+	report, err := terminalbenchmark.ReadLifecycleReport(reportPath)
+	if err != nil {
+		t.Fatalf("read lifecycle hook report: %v", err)
+	}
+	if !report.StartupObserved || !report.DomReadyObserved || !report.ShutdownCompleted || !report.ShutdownSucceeded {
+		t.Fatalf("application lifecycle hooks were not recorded: %#v", report)
+	}
+	if len(report.CloseAttempts) != 1 || report.CloseAttempts[0].Prevented ||
+		report.CloseAttempts[0].LiveTerminalsBefore != 0 || report.CloseAttempts[0].LiveTerminalsAfter != 0 {
+		t.Fatalf("empty native close attempt was not recorded: %#v", report.CloseAttempts)
 	}
 }
 

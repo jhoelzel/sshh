@@ -103,6 +103,7 @@ make build     # native package with embedded build identity
 make check-bindings # regenerate, normalize, and verify Wails bridge contracts
 ./scripts/run-terminal-benchmark-macos.sh # packaged WKWebView performance gate
 ./scripts/run-terminal-soak-macos.sh # 15-minute, 8-session native soak gate
+./scripts/run-lifecycle-smoke-macos.sh # packaged close/lifecycle gate
 ```
 
 `make run` is intentionally a foreground developer command and exits with its
@@ -145,7 +146,9 @@ normalizes generator-only whitespace, and fails if any binding differs from the
 committed contract. The Linux job checks the documented WebKitGTK floor, runs
 real PTY resize/process-tree cleanup tests, compiles the product host, and
 launches a production-mode xterm/Wails smoke under Xvfb for native focus,
-clipboard, and hidden-render pause/resume checks. The Windows job runs the real
+clipboard, and hidden-render pause/resume checks. It then launches a second
+content-free lifecycle mode that proves native close interception, frontend
+confirmation, terminal cleanup, and `OnShutdown`. The Windows job runs the real
 ConPTY adapter tests before compiling the Wails desktop host.
 
 The security job runs the Go team's call-graph vulnerability scanner and fails
@@ -380,6 +383,8 @@ executable is `build/bin/shh-h.app/Contents/MacOS/shhh`.
   throughput, latency, queue, memory, and close-response evidence.
 - `docs/TERMINAL_SOAK.md`: reproducible packaged WKWebView long-duration,
   multi-session, memory-growth, responsiveness, and cleanup evidence.
+- `docs/NATIVE_LIFECYCLE_SMOKE.md`: packaged Wails close interception,
+  coordinated shutdown, hook ordering, process evidence, and reproduction.
 - `docs/REMOTE_PROJECTS_PLAN.md`: proposed self-hosted remote code editor,
   provisioning, project lifecycle, and browser-authentication design.
 - `docs/TELEPORT_INTEGRATION_PLAN.md`: proposed Teleport cluster, browser

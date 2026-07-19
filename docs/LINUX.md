@@ -28,7 +28,7 @@ executable on the baseline above.
 
 ## Native Gate
 
-The `native-linux` CI job performs three independent checks:
+The `native-linux` CI job performs four independent checks:
 
 1. The real Linux PTY tests verify initial dimensions, exact environment
    delivery, binary input, live resize, exit status, close during a 2 MiB output
@@ -47,6 +47,12 @@ The `native-linux` CI job performs three independent checks:
    2 MiB flood and macOS retains the 10 MiB performance gate. Smoke and
    performance modes send an explicit bounded byte count to the same fixture
    protocol, which rejects zero, malformed, and greater-than-10-MiB requests.
+4. The same guarded host launches again in lifecycle mode with one real PTY.
+   Wails must prevent the first native close and emit the frontend decision,
+   retain the terminal during the decision interval, close it on confirmation,
+   allow the second native close, and invoke `OnShutdown`. The external sampler
+   independently requires the application, PTY child, and WebKitGTK helper
+   process tree.
 
 The smoke report contains only booleans, timing, byte/sequence counters, queue
 high-water marks, process counts, host facts, and the WebKitGTK version. It does
@@ -76,6 +82,10 @@ LIBGL_ALWAYS_SOFTWARE=1 WEBKIT_DISABLE_COMPOSITING_MODE=1 \
   dbus-run-session -- xvfb-run -a go run ./cmd/terminalbench \
   -mode smoke -app ./build/bin/shhh-linux-smoke \
   -report "${TMPDIR:-/tmp}/m2-linux-amd64-smoke.json" -timeout 90s
+LIBGL_ALWAYS_SOFTWARE=1 WEBKIT_DISABLE_COMPOSITING_MODE=1 \
+  dbus-run-session -- xvfb-run -a go run ./cmd/terminalbench \
+  -mode lifecycle -app ./build/bin/shhh-linux-smoke \
+  -report "${TMPDIR:-/tmp}/m3-linux-amd64-lifecycle.json" -timeout 60s
 ```
 
 The native smoke does not yet prove IME composition, keyboard-layout variants,
