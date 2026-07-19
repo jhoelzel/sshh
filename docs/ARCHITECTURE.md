@@ -180,6 +180,16 @@ Palette and shortcut actions call the same React workflow callbacks as visible
 controls; they do not add a second bridge path or create backend resources on
 their own.
 
+The global Activity workspace is a frontend projection, not a resource manager.
+It joins the existing tab model, transfer event list, tunnel configurations, and
+tunnel snapshots into Sessions, Transfers, and Tunnels tables. One pure model
+classifies each known state as active, issue, or idle and applies deterministic
+issue-first ordering. Filters and the sidebar badge use the same live-state
+semantics; close confirmation additionally counts the open SFTP workspace.
+Activity actions call the ordinary terminal, SFTP, and tunnel callbacks; the
+view owns no sessions, leases, cancellation handles, credentials, or new bridge
+commands.
+
 Tab ordering is frontend metadata. Pointer drops and command moves use the same
 pure ordering functions and only rearrange the existing tab model array; live
 controllers, xterm hosts, backend sessions, and session IDs are preserved. The

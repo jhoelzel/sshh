@@ -16,6 +16,9 @@ native desktop application.
 - Bounded two-pane terminal splits with side-by-side or stacked layouts,
   pointer and keyboard resizing, explicit pane focus, and no controller
   reparenting or implicit session launch.
+- A global Activity workspace aggregates terminal sessions, transfers, and SSH
+  tunnels with All, Active, and Issues filters plus lifecycle actions routed
+  through each feature's existing workflow.
 - State-aware terminal actions for retry-in-place, reconnecting while preserving
   old output, duplicating running tabs, clearing scrollback, and resetting the
   local terminal emulator.
@@ -180,6 +183,21 @@ Every live terminal retains its original stage host and controller while split
 geometry changes around it. Saved workspace layouts persist the two tab indexes,
 axis, ratio, and focused tab. Restoring a layout still creates disconnected tabs
 only; each session must be connected explicitly.
+
+## Global Activity
+
+Activity remains available from the workspace navigation and command palette
+while terminals, transfers, and tunnels continue outside their primary views.
+It shows current and completed resources in separate operational tables, with
+consistent active and failed-state classification and deterministic ordering.
+The sidebar badge counts only live sessions, queued/running transfers, and live
+tunnels.
+
+Session actions focus, retry, or close the existing tab. Transfer actions open
+the owning SFTP workspace when it remains available or cancel active work.
+Tunnel actions open management or start, stop, and restart saved tunnels. These
+controls reuse the established callbacks and do not introduce another bridge or
+resource owner.
 
 ## Local Profile Environment
 

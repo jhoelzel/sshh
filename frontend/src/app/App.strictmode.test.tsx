@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { StrictMode } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
@@ -182,6 +182,28 @@ describe('App StrictMode lifecycle', () => {
     await waitFor(() => expect(harness.backend.activateTerminal).toHaveBeenCalledOnce())
     expect(harness.backend.openLocalTerminal).toHaveBeenCalledOnce()
     expect(harness.controllerInstances).toHaveLength(1)
+
+    act(() => {
+      harness.emit('transfer', {
+        id: 'transfer-1', leaseId: 'lease-1', sessionId: 'files-1', direction: 'download',
+        source: '/remote/archive.tar', destination: '/local/archive.tar', bytes: 50, total: 100,
+        state: 'running', message: '', resumeId: '', resumedFrom: 0,
+        startedAt: '2026-07-17T22:01:00Z', finishedAt: '',
+      })
+      harness.emit('tunnel', {
+        configId: 'missing-tunnel', leaseId: 'lease-1', state: 'active',
+        boundAddress: '127.0.0.1:4400', message: '',
+        startedAt: '2026-07-17T22:01:00Z', updatedAt: '2026-07-17T22:01:00Z',
+      })
+    })
+    fireEvent.click(screen.getByRole('button', { name: /Activity/ }))
+    expect(await screen.findByRole('region', { name: 'Workspace activity' })).toBeTruthy()
+    expect(screen.getByText('3 active · 0 issues')).toBeTruthy()
+    expect(screen.getByText('archive.tar')).toBeTruthy()
+    expect(screen.getByText('Unavailable tunnel')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Focus Local Shell' }))
+    expect(screen.queryByRole('region', { name: 'Workspace activity' })).toBeNull()
+    expect(screen.getByRole('tab', { name: 'Local Shell' }).getAttribute('aria-selected')).toBe('true')
 
     fireEvent.click(screen.getByRole('button', { name: 'Find terminal tab' }))
     expect(await screen.findByRole('dialog', { name: 'Find terminal tab' })).toBeTruthy()

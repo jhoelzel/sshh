@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
+  Activity,
   ArrowLeft,
   ArrowRight,
   Braces,
@@ -37,6 +38,8 @@ import {
   X,
 } from 'lucide-react'
 import { BrowserOpenURL } from '../../wailsjs/runtime/runtime'
+import { ActivityWorkspace } from '../feature/activity/ActivityWorkspace'
+import type { ActivitySession } from '../feature/activity/activityModel'
 import { CommandPalette, type PaletteCommand } from '../feature/commands/CommandPalette'
 import { FileBrowser } from '../feature/files/FileBrowser'
 import { canonicalRemotePath } from '../feature/files/remotePath'
@@ -74,6 +77,7 @@ import {
   type TerminalWorkspaceState,
 } from '../feature/terminal/splitLayout'
 import { TunnelWorkspace } from '../feature/tunnels/TunnelWorkspace'
+import { isLiveTunnelState } from '../feature/tunnels/tunnelPresentation'
 import { WorkspaceLayoutWorkspace } from '../feature/workspaces/WorkspaceLayoutWorkspace'
 import { backend, onCloseRequested, onSessionLog, onSessionState, onTerminalOutput, onTransfer, onTunnel } from '../lib/bridge/client'
 import { loadFrontendBootstrap, loadFrontendNotificationStatus } from './frontendBootstrap'
@@ -161,7 +165,7 @@ export function App() {
   const [lease, setLease] = useState<FrontendLease>()
   const [tabs, setTabs] = useState<TabModel[]>([])
   const [terminalWorkspace, setTerminalWorkspace] = useState(createTerminalWorkspace)
-  const [workspaceMode, setWorkspaceMode] = useState<'terminals' | 'files' | 'tunnels' | 'snippets' | 'layouts' | 'settings'>('terminals')
+  const [workspaceMode, setWorkspaceMode] = useState<'terminals' | 'activity' | 'files' | 'tunnels' | 'snippets' | 'layouts' | 'settings'>('terminals')
   const [activeId, setActiveId] = useState<string>()
   const [openingProfile, setOpeningProfile] = useState<string>()
   const [profileEditor, setProfileEditor] = useState<ProfileEditorState>()
@@ -234,6 +238,25 @@ export function App() {
     () => terminalWorkspaceVisibleTabs(terminalWorkspace),
     [terminalWorkspace],
   )
+  const activitySessions = useMemo<ActivitySession[]>(() => tabs.map((tab) => {
+    const profile = profiles.find((item) => item.id === tab.profileId)
+    return {
+      id: tab.id,
+      title: tab.title,
+      endpoint: tab.endpoint,
+      state: tab.state,
+      startedAt: tab.session?.startedAt ?? '',
+      detail: tab.exitSummary ?? '',
+      selected: tab.id === activeId,
+      attention: tab.attention,
+      canRetry: terminalTabActionAvailability(
+        tab.state,
+        Boolean(tab.controller),
+        Boolean(tab.quick || profile),
+        Boolean(openingProfile),
+      ).retry,
+    }
+  }), [activeId, openingProfile, profiles, tabs])
   const snippetTargets = useMemo(
     () => tabs.flatMap((tab) => tab.state === 'running' && tab.session ? [{
       id: tab.session.id, title: tab.title, active: tab.id === activeId,
@@ -255,8 +278,9 @@ export function App() {
   )
   const runningCount = tabs.filter((tab) => isLive(tab.state)).length
   const activeTransferCount = transfers.filter((transfer) => transfer.state === 'queued' || transfer.state === 'running').length
-  const activeTunnelCount = tunnelSnapshots.filter((snapshot) => isLiveTunnel(snapshot.state)).length
-  const activityCount = runningCount + activeTransferCount + activeTunnelCount + (fileSession ? 1 : 0)
+  const activeTunnelCount = tunnelSnapshots.filter((snapshot) => isLiveTunnelState(snapshot.state)).length
+  const globalActivityCount = runningCount + activeTransferCount + activeTunnelCount
+  const activityCount = globalActivityCount + (fileSession ? 1 : 0)
 
   const reportError = useCallback((cause: unknown) => {
     setNotice(undefined)
@@ -373,7 +397,7 @@ export function App() {
   useEffect(() => {
     if (!lease) return
     for (const config of tunnelConfigs) {
-      const live = tunnelSnapshots.some((snapshot) => snapshot.configId === config.id && isLiveTunnel(snapshot.state))
+      const live = tunnelSnapshots.some((snapshot) => snapshot.configId === config.id && isLiveTunnelState(snapshot.state))
       if (!config.autoStart || live || autoStartAttempted.current.has(config.id)) continue
       autoStartAttempted.current.add(config.id)
       const selected = profiles.find((profile) => profile.id === config.profileId)
@@ -1142,6 +1166,11 @@ export function App() {
     }
   }, [connectTerminalTab, openingProfile, releaseTerminalRuntime, reportError])
 
+  const retryActivitySession = useCallback((tabId: string) => {
+    const tab = tabs.find((item) => item.id === tabId)
+    if (tab) void retryTerminalTab(tab)
+  }, [retryTerminalTab, tabs])
+
   const reconnectTerminalTab = useCallback((tab: TabModel) => {
     void connectTerminalTab(tab, false).catch(reportError)
   }, [connectTerminalTab, reportError])
@@ -1398,6 +1427,10 @@ export function App() {
       keywords: ['sessions', 'shells'], run: () => setWorkspaceMode('terminals'),
     },
     {
+      id: 'show-activity', label: 'Go to activity', group: 'Navigation', icon: Activity,
+      keywords: ['sessions', 'transfers', 'tunnels', 'resources'], run: () => setWorkspaceMode('activity'),
+    },
+    {
       id: 'show-files', label: 'Go to files', group: 'Navigation', icon: FolderOpen,
       keywords: ['sftp', 'transfers'], run: () => setWorkspaceMode('files'),
     },
@@ -1598,6 +1631,10 @@ export function App() {
           <button className={workspaceMode === 'terminals' ? 'is-active' : ''} type="button" onClick={() => setWorkspaceMode('terminals')}>
             <TerminalSquare size={16} /> Terminals
             {runningCount > 0 && <span>{runningCount}</span>}
+          </button>
+          <button className={workspaceMode === 'activity' ? 'is-active' : ''} type="button" onClick={() => setWorkspaceMode('activity')}>
+            <Activity size={16} /> Activity
+            {globalActivityCount > 0 && <span>{globalActivityCount}</span>}
           </button>
           <button className={workspaceMode === 'files' ? 'is-active' : ''} type="button" onClick={() => setWorkspaceMode('files')}>
             <FolderOpen size={16} /> Files
@@ -1861,6 +1898,27 @@ export function App() {
           <span>xterm-256color</span>
         </footer>
         </div>
+
+        {workspaceMode === 'activity' && (
+          <ActivityWorkspace
+            sessions={activitySessions}
+            transfers={transfers}
+            tunnelConfigs={tunnelConfigs}
+            tunnelSnapshots={tunnelSnapshots}
+            profiles={profiles}
+            fileSessionId={fileSession?.id}
+            connecting={Boolean(openingProfile)}
+            onOpenSession={selectTab}
+            onRetrySession={retryActivitySession}
+            onCloseSession={(tabId) => void closeTab(tabId)}
+            onCancelTransfer={cancelTransfer}
+            onOpenFiles={() => setWorkspaceMode('files')}
+            onOpenTunnels={() => setWorkspaceMode('tunnels')}
+            onStartTunnel={startTunnel}
+            onStopTunnel={stopTunnel}
+            onRestartTunnel={restartTunnel}
+          />
+        )}
 
         {workspaceMode === 'files' && fileSession && fileProfile ? (
           <FileBrowser
@@ -2142,10 +2200,6 @@ function upsertTransfer(transfers: Transfer[], incoming: Transfer): Transfer[] {
   return exists
     ? transfers.map((transfer) => (transfer.id === incoming.id ? incoming : transfer))
     : [incoming, ...transfers]
-}
-
-function isLiveTunnel(state: TunnelSnapshot['state']): boolean {
-  return state === 'starting' || state === 'active' || state === 'retrying'
 }
 
 function upsertTunnelSnapshot(snapshots: TunnelSnapshot[], incoming: TunnelSnapshot): TunnelSnapshot[] {

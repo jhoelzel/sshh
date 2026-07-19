@@ -19,6 +19,13 @@ import {
 } from 'lucide-react'
 import type { FileSession, Profile, RemoteFile, RemotePathFavorite, Transfer, TransferResume } from '../../lib/bridge/types'
 import { joinRemotePath, parentRemotePath } from './remotePath'
+import {
+  formatBytes,
+  pathBaseName,
+  progressFromBytes,
+  transferLabel,
+  transferProgressPercent,
+} from './transferPresentation'
 
 interface FileBrowserProps {
   profile: Profile
@@ -249,8 +256,8 @@ export function FileBrowser(props: FileBrowserProps) {
                   <div className="transfer-row" key={transfer.id}>
                     {transfer.direction === 'download' ? <ArrowDownToLine size={15} /> : <ArrowUpFromLine size={15} />}
                     <div className="transfer-copy">
-                      <span>{baseName(transfer.direction === 'download' ? transfer.source : transfer.destination)}</span>
-                      <div className="transfer-progress"><i style={{ width: `${progressPercent(transfer)}%` }} /></div>
+                      <span>{pathBaseName(transfer.direction === 'download' ? transfer.source : transfer.destination)}</span>
+                      <div className="transfer-progress"><i style={{ width: `${transferProgressPercent(transfer)}%` }} /></div>
                     </div>
                     <span className={`transfer-state state-${transfer.state}`} title={transfer.message}>{transferLabel(transfer)}</span>
                     <div className="transfer-actions">
@@ -277,7 +284,7 @@ export function FileBrowser(props: FileBrowserProps) {
                 <div className="transfer-row transfer-resume" key={`resume-${resume.id}`}>
                   {resume.direction === 'download' ? <ArrowDownToLine size={15} /> : <ArrowUpFromLine size={15} />}
                   <div className="transfer-copy">
-                    <span>{baseName(resume.direction === 'download' ? resume.source : resume.destination)}</span>
+                    <span>{pathBaseName(resume.direction === 'download' ? resume.source : resume.destination)}</span>
                     <div className="transfer-progress"><i style={{ width: `${progressFromBytes(resume.bytes, resume.total)}%` }} /></div>
                   </div>
                   <span className={`transfer-state${resume.available ? '' : ' state-failed'}`} title={resume.message}>
@@ -322,17 +329,6 @@ export function FileBrowser(props: FileBrowserProps) {
   )
 }
 
-function baseName(value: string): string {
-  return value.split('/').filter(Boolean).at(-1) ?? value
-}
-
-function formatBytes(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
-  if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
-  return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)} GB`
-}
-
 function formatDate(value: string): string {
   const date = new Date(value)
   return Number.isNaN(date.getTime()) ? '—' : date.toLocaleString([], { dateStyle: 'short', timeStyle: 'short' })
@@ -340,21 +336,6 @@ function formatDate(value: string): string {
 
 function formatMode(mode: number): string {
   return (mode & 0o7777).toString(8).padStart(4, '0')
-}
-
-function progressPercent(transfer: Transfer): number {
-  if (transfer.state === 'completed') return 100
-  return progressFromBytes(transfer.bytes, transfer.total)
-}
-
-function progressFromBytes(bytes: number, total: number): number {
-  return total > 0 ? Math.min(100, Math.round((bytes / total) * 100)) : 0
-}
-
-function transferLabel(transfer: Transfer): string {
-  if (transfer.state === 'running') return `${progressPercent(transfer)}%`
-  if (transfer.state === 'failed') return transfer.message || 'Failed'
-  return transfer.state.charAt(0).toUpperCase() + transfer.state.slice(1)
 }
 
 function errorMessage(cause: unknown): string {

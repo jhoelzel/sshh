@@ -256,8 +256,9 @@ criteria are in `docs/TELEPORT_INTEGRATION_PLAN.md`.
 - [x] Only one application instance owns the runtime and writable configuration.
   A secondary launch focuses the existing window and passes it any supported
   launch request.
-- [ ] Tunnels and transfers may continue while another tab is selected, but they
-  remain visible in a global Activity view.
+- [x] Tunnels and transfers may continue while another tab is selected, but they
+  remain visible in a global Activity view. The view also aggregates terminal
+  sessions and exposes shared All, Active, and Issues state filters.
 
 ### 3.2 Failure Behavior
 
@@ -949,7 +950,12 @@ Deliverables:
   is selected, and never launch or close a session implicitly. Saved layouts
   persist validated pane indexes, axis, ratio, and focus through a schema-1-to-2
   compatible store migration.
-- [ ] Add a global Activity view for sessions, transfers, and tunnels.
+- [x] Add a global Activity view for sessions, transfers, and tunnels. It joins
+  existing frontend lifecycle state without another bridge API, keeps active
+  resource counts visible in navigation, and routes focus, retry, close,
+  cancel, start, stop, restart, and management actions through the established
+  feature callbacks. Pure model, component, and rendered App tests cover state
+  classification, filtering, event projection, action routing, and failures.
 - [x] Add coordinated shutdown and consolidated close confirmation.
 - [ ] Persist window geometry, sidebar width, selected theme, and non-sensitive UI
   preferences. Never attempt to resurrect dead processes on restart.
@@ -1453,7 +1459,7 @@ commitments:
 | M0 Foundation | Complete | 4-7 days | Wails migration and honest lifecycle |
 | M1 Terminal proof | Partial; TUI and sleep/wake gates open | 7-12 days | Proven PTY/bridge/xterm vertical slice |
 | M2 Local terminal | macOS/Linux local core implemented; Windows interaction gate open | 8-14 days | First genuinely usable program |
-| M3 Workspace | Partial; Activity, window-state, and native interaction gates open | 4-7 days | Reliable multi-session desktop UX |
+| M3 Workspace | Partial; window-state and native interaction gates open | 4-7 days | Reliable multi-session desktop UX |
 | M4 Profiles/config | Mostly implemented; recovery and overrides open | 4-7 days | Durable daily workflow |
 | M5 Credentials/trust | Partial; OS secret storage remains open | 5-8 days | Secure SSH foundation |
 | M6 SSH | Core implemented; advanced connection modes open | 7-12 days | Primary remote workflow |

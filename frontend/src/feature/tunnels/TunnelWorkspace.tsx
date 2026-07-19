@@ -19,8 +19,14 @@ import type {
   TunnelInput,
   TunnelKind,
   TunnelSnapshot,
-  TunnelState,
 } from '../../lib/bridge/types'
+import {
+  isLiveTunnelState,
+  tunnelDestinationEndpoint,
+  tunnelKindLabel,
+  tunnelRequestedEndpoint,
+  tunnelStateLabel,
+} from './tunnelPresentation'
 
 interface TunnelWorkspaceProps {
   configs: TunnelConfig[]
@@ -95,7 +101,7 @@ export function TunnelWorkspace(props: TunnelWorkspaceProps) {
           ) : props.configs.map((config) => {
             const snapshot = snapshots.get(config.id)
             const state = snapshot?.state ?? 'stopped'
-            const live = isLive(state)
+            const live = isLiveTunnelState(state)
             const busy = busyId === config.id || props.connecting
             const profile = props.profiles.find((item) => item.id === config.profileId)
             return (
@@ -104,15 +110,15 @@ export function TunnelWorkspace(props: TunnelWorkspaceProps) {
                   <i className={`tunnel-state-dot state-${state}`} />
                   <span>
                     <strong>{config.name}</strong>
-                    <small>{kindLabel(config.kind)} · {profile?.name ?? 'Missing profile'}</small>
+                    <small>{tunnelKindLabel(config.kind)} · {profile?.name ?? 'Missing profile'}</small>
                   </span>
                 </span>
                 <span className="tunnel-route" role="cell">
-                  <span>{requestedEndpoint(config)}</span>
-                  {config.kind !== 'dynamic' && <><ArrowRight size={13} /><span>{destinationEndpoint(config)}</span></>}
+                  <span>{tunnelRequestedEndpoint(config)}</span>
+                  {config.kind !== 'dynamic' && <><ArrowRight size={13} /><span>{tunnelDestinationEndpoint(config)}</span></>}
                 </span>
                 <span className="tunnel-status" role="cell">
-                  <strong>{stateLabel(state)}</strong>
+                  <strong>{tunnelStateLabel(state)}</strong>
                   <small>{snapshot?.boundAddress || (config.autoStart ? 'Auto-start' : 'Manual')}</small>
                   {snapshot?.message && <span className="tunnel-message" title={snapshot.message}><CircleAlert size={12} /> {snapshot.message}</span>}
                 </span>
@@ -213,7 +219,7 @@ function TunnelEditor({ config, profiles, onCancel, onSave }: TunnelEditorProps)
         <div className="profile-form-scroll">
           <div className="segmented-control" aria-label="Tunnel type">
             {(['local', 'remote', 'dynamic'] as TunnelKind[]).map((kind) => (
-              <button className={draft.kind === kind ? 'is-selected' : ''} type="button" key={kind} onClick={() => setField('kind', kind)}>{kindLabel(kind)}</button>
+              <button className={draft.kind === kind ? 'is-selected' : ''} type="button" key={kind} onClick={() => setField('kind', kind)}>{tunnelKindLabel(kind)}</button>
             ))}
           </div>
           <div className="form-grid two-columns">
@@ -291,27 +297,6 @@ function configToInput(config: TunnelConfig): TunnelInput {
     autoStart: config.autoStart,
     reconnect: config.reconnect,
   }
-}
-
-function kindLabel(kind: TunnelKind): string {
-  if (kind === 'dynamic') return 'SOCKS5'
-  return kind.charAt(0).toUpperCase() + kind.slice(1)
-}
-
-function requestedEndpoint(config: TunnelConfig): string {
-  return `${config.bindAddress}:${config.bindPort}`
-}
-
-function destinationEndpoint(config: TunnelConfig): string {
-  return `${config.destinationHost}:${config.destinationPort}`
-}
-
-function stateLabel(state: TunnelState): string {
-  return state.charAt(0).toUpperCase() + state.slice(1)
-}
-
-function isLive(state: TunnelState): boolean {
-  return state === 'starting' || state === 'active' || state === 'retrying'
 }
 
 function bindsAllInterfaces(address: string): boolean {
