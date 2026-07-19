@@ -290,6 +290,10 @@ export function UpdateTunnel(arg1) {
   return window['go']['bridge']['Desktop']['UpdateTunnel'](arg1);
 }
 
+export function UpdateUIPreferences(arg1) {
+  return window['go']['bridge']['Desktop']['UpdateUIPreferences'](arg1);
+}
+
 export function UpdateWorkspaceLayout(arg1) {
   return window['go']['bridge']['Desktop']['UpdateWorkspaceLayout'](arg1);
 }

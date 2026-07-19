@@ -38,6 +38,12 @@ func TestApplicationDefersCompositionUntilDomReady(t *testing.T) {
 	if appOptions.SingleInstanceLock == nil || appOptions.SingleInstanceLock.UniqueId != singleInstanceUnique {
 		t.Fatal("Wails single-instance lock is not configured")
 	}
+	if appOptions.Width != 1240 || appOptions.Height != 780 || appOptions.MinWidth != 860 || appOptions.MinHeight != 560 {
+		t.Fatalf(
+			"Wails window contract = %dx%d min %dx%d",
+			appOptions.Width, appOptions.Height, appOptions.MinWidth, appOptions.MinHeight,
+		)
+	}
 
 	appOptions.OnStartup(context.Background())
 	if composeCalls != 0 {

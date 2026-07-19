@@ -30,6 +30,7 @@ const harness = vi.hoisted(() => {
       unexpectedDisconnect: true, longTransferSeconds: 30,
     },
     transfers: { concurrency: 2, collisionPolicy: 'ask', keepPartialFiles: false },
+    ui: { theme: 'dark', sidebarWidth: 272, workspace: 'terminals' },
   }
   let sessionCounter = 0
   const backend = {
@@ -60,6 +61,7 @@ const harness = vi.hoisted(() => {
     activateTerminal: vi.fn().mockResolvedValue(undefined),
     closeTerminal: vi.fn().mockResolvedValue(undefined),
     renewFrontendLease: vi.fn().mockResolvedValue(lease),
+    updateUIPreferences: vi.fn(async (value) => ({ ...settings.ui, ...value })),
   }
 
   const listeners = new Map<string, Set<(...data: unknown[]) => void>>()
@@ -90,7 +92,12 @@ vi.mock('../lib/bridge/client', () => ({
   onCloseRequested: (callback: (...data: unknown[]) => void) => harness.subscribe('close', callback),
 }))
 
-vi.mock('../../wailsjs/runtime/runtime', () => ({ BrowserOpenURL: vi.fn() }))
+vi.mock('../../wailsjs/runtime/runtime', () => ({
+  BrowserOpenURL: vi.fn(),
+  WindowSetBackgroundColour: vi.fn(),
+  WindowSetDarkTheme: vi.fn(),
+  WindowSetLightTheme: vi.fn(),
+}))
 
 vi.mock('../feature/terminal/TerminalController', () => ({
   TerminalController: class implements ControllerDouble {

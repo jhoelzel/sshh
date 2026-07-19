@@ -40,6 +40,7 @@ const harness = vi.hoisted(() => {
       unexpectedDisconnect: true, longTransferSeconds: 30,
     },
     transfers: { concurrency: 2, collisionPolicy: 'ask', keepPartialFiles: false },
+    ui: { theme: 'dark', sidebarWidth: 272, workspace: 'terminals' },
   }
   const session = {
     id: 'session-1', generation: 1, leaseId: lease.id, profileId: profile.id,
@@ -67,6 +68,7 @@ const harness = vi.hoisted(() => {
     activateTerminal: vi.fn().mockResolvedValue(undefined),
     closeTerminal: vi.fn().mockResolvedValue(undefined),
     renewFrontendLease: vi.fn().mockResolvedValue(lease),
+    updateUIPreferences: vi.fn(async (value) => ({ ...settings.ui, ...value })),
   }
 
   const activeListeners = new Map<string, Set<(...data: unknown[]) => void>>()
@@ -87,7 +89,11 @@ const harness = vi.hoisted(() => {
 
   return {
     backend,
+    settings,
     browserOpenURL: vi.fn(),
+    setWindowBackground: vi.fn(),
+    setWindowDark: vi.fn(),
+    setWindowLight: vi.fn(),
     subscribe,
     disposers,
     controllerInstances: [] as ControllerDouble[],
@@ -113,6 +119,9 @@ vi.mock('../lib/bridge/client', () => ({
 
 vi.mock('../../wailsjs/runtime/runtime', () => ({
   BrowserOpenURL: harness.browserOpenURL,
+  WindowSetBackgroundColour: harness.setWindowBackground,
+  WindowSetDarkTheme: harness.setWindowDark,
+  WindowSetLightTheme: harness.setWindowLight,
 }))
 
 vi.mock('../feature/terminal/TerminalController', () => ({
@@ -178,6 +187,18 @@ describe('App StrictMode lifecycle', () => {
     expect(harness.backend.listTunnelStates).toHaveBeenCalledOnce()
     expect(harness.controllerInstances).toHaveLength(0)
 
+    const appShell = document.querySelector<HTMLElement>('.app-shell')
+    expect(appShell?.dataset.theme).toBe('dark')
+    expect(appShell?.style.getPropertyValue('--sidebar-width')).toBe('272px')
+    const sidebarSeparator = screen.getByRole('separator', { name: 'Resize sidebar' })
+    expect(sidebarSeparator.getAttribute('aria-valuenow')).toBe('272')
+    fireEvent.keyDown(sidebarSeparator, { key: 'ArrowRight' })
+    await waitFor(() => expect(harness.backend.updateUIPreferences).toHaveBeenCalledWith({
+      sidebarWidth: 280,
+      workspace: 'terminals',
+    }))
+    expect(appShell?.style.getPropertyValue('--sidebar-width')).toBe('280px')
+
     fireEvent.keyDown(document, { key: 't', ctrlKey: true, shiftKey: true })
     await waitFor(() => expect(harness.backend.activateTerminal).toHaveBeenCalledOnce())
     expect(harness.backend.openLocalTerminal).toHaveBeenCalledOnce()
@@ -204,6 +225,15 @@ describe('App StrictMode lifecycle', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Focus Local Shell' }))
     expect(screen.queryByRole('region', { name: 'Workspace activity' })).toBeNull()
     expect(screen.getByRole('tab', { name: 'Local Shell' }).getAttribute('aria-selected')).toBe('true')
+    await waitFor(() => expect(harness.backend.updateUIPreferences).toHaveBeenCalledTimes(3))
+    expect(harness.backend.updateUIPreferences).toHaveBeenNthCalledWith(2, {
+      sidebarWidth: 280,
+      workspace: 'activity',
+    })
+    expect(harness.backend.updateUIPreferences).toHaveBeenNthCalledWith(3, {
+      sidebarWidth: 280,
+      workspace: 'terminals',
+    })
 
     fireEvent.click(screen.getByRole('button', { name: 'Find terminal tab' }))
     expect(await screen.findByRole('dialog', { name: 'Find terminal tab' })).toBeTruthy()
@@ -237,9 +267,17 @@ describe('App StrictMode lifecycle', () => {
       expect(dispose).toHaveBeenCalledOnce()
     }
 
+    harness.settings.ui.theme = 'light'
+    harness.settings.ui.sidebarWidth = 340
+    harness.settings.ui.workspace = 'activity'
     const second = render(<StrictMode><App /></StrictMode>)
     await screen.findByText('Local Shell')
     await waitFor(() => expect(harness.activeListenerCount()).toBe(6))
+    expect(await screen.findByRole('region', { name: 'Workspace activity' })).toBeTruthy()
+    const restoredShell = document.querySelector<HTMLElement>('.app-shell')
+    expect(restoredShell?.dataset.theme).toBe('light')
+    expect(restoredShell?.style.getPropertyValue('--sidebar-width')).toBe('340px')
+    expect(harness.setWindowBackground).toHaveBeenLastCalledWith(243, 245, 244, 255)
     for (const command of [
       harness.backend.attachFrontend,
       harness.backend.listProfiles,

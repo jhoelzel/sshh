@@ -227,6 +227,31 @@ recording boundaries. It requires dedicated ADRs and release gates. The
 proposed architecture, phased delivery plan, threat model, and acceptance
 criteria are in `docs/TELEPORT_INTEGRATION_PLAN.md`.
 
+### 2.5 Optional SSH MCP Server Track
+
+A post-1.0 SSH MCP track may let Codex and other explicitly paired local MCP
+clients perform grant-scoped work through saved SSH profiles. Codex starts a
+stdio mode of the installed `shh-h` executable; that narrow relay talks to the
+visible desktop app through authenticated user-private IPC. The app remains
+authoritative for host-key trust, SSH authentication, native prompts, grants,
+approvals, connection leases, SFTP, command jobs, auditing, and revocation.
+
+No SSH password, key, passphrase, agent identity/signature, keyboard response,
+or reusable authenticated connection enters MCP, React, Codex configuration,
+an environment variable, or a project file. Native secret storage and removal
+of secret-bearing Wails DTOs are hard prerequisites. Read/write SFTP access is
+bounded to one canonical remote root with sensitive-content policy and exact
+preconditions. Arbitrary remote commands are a separate short-lived,
+always-approved shell-equivalent capability and are never described as
+workspace-contained.
+
+This track introduces MCP protocol/SDK, local process, IPC, pairing, model-data,
+remote-content, filesystem-race, and remote-execution boundaries. It requires
+dedicated ADRs, threat review, native platform gates, and an independent
+security review. The full architecture, phased delivery plan, tool contract,
+threat model, test strategy, and acceptance criteria are in
+`docs/SSH_MCP_SERVER_PLAN.md`.
+
 ## 3. Non-Negotiable Behavior
 
 ### 3.1 Session Visibility and Background Work
@@ -957,8 +982,11 @@ Deliverables:
   feature callbacks. Pure model, component, and rendered App tests cover state
   classification, filtering, event projection, action routing, and failures.
 - [x] Add coordinated shutdown and consolidated close confirmation.
-- [ ] Persist window geometry, sidebar width, selected theme, and non-sensitive UI
-  preferences. Never attempt to resurrect dead processes on restart.
+- [x] Persist validated window geometry and maximized state, bounded sidebar
+  width, System/Dark/Light theme, and the selected workspace through schema-5
+  settings. Native bounds are restored only after single-instance composition;
+  serialized partial UI writes cannot overwrite geometry or theme, and restart
+  never resurrects terminal, SFTP, tunnel, credential, or other runtime state.
 
 Tests and exit gate:
 
@@ -991,6 +1019,10 @@ Tests and exit gate:
   50-tab workflow tests cover split creation, orientation, focus, hidden-tab
   replacement, bounded pointer and keyboard resize, persistence, restoration,
   collapse, and persistent controller ownership.
+- [x] Schema migration, domain, service, native-window bridge, settings component,
+  sidebar separator, serialized-writer, and rendered App tests cover UI defaults,
+  validation, partial-update isolation, normal/maximized geometry, theme
+  resolution, restored workspace, and pointer and keyboard width persistence.
 
 ### M4: Profiles, Configuration, and Migration
 
@@ -1459,7 +1491,7 @@ commitments:
 | M0 Foundation | Complete | 4-7 days | Wails migration and honest lifecycle |
 | M1 Terminal proof | Partial; TUI and sleep/wake gates open | 7-12 days | Proven PTY/bridge/xterm vertical slice |
 | M2 Local terminal | macOS/Linux local core implemented; Windows interaction gate open | 8-14 days | First genuinely usable program |
-| M3 Workspace | Partial; window-state and native interaction gates open | 4-7 days | Reliable multi-session desktop UX |
+| M3 Workspace | Partial; native interaction gates open | 4-7 days | Reliable multi-session desktop UX |
 | M4 Profiles/config | Mostly implemented; recovery and overrides open | 4-7 days | Durable daily workflow |
 | M5 Credentials/trust | Partial; OS secret storage remains open | 5-8 days | Secure SSH foundation |
 | M6 SSH | Core implemented; advanced connection modes open | 7-12 days | Primary remote workflow |

@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"log"
 	"path"
 	"path/filepath"
 	"strings"
@@ -230,6 +231,20 @@ type SettingsDTO struct {
 	Connection    ConnectionSettingsDTO   `json:"connection"`
 	Notifications NotificationSettingsDTO `json:"notifications"`
 	Transfers     TransferSettingsDTO     `json:"transfers"`
+	UI            UISettingsDTO           `json:"ui"`
+}
+
+type UISettingsDTO struct {
+	Theme        settingsdomain.Theme     `json:"theme"`
+	SidebarWidth int                      `json:"sidebarWidth"`
+	Workspace    settingsdomain.Workspace `json:"workspace"`
+}
+
+// UIPreferencesInputDTO excludes theme and native window state. Theme changes
+// remain part of explicit Settings saves, while geometry is backend-owned.
+type UIPreferencesInputDTO struct {
+	SidebarWidth int                      `json:"sidebarWidth"`
+	Workspace    settingsdomain.Workspace `json:"workspace"`
 }
 
 type ConnectionSettingsDTO struct {
@@ -299,6 +314,17 @@ type frontendLease struct {
 type desktopLifecycle struct {
 	cancel context.CancelFunc
 	done   chan struct{}
+}
+
+type windowRuntime struct {
+	setSize     func(context.Context, int, int)
+	getSize     func(context.Context) (int, int)
+	setPosition func(context.Context, int, int)
+	getPosition func(context.Context) (int, int)
+	maximise    func(context.Context)
+	unmaximise  func(context.Context)
+	isMaximised func(context.Context) bool
+	isNormal    func(context.Context) bool
 }
 
 // Dependencies contains the application services exposed through the desktop
@@ -371,6 +397,7 @@ type Desktop struct {
 	pendingActivation bool
 	activateWindow    func(context.Context)
 	quitApplication   func(context.Context)
+	window            windowRuntime
 }
 
 type eventSink struct {
@@ -406,6 +433,16 @@ func newDeferredDesktop() *Desktop {
 			wailsruntime.WindowUnminimise(ctx)
 		},
 		quitApplication: wailsruntime.Quit,
+		window: windowRuntime{
+			setSize:     wailsruntime.WindowSetSize,
+			getSize:     wailsruntime.WindowGetSize,
+			setPosition: wailsruntime.WindowSetPosition,
+			getPosition: wailsruntime.WindowGetPosition,
+			maximise:    wailsruntime.WindowMaximise,
+			unmaximise:  wailsruntime.WindowUnmaximise,
+			isMaximised: wailsruntime.WindowIsMaximised,
+			isNormal:    wailsruntime.WindowIsNormal,
+		},
 	}
 }
 
@@ -530,10 +567,65 @@ func (d *Desktop) startup(ctx context.Context) {
 	d.lifecycleMu.Unlock()
 }
 
-func (d *Desktop) domReady(context.Context) {}
+func (d *Desktop) domReady(ctx context.Context) {
+	if d.settings != nil {
+		d.restoreWindowState(ctx, d.settings.Get().Window)
+	}
+}
 
-func (d *Desktop) beforeClose(context.Context) bool {
+func (d *Desktop) restoreWindowState(ctx context.Context, state settingsdomain.WindowState) {
+	if ctx == nil {
+		ctx = d.context()
+	}
+	if ctx == nil || state.Validate() != nil {
+		return
+	}
+	if d.window.unmaximise != nil {
+		d.window.unmaximise(ctx)
+	}
+	if d.window.setSize != nil {
+		d.window.setSize(ctx, state.Width, state.Height)
+	}
+	if state.Positioned && d.window.setPosition != nil {
+		d.window.setPosition(ctx, state.X, state.Y)
+	}
+	if state.Maximized && d.window.maximise != nil {
+		d.window.maximise(ctx)
+	}
+}
+
+func (d *Desktop) captureWindowState(ctx context.Context) error {
+	if d.settings == nil {
+		return nil
+	}
+	if ctx == nil {
+		ctx = d.context()
+	}
+	if ctx == nil {
+		return nil
+	}
+	state := d.settings.Get().Window
+	if d.window.isMaximised != nil {
+		state.Maximized = d.window.isMaximised(ctx)
+	}
+	normal := true
+	if d.window.isNormal != nil {
+		normal = d.window.isNormal(ctx)
+	}
+	if normal && d.window.getSize != nil && d.window.getPosition != nil {
+		state.Width, state.Height = d.window.getSize(ctx)
+		state.X, state.Y = d.window.getPosition(ctx)
+		state.Positioned = true
+	}
+	_, err := d.settings.UpdateWindow(state)
+	return err
+}
+
+func (d *Desktop) beforeClose(ctx context.Context) bool {
 	if d.allowClose.Load() || d.activeResourceCount() == 0 {
+		if err := d.captureWindowState(ctx); err != nil {
+			log.Printf("persist window state: %v", err)
+		}
 		d.manager.Shutdown()
 		if d.files != nil {
 			d.files.Shutdown()
@@ -921,7 +1013,7 @@ func (d *Desktop) UpdateSettings(input SettingsDTO) (SettingsDTO, error) {
 	if d.settings == nil {
 		return SettingsDTO{}, apperror.New(apperror.CodeUnavailable, "Settings are unavailable.")
 	}
-	updated, err := d.settings.Update(settingsFromDTO(input))
+	updated, err := d.settings.Update(settingsFromDTO(input, d.settings.Get()))
 	if err != nil {
 		return SettingsDTO{}, err
 	}
@@ -931,6 +1023,20 @@ func (d *Desktop) UpdateSettings(input SettingsDTO) (SettingsDTO, error) {
 		}
 	}
 	return settingsDTO(updated), nil
+}
+
+func (d *Desktop) UpdateUIPreferences(input UIPreferencesInputDTO) (UISettingsDTO, error) {
+	if d.settings == nil {
+		return UISettingsDTO{}, apperror.New(apperror.CodeUnavailable, "Settings are unavailable.")
+	}
+	preferences := d.settings.Get().UI
+	preferences.SidebarWidth = input.SidebarWidth
+	preferences.Workspace = input.Workspace
+	updated, err := d.settings.UpdateUI(preferences)
+	if err != nil {
+		return UISettingsDTO{}, err
+	}
+	return uiSettingsDTO(updated), nil
 }
 
 func (d *Desktop) ResetSettings() (SettingsDTO, error) {
@@ -946,6 +1052,7 @@ func (d *Desktop) ResetSettings() (SettingsDTO, error) {
 			return SettingsDTO{}, err
 		}
 	}
+	d.restoreWindowState(d.context(), reset.Window)
 	return settingsDTO(reset), nil
 }
 
@@ -1511,6 +1618,9 @@ func (d *Desktop) ConfirmApplicationClose(leaseID string) error {
 	if _, err := d.touchLease(leaseID); err != nil {
 		return err
 	}
+	if err := d.captureWindowState(d.context()); err != nil {
+		log.Printf("persist window state: %v", err)
+	}
 	d.manager.Shutdown()
 	if d.files != nil {
 		d.files.Shutdown()
@@ -1705,33 +1815,42 @@ func settingsDTO(value settingsdomain.Settings) SettingsDTO {
 			Concurrency: value.Transfers.Concurrency, CollisionPolicy: value.Transfers.CollisionPolicy,
 			KeepPartialFiles: value.Transfers.KeepPartialFiles,
 		},
+		UI: uiSettingsDTO(value.UI),
 	}
 }
 
-func settingsFromDTO(value SettingsDTO) settingsdomain.Settings {
-	return settingsdomain.Settings{
-		Terminal: settingsdomain.Terminal{
-			FontFamily: value.Terminal.FontFamily, FontSize: value.Terminal.FontSize,
-			LineHeight: value.Terminal.LineHeight, CursorStyle: value.Terminal.CursorStyle,
-			CursorBlink: value.Terminal.CursorBlink, Scrollback: value.Terminal.Scrollback,
-			Bell: value.Terminal.Bell,
-		},
-		Connection: settingsdomain.Connection{
-			ConnectTimeoutSeconds:    value.Connection.ConnectTimeoutSeconds,
-			KeepAliveEnabled:         value.Connection.KeepAliveEnabled,
-			KeepAliveIntervalSeconds: value.Connection.KeepAliveIntervalSeconds,
-			KeepAliveMaxFailures:     value.Connection.KeepAliveMaxFailures,
-		},
-		Notifications: settingsdomain.Notifications{
-			Enabled: value.Notifications.Enabled, TransferCompleted: value.Notifications.TransferCompleted,
-			UnexpectedDisconnect: value.Notifications.UnexpectedDisconnect,
-			LongTransferSeconds:  value.Notifications.LongTransferSeconds,
-		},
-		Transfers: settingsdomain.Transfers{
-			Concurrency: value.Transfers.Concurrency, CollisionPolicy: value.Transfers.CollisionPolicy,
-			KeepPartialFiles: value.Transfers.KeepPartialFiles,
-		},
+func uiSettingsDTO(value settingsdomain.UI) UISettingsDTO {
+	return UISettingsDTO{
+		Theme: value.Theme, SidebarWidth: value.SidebarWidth, Workspace: value.Workspace,
 	}
+}
+
+func settingsFromDTO(value SettingsDTO, current settingsdomain.Settings) settingsdomain.Settings {
+	current.Terminal = settingsdomain.Terminal{
+		FontFamily: value.Terminal.FontFamily, FontSize: value.Terminal.FontSize,
+		LineHeight: value.Terminal.LineHeight, CursorStyle: value.Terminal.CursorStyle,
+		CursorBlink: value.Terminal.CursorBlink, Scrollback: value.Terminal.Scrollback,
+		Bell: value.Terminal.Bell,
+	}
+	current.Connection = settingsdomain.Connection{
+		ConnectTimeoutSeconds:    value.Connection.ConnectTimeoutSeconds,
+		KeepAliveEnabled:         value.Connection.KeepAliveEnabled,
+		KeepAliveIntervalSeconds: value.Connection.KeepAliveIntervalSeconds,
+		KeepAliveMaxFailures:     value.Connection.KeepAliveMaxFailures,
+	}
+	current.Notifications = settingsdomain.Notifications{
+		Enabled: value.Notifications.Enabled, TransferCompleted: value.Notifications.TransferCompleted,
+		UnexpectedDisconnect: value.Notifications.UnexpectedDisconnect,
+		LongTransferSeconds:  value.Notifications.LongTransferSeconds,
+	}
+	current.Transfers = settingsdomain.Transfers{
+		Concurrency: value.Transfers.Concurrency, CollisionPolicy: value.Transfers.CollisionPolicy,
+		KeepPartialFiles: value.Transfers.KeepPartialFiles,
+	}
+	current.UI = settingsdomain.UI{
+		Theme: value.UI.Theme, SidebarWidth: current.UI.SidebarWidth, Workspace: current.UI.Workspace,
+	}
+	return current
 }
 
 func (d *Desktop) transferPreferences() settingsdomain.Transfers {

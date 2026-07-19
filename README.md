@@ -43,6 +43,9 @@ native desktop application.
   permissions, bounded rotation, visible state, and terminal-owned cleanup.
 - Versioned terminal settings for font, spacing, cursor, scrollback, and bell
   behavior, with live application to open terminals and durable reset support.
+- Durable desktop UI preferences for System, Dark, and Light appearance,
+  accessible sidebar sizing, selected workspace, validated window geometry,
+  and maximized state without restoring dead sessions or network resources.
 - Versioned SSH connection settings for bounded connect/handshake deadlines and
   application-level keepalives with a configurable unanswered-probe threshold.
 - Shared reference-counted SSH connection groups let terminals, SFTP
@@ -198,6 +201,23 @@ the owning SFTP workspace when it remains available or cancel active work.
 Tunnel actions open management or start, stop, and restart saved tunnels. These
 controls reuse the established callbacks and do not introduce another bridge or
 resource owner.
+
+## Desktop UI State
+
+The private schema-5 settings document stores only bounded, non-sensitive UI
+metadata: application theme, sidebar width, selected workspace, normal window
+bounds, and maximized state. Window geometry is restored only after the process
+wins the native single-instance gate. A normal close captures current bounds;
+a maximized or fullscreen close preserves the last valid normal bounds so the
+window remains recoverable when it is restored.
+
+The sidebar separator supports pointer capture plus Arrow, Shift+Arrow, Home,
+and End keyboard resizing. Workspace and width changes use serialized partial
+updates, while explicit Settings saves own theme changes. System appearance
+tracks operating-system color preference; the terminal canvas keeps its stable
+ANSI palette independently of application chrome. Reset restores UI and window
+defaults. Terminal tabs, SFTP sessions, tunnels, credentials, output, paths,
+filters, and runtime identifiers are never part of this persisted UI state.
 
 ## Local Profile Environment
 
@@ -356,6 +376,8 @@ executable is `build/bin/shh-h.app/Contents/MacOS/shhh`.
   provisioning, project lifecycle, and browser-authentication design.
 - `docs/TELEPORT_INTEGRATION_PLAN.md`: proposed Teleport cluster, browser
   authentication, resource discovery, terminal, and compliance design.
+- `docs/SSH_MCP_SERVER_PLAN.md`: proposed local SSH MCP credential broker,
+  grant-scoped filesystem and command tools, security model, and delivery plan.
 - `docs/adr/0001-desktop-frontend-stack.md`: accepted frontend decision and
   tradeoffs.
 - `docs/adr/0002-terminal-performance-budgets.md`: accepted native terminal

@@ -190,6 +190,28 @@ Activity actions call the ordinary terminal, SFTP, and tunnel callbacks; the
 view owns no sessions, leases, cancellation handles, credentials, or new bridge
 commands.
 
+Desktop UI state uses the existing settings ownership path rather than browser
+storage. Schema 5 separates frontend-visible `UI` preferences from a
+backend-owned `WindowState`. React receives only the validated theme, bounded
+sidebar width, and selected-workspace enum. Workspace and sidebar changes use a
+serialized partial bridge command; an explicit Settings save may change the
+theme but preserves current workspace, sidebar, and native geometry values.
+
+The bridge restores normal bounds and maximized state during `DomReady`, after
+single-instance composition succeeds. `OnBeforeClose` captures normal bounds;
+confirmed close captures before quitting as well. Maximized, minimized, and
+fullscreen windows retain the last valid normal bounds because Wails does not
+expose portable restore bounds. Invalid native dimensions are rejected by the
+domain and cannot replace the last durable state. No runtime is reconstructed:
+terminal tabs, SFTP clients, tunnels, leases, credentials, remote paths, and
+terminal output remain outside the settings document.
+
+Application chrome resolves System, Dark, or Light to semantic CSS tokens and
+updates the native Wails background plus the Windows frame theme. xterm keeps a
+separate fixed terminal palette. The accessible sidebar separator owns pointer
+capture and bounded keyboard resizing; responsive widths below the desktop
+threshold collapse to the fixed minimum without changing the saved preference.
+
 Tab ordering is frontend metadata. Pointer drops and command moves use the same
 pure ordering functions and only rearrange the existing tab model array; live
 controllers, xterm hosts, backend sessions, and session IDs are preserved. The

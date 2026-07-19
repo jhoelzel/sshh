@@ -150,6 +150,8 @@ export function UpdateSnippet(arg1:bridge.SnippetInputDTO):Promise<bridge.Snippe
 
 export function UpdateTunnel(arg1:bridge.TunnelInputDTO):Promise<tunnel.Config>;
 
+export function UpdateUIPreferences(arg1:bridge.UIPreferencesInputDTO):Promise<bridge.UISettingsDTO>;
+
 export function UpdateWorkspaceLayout(arg1:bridge.WorkspaceLayoutInputDTO):Promise<bridge.WorkspaceLayoutDTO>;
 
 export function WriteTerminal(arg1:string,arg2:string,arg3:number,arg4:number,arg5:string):Promise<void>;

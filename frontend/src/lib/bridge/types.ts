@@ -419,11 +419,21 @@ export interface TransferSettings {
   keepPartialFiles: boolean
 }
 
+export type ThemePreference = 'system' | 'dark' | 'light'
+export type WorkspaceMode = 'terminals' | 'activity' | 'files' | 'tunnels' | 'snippets' | 'layouts' | 'settings'
+
+export interface UISettings {
+	theme: ThemePreference
+	sidebarWidth: number
+	workspace: WorkspaceMode
+}
+
 export interface AppSettings {
-  terminal: TerminalSettings
-  connection: ConnectionSettings
-  notifications: NotificationSettings
-  transfers: TransferSettings
+	terminal: TerminalSettings
+	connection: ConnectionSettings
+	notifications: NotificationSettings
+	transfers: TransferSettings
+	ui: UISettings
 }
 
 export interface BuildInfo {

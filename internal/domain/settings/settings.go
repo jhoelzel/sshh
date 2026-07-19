@@ -10,6 +10,8 @@ import (
 
 type FontFamily string
 type CursorStyle string
+type Theme string
+type Workspace string
 
 const (
 	FontSystemMono FontFamily = "system-mono"
@@ -19,6 +21,28 @@ const (
 	CursorBlock     CursorStyle = "block"
 	CursorBar       CursorStyle = "bar"
 	CursorUnderline CursorStyle = "underline"
+
+	ThemeSystem Theme = "system"
+	ThemeDark   Theme = "dark"
+	ThemeLight  Theme = "light"
+
+	WorkspaceTerminals Workspace = "terminals"
+	WorkspaceActivity  Workspace = "activity"
+	WorkspaceFiles     Workspace = "files"
+	WorkspaceTunnels   Workspace = "tunnels"
+	WorkspaceSnippets  Workspace = "snippets"
+	WorkspaceLayouts   Workspace = "layouts"
+	WorkspaceSettings  Workspace = "settings"
+
+	MinSidebarWidth     = 220
+	DefaultSidebarWidth = 272
+	MaxSidebarWidth     = 420
+	MinWindowWidth      = 860
+	MinWindowHeight     = 560
+	DefaultWindowWidth  = 1240
+	DefaultWindowHeight = 780
+	MaxWindowSize       = 16_384
+	MaxWindowOffset     = 100_000
 )
 
 type Terminal struct {
@@ -51,11 +75,30 @@ type Connection struct {
 	KeepAliveMaxFailures     int  `json:"keepAliveMaxFailures"`
 }
 
+type UI struct {
+	Theme        Theme     `json:"theme"`
+	SidebarWidth int       `json:"sidebarWidth"`
+	Workspace    Workspace `json:"workspace"`
+}
+
+// WindowState is backend-owned desktop state. It is intentionally separate
+// from UI so frontend settings updates cannot overwrite native geometry.
+type WindowState struct {
+	X          int  `json:"x"`
+	Y          int  `json:"y"`
+	Width      int  `json:"width"`
+	Height     int  `json:"height"`
+	Positioned bool `json:"positioned"`
+	Maximized  bool `json:"maximized"`
+}
+
 type Settings struct {
 	Terminal      Terminal      `json:"terminal"`
 	Connection    Connection    `json:"connection"`
 	Notifications Notifications `json:"notifications"`
 	Transfers     Transfers     `json:"transfers"`
+	UI            UI            `json:"ui"`
+	Window        WindowState   `json:"window"`
 }
 
 func Defaults() Settings {
@@ -74,6 +117,10 @@ func Defaults() Settings {
 		},
 		Transfers: Transfers{
 			Concurrency: 2, CollisionPolicy: filedomain.CollisionAsk, KeepPartialFiles: false,
+		},
+		UI: UI{Theme: ThemeDark, SidebarWidth: DefaultSidebarWidth, Workspace: WorkspaceTerminals},
+		Window: WindowState{
+			Width: DefaultWindowWidth, Height: DefaultWindowHeight,
 		},
 	}
 }
@@ -117,6 +164,46 @@ func (s Settings) Validate() error {
 	case filedomain.CollisionAsk, filedomain.CollisionOverwrite, filedomain.CollisionSkip, filedomain.CollisionRename:
 	default:
 		return fmt.Errorf("unsupported transfer collision policy %q", s.Transfers.CollisionPolicy)
+	}
+	if err := s.UI.Validate(); err != nil {
+		return err
+	}
+	if err := s.Window.Validate(); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (u UI) Validate() error {
+	switch u.Theme {
+	case ThemeSystem, ThemeDark, ThemeLight:
+	default:
+		return fmt.Errorf("unsupported application theme %q", u.Theme)
+	}
+	if u.SidebarWidth < MinSidebarWidth || u.SidebarWidth > MaxSidebarWidth {
+		return fmt.Errorf("sidebar width must be between %d and %d pixels", MinSidebarWidth, MaxSidebarWidth)
+	}
+	switch u.Workspace {
+	case WorkspaceTerminals, WorkspaceActivity, WorkspaceFiles, WorkspaceTunnels,
+		WorkspaceSnippets, WorkspaceLayouts, WorkspaceSettings:
+	default:
+		return fmt.Errorf("unsupported workspace %q", u.Workspace)
+	}
+	return nil
+}
+
+func (w WindowState) Validate() error {
+	if w.Width < MinWindowWidth || w.Width > MaxWindowSize {
+		return fmt.Errorf("window width must be between %d and %d pixels", MinWindowWidth, MaxWindowSize)
+	}
+	if w.Height < MinWindowHeight || w.Height > MaxWindowSize {
+		return fmt.Errorf("window height must be between %d and %d pixels", MinWindowHeight, MaxWindowSize)
+	}
+	if w.X < -MaxWindowOffset || w.X > MaxWindowOffset || w.Y < -MaxWindowOffset || w.Y > MaxWindowOffset {
+		return fmt.Errorf("window position must stay within %d pixels of the display origin", MaxWindowOffset)
+	}
+	if !w.Positioned && (w.X != 0 || w.Y != 0) {
+		return errors.New("window coordinates require a saved position")
 	}
 	return nil
 }

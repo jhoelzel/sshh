@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import {
   Activity,
   ArrowLeft,
@@ -37,7 +37,12 @@ import {
   Zap,
   X,
 } from 'lucide-react'
-import { BrowserOpenURL } from '../../wailsjs/runtime/runtime'
+import {
+  BrowserOpenURL,
+  WindowSetBackgroundColour,
+  WindowSetDarkTheme,
+  WindowSetLightTheme,
+} from '../../wailsjs/runtime/runtime'
 import { ActivityWorkspace } from '../feature/activity/ActivityWorkspace'
 import type { ActivitySession } from '../feature/activity/activityModel'
 import { CommandPalette, type PaletteCommand } from '../feature/commands/CommandPalette'
@@ -48,6 +53,12 @@ import { ProfileExchangeDialog } from '../feature/profile/ProfileExchangeDialog'
 import { QuickConnectDialog } from '../feature/ssh/QuickConnectDialog'
 import { SSHCredentialsDialog, SSHTrustDialog } from '../feature/ssh/SSHConnectDialog'
 import { SettingsWorkspace } from '../feature/settings/SettingsWorkspace'
+import { SidebarResizeHandle } from '../feature/settings/SidebarResizeHandle'
+import {
+  clampSidebarWidth,
+  createUIPreferenceWriter,
+  defaultSidebarWidth,
+} from '../feature/settings/uiPreferences'
 import { SnippetWorkspace } from '../feature/snippets/SnippetWorkspace'
 import { LoggingDialog } from '../feature/terminal/LoggingDialog'
 import { copyVisibleText, exportSelectedText } from '../feature/terminal/terminalActions'
@@ -116,6 +127,8 @@ import type {
   TunnelConfig,
   TunnelInput,
   TunnelSnapshot,
+  UISettings,
+  WorkspaceMode,
   WorkspaceLayout,
   WorkspaceLayoutInput,
 } from '../lib/bridge/types'
@@ -124,10 +137,12 @@ const frontendNonce = crypto.randomUUID()
 const initialColumns = 100
 const initialRows = 30
 const isMacOS = navigator.userAgent.includes('Macintosh')
+const isWindows = navigator.userAgent.includes('Windows')
 const shortcutPrefix = isMacOS ? 'Cmd Shift' : 'Ctrl Shift'
 
 type TerminalTabState = SessionState | 'disconnected'
 type PaletteScope = 'commands' | 'tabs' | 'terminal'
+type ResolvedTheme = 'dark' | 'light'
 
 interface TabModel {
   id: string
@@ -165,7 +180,9 @@ export function App() {
   const [lease, setLease] = useState<FrontendLease>()
   const [tabs, setTabs] = useState<TabModel[]>([])
   const [terminalWorkspace, setTerminalWorkspace] = useState(createTerminalWorkspace)
-  const [workspaceMode, setWorkspaceMode] = useState<'terminals' | 'activity' | 'files' | 'tunnels' | 'snippets' | 'layouts' | 'settings'>('terminals')
+  const [workspaceMode, setWorkspaceModeState] = useState<WorkspaceMode>('terminals')
+  const [sidebarWidth, setSidebarWidth] = useState(defaultSidebarWidth)
+  const [systemTheme, setSystemTheme] = useState<ResolvedTheme>(preferredSystemTheme)
   const [activeId, setActiveId] = useState<string>()
   const [openingProfile, setOpeningProfile] = useState<string>()
   const [profileEditor, setProfileEditor] = useState<ProfileEditorState>()
@@ -200,6 +217,9 @@ export function App() {
   const controllers = useRef(new Map<string, TerminalController>())
   const autoStartAttempted = useRef(new Set<string>())
   const terminalWorkspaceRef = useRef(terminalWorkspace)
+  const uiPreferencesRef = useRef<UISettings>({
+    theme: 'dark', sidebarWidth: defaultSidebarWidth, workspace: 'terminals',
+  })
 
   const updateTerminalWorkspace = useCallback(
     (update: (current: TerminalWorkspaceState) => TerminalWorkspaceState): TerminalWorkspaceState => {
@@ -281,6 +301,9 @@ export function App() {
   const activeTunnelCount = tunnelSnapshots.filter((snapshot) => isLiveTunnelState(snapshot.state)).length
   const globalActivityCount = runningCount + activeTransferCount + activeTunnelCount
   const activityCount = globalActivityCount + (fileSession ? 1 : 0)
+  const resolvedTheme: ResolvedTheme = settings?.ui.theme === 'system'
+    ? systemTheme
+    : settings?.ui.theme ?? 'dark'
 
   const reportError = useCallback((cause: unknown) => {
     setNotice(undefined)
@@ -292,11 +315,68 @@ export function App() {
     setNotice(message)
   }, [])
 
+  const applyUIPreferences = useCallback((saved: UISettings) => {
+    const normalized = { ...saved, sidebarWidth: clampSidebarWidth(saved.sidebarWidth) }
+    uiPreferencesRef.current = normalized
+    setSidebarWidth(normalized.sidebarWidth)
+    setWorkspaceModeState(normalized.workspace)
+    setSettings((current) => current ? { ...current, ui: normalized } : current)
+  }, [])
+
+  const uiPreferenceWriter = useMemo(
+    () => createUIPreferenceWriter(backend.updateUIPreferences),
+    [],
+  )
+
+  const queueUIPreferences = useCallback((next: UISettings) => {
+    uiPreferencesRef.current = next
+    setSettings((current) => current ? { ...current, ui: next } : current)
+    void uiPreferenceWriter.enqueue(
+      { sidebarWidth: next.sidebarWidth, workspace: next.workspace },
+      applyUIPreferences,
+      reportError,
+    )
+  }, [applyUIPreferences, reportError, uiPreferenceWriter])
+
+  const selectWorkspace = useCallback((workspace: WorkspaceMode) => {
+    setWorkspaceModeState(workspace)
+    const current = uiPreferencesRef.current
+    if (current.workspace === workspace) return
+    queueUIPreferences({ ...current, workspace })
+  }, [queueUIPreferences])
+
+  const commitSidebarWidth = useCallback((width: number) => {
+    const sidebar = clampSidebarWidth(width)
+    setSidebarWidth(sidebar)
+    const current = uiPreferencesRef.current
+    if (current.sidebarWidth === sidebar) return
+    queueUIPreferences({ ...current, sidebarWidth: sidebar })
+  }, [queueUIPreferences])
+
   useEffect(() => {
     if (!notice) return
     const timer = window.setTimeout(() => setNotice(undefined), 3_000)
     return () => window.clearTimeout(timer)
   }, [notice])
+
+  useEffect(() => {
+    if (typeof window.matchMedia !== 'function') return
+    const query = window.matchMedia('(prefers-color-scheme: light)')
+    const update = (event: MediaQueryListEvent | MediaQueryList) => setSystemTheme(event.matches ? 'light' : 'dark')
+    update(query)
+    query.addEventListener('change', update)
+    return () => query.removeEventListener('change', update)
+  }, [])
+
+  useEffect(() => {
+    if (resolvedTheme === 'light') {
+      WindowSetBackgroundColour(243, 245, 244, 255)
+      if (isWindows) WindowSetLightTheme()
+      return
+    }
+    WindowSetBackgroundColour(14, 16, 18, 255)
+    if (isWindows) WindowSetDarkTheme()
+  }, [resolvedTheme])
 
   useEffect(() => {
     let cancelled = false
@@ -308,6 +388,9 @@ export function App() {
         setSnippets(snapshot.snippets)
         setWorkspaceLayouts(snapshot.workspaceLayouts)
         setRemotePathFavorites(snapshot.remotePathFavorites)
+        uiPreferencesRef.current = snapshot.settings.ui
+        setSidebarWidth(clampSidebarWidth(snapshot.settings.ui.sidebarWidth))
+        setWorkspaceModeState(snapshot.settings.ui.workspace)
         setSettings(snapshot.settings)
         setBuildInfo(snapshot.buildInfo)
       }
@@ -603,20 +686,20 @@ export function App() {
         setRemotePath(root)
         setRemoteFiles(entries)
         setTransferResumes(resumes)
-        setWorkspaceMode('files')
+        selectWorkspace('files')
       } catch (cause) {
         await backend.closeSFTP(lease.id, opened.id).catch(() => undefined)
         throw cause
       }
     },
-    [fileSession, lease],
+    [fileSession, lease, selectWorkspace],
   )
 
   const performSSHAction = useCallback(
     async (selected: Profile, action: SSHAction, credentials?: SSHCredentials, quick?: QuickSSHInput) => {
       if (action.kind === 'terminal') {
         await openTerminalSession(selected, credentials, quick, action.replaceTabId)
-        setWorkspaceMode('terminals')
+        selectWorkspace('terminals')
       } else if (action.kind === 'files') {
         if (quick) throw new Error('Quick connections support terminals only')
         await openFileWorkspace(selected, credentials)
@@ -629,10 +712,10 @@ export function App() {
           credentials ?? { password: '', passphrase: '' },
         )
         setTunnelSnapshots((current) => upsertTunnelSnapshot(current, snapshot))
-        setWorkspaceMode('tunnels')
+        selectWorkspace('tunnels')
       }
     },
-    [lease, openFileWorkspace, openTerminalSession],
+    [lease, openFileWorkspace, openTerminalSession, selectWorkspace],
   )
 
   const inspectSSHAndConnect = useCallback(
@@ -666,7 +749,7 @@ export function App() {
             throw new Error('Local profiles do not support SFTP')
           }
           await openTerminalSession(selected, undefined, undefined, action.replaceTabId)
-          setWorkspaceMode('terminals')
+          selectWorkspace('terminals')
           setOpeningProfile(undefined)
           return
         }
@@ -686,7 +769,7 @@ export function App() {
         reportError(cause)
       }
     },
-    [inspectSSHAndConnect, lease, openTerminalSession, openingProfile, reportError],
+    [inspectSSHAndConnect, lease, openTerminalSession, openingProfile, reportError, selectWorkspace],
   )
 
   const connectProfile = useCallback(
@@ -908,8 +991,8 @@ export function App() {
     setRemoteFiles([])
     setTransferResumes([])
     setRemotePath('')
-    setWorkspaceMode('terminals')
-  }, [fileSession, lease])
+    selectWorkspace('terminals')
+  }, [fileSession, lease, selectWorkspace])
 
   const createTunnel = useCallback(async (input: TunnelInput) => {
     const created = await backend.createTunnel(input)
@@ -987,6 +1070,9 @@ export function App() {
   )
 
   const applySettings = useCallback((saved: AppSettings) => {
+    uiPreferencesRef.current = saved.ui
+    setSidebarWidth(clampSidebarWidth(saved.ui.sidebarWidth))
+    setWorkspaceModeState(saved.ui.workspace)
     setSettings(saved)
     for (const controller of controllers.current.values()) {
       controller.applySettings(saved.terminal)
@@ -994,16 +1080,21 @@ export function App() {
   }, [])
 
   const saveSettings = useCallback(async (draft: AppSettings) => {
-    const saved = await backend.updateSettings(draft)
+    await uiPreferenceWriter.flush()
+    const saved = await backend.updateSettings({
+      ...draft,
+      ui: { ...uiPreferencesRef.current, theme: draft.ui.theme },
+    })
     applySettings(saved)
     return saved
-  }, [applySettings])
+  }, [applySettings, uiPreferenceWriter])
 
   const resetSettings = useCallback(async () => {
+    await uiPreferenceWriter.flush()
     const reset = await backend.resetSettings()
     applySettings(reset)
     return reset
-  }, [applySettings])
+  }, [applySettings, uiPreferenceWriter])
 
   const requestNotificationPermission = useCallback(async () => {
     const status = await backend.requestNotificationPermission()
@@ -1024,8 +1115,8 @@ export function App() {
       updateTerminalWorkspace((workspace) => selectTerminalWorkspaceTab(workspace, tabId))
       setActiveId(tabId)
     }
-    setWorkspaceMode('terminals')
-  }, [tabs, updateTerminalWorkspace])
+    selectWorkspace('terminals')
+  }, [selectWorkspace, tabs, updateTerminalWorkspace])
 
   const startSessionLogging = useCallback(async (timestampLines: boolean) => {
     const tab = tabs.find((item) => item.session?.id === loggingSessionId)
@@ -1054,12 +1145,12 @@ export function App() {
   }, [activeLog, activeTab, lease, reportError])
 
   const selectTab = useCallback((tabId: string) => {
-    setWorkspaceMode('terminals')
+    selectWorkspace('terminals')
     updateTerminalWorkspace((workspace) => selectTerminalWorkspaceTab(workspace, tabId))
     setActiveId(tabId)
     setTabs((current) => current.map((tab) => (tab.id === tabId ? { ...tab, attention: false } : tab)))
     controllers.current.get(tabId)?.focus()
-  }, [updateTerminalWorkspace])
+  }, [selectWorkspace, updateTerminalWorkspace])
 
   const splitTerminal = useCallback((axis: SplitAxis) => {
     const next = updateTerminalWorkspace((workspace) => splitTerminalWorkspace(
@@ -1075,8 +1166,8 @@ export function App() {
       ))
       controllers.current.get(nextActiveId)?.focus()
     }
-    setWorkspaceMode('terminals')
-  }, [activeId, tabs, updateTerminalWorkspace])
+    selectWorkspace('terminals')
+  }, [activeId, selectWorkspace, tabs, updateTerminalWorkspace])
 
   const closeSplit = useCallback(() => {
     const next = updateTerminalWorkspace(closeTerminalSplit)
@@ -1204,8 +1295,8 @@ export function App() {
       activeTabIndex,
       layout.split,
     ))
-    setWorkspaceMode('terminals')
-  }, [lease, tabs, updateTerminalWorkspace])
+    selectWorkspace('terminals')
+  }, [lease, selectWorkspace, tabs, updateTerminalWorkspace])
 
   const restoreWorkspaceLayout = useCallback(async (layout: WorkspaceLayout) => {
     if (tabs.some((tab) => isLive(tab.state))) {
@@ -1424,31 +1515,31 @@ export function App() {
     },
     {
       id: 'show-terminals', label: 'Go to terminals', group: 'Navigation', icon: TerminalSquare,
-      keywords: ['sessions', 'shells'], run: () => setWorkspaceMode('terminals'),
+      keywords: ['sessions', 'shells'], run: () => selectWorkspace('terminals'),
     },
     {
       id: 'show-activity', label: 'Go to activity', group: 'Navigation', icon: Activity,
-      keywords: ['sessions', 'transfers', 'tunnels', 'resources'], run: () => setWorkspaceMode('activity'),
+      keywords: ['sessions', 'transfers', 'tunnels', 'resources'], run: () => selectWorkspace('activity'),
     },
     {
       id: 'show-files', label: 'Go to files', group: 'Navigation', icon: FolderOpen,
-      keywords: ['sftp', 'transfers'], run: () => setWorkspaceMode('files'),
+      keywords: ['sftp', 'transfers'], run: () => selectWorkspace('files'),
     },
     {
       id: 'show-tunnels', label: 'Go to tunnels', group: 'Navigation', icon: Network,
-      keywords: ['forwarding', 'socks'], run: () => setWorkspaceMode('tunnels'),
+      keywords: ['forwarding', 'socks'], run: () => selectWorkspace('tunnels'),
     },
     {
       id: 'show-snippets', label: 'Go to snippets', group: 'Navigation', icon: Braces,
-      keywords: ['commands'], run: () => setWorkspaceMode('snippets'),
+      keywords: ['commands'], run: () => selectWorkspace('snippets'),
     },
     {
       id: 'show-layouts', label: 'Go to workspace layouts', group: 'Navigation', icon: LayoutPanelTop,
-      keywords: ['saved', 'restore', 'tabs'], run: () => setWorkspaceMode('layouts'),
+      keywords: ['saved', 'restore', 'tabs'], run: () => selectWorkspace('layouts'),
     },
     {
       id: 'show-settings', label: 'Go to settings', group: 'Navigation', icon: Settings2,
-      keywords: ['preferences', 'terminal'], run: () => setWorkspaceMode('settings'),
+      keywords: ['preferences', 'terminal'], run: () => selectWorkspace('settings'),
     },
     {
       id: 'previous-terminal-tab', label: 'Previous terminal tab', group: 'Navigation', icon: ArrowLeft,
@@ -1462,7 +1553,7 @@ export function App() {
       id: 'search-terminal', label: 'Search terminal output', group: 'Active terminal', icon: Search,
       disabled: !activeController,
       run: () => {
-        setWorkspaceMode('terminals')
+        selectWorkspace('terminals')
         setSearchOpen(true)
       },
     },
@@ -1511,7 +1602,7 @@ export function App() {
     activeController, activeHasSelection, activeId, activeLog, activeTab, activeTabIndex, canOpenLocalTerminal,
     closeTab, copyVisibleTerminal, exportProfiles, exportTerminalSelection, importProfiles, lease,
     moveActiveTab, openLocalTerminal, openingProfile, profileExchangeAction, settings, reportError,
-    restoreWorkspaceLayout, selectRelativeTab, tabCommands, tabs.length, terminalActionCommands,
+    restoreWorkspaceLayout, selectRelativeTab, selectWorkspace, tabCommands, tabs.length, terminalActionCommands,
     toggleSessionLogging, workspaceLayouts,
   ])
 
@@ -1538,7 +1629,7 @@ export function App() {
         openLocalTerminal()
       } else if (key === 'f' && activeController) {
         event.preventDefault()
-        setWorkspaceMode('terminals')
+        selectWorkspace('terminals')
         setSearchOpen(true)
       }
     }
@@ -1546,12 +1637,17 @@ export function App() {
     return () => document.removeEventListener('keydown', handleShortcut, true)
   }, [
     activeController, blockingOverlayOpen, canOpenLocalTerminal, openLocalTerminal, paletteScope,
-    selectRelativeTab, tabs.length,
+    selectRelativeTab, selectWorkspace, tabs.length,
   ])
 
   return (
-    <div className="app-shell">
-      <aside className="sidebar">
+    <div
+      className="app-shell"
+      data-theme={resolvedTheme}
+      data-theme-preference={settings?.ui.theme ?? 'dark'}
+      style={{ '--sidebar-width': `${sidebarWidth}px` } as CSSProperties}
+    >
+      <aside className="sidebar" id="application-sidebar">
         <div className="brand-row">
           <div className="brand-mark" aria-hidden="true">H_</div>
           <div>
@@ -1628,35 +1724,41 @@ export function App() {
           {visibleProfiles.length === 0 && <div className="profile-list-empty">No matching profiles</div>}
         </nav>
         <nav className="workspace-navigation" aria-label="Workspace views">
-          <button className={workspaceMode === 'terminals' ? 'is-active' : ''} type="button" onClick={() => setWorkspaceMode('terminals')}>
+          <button className={workspaceMode === 'terminals' ? 'is-active' : ''} type="button" onClick={() => selectWorkspace('terminals')}>
             <TerminalSquare size={16} /> Terminals
             {runningCount > 0 && <span>{runningCount}</span>}
           </button>
-          <button className={workspaceMode === 'activity' ? 'is-active' : ''} type="button" onClick={() => setWorkspaceMode('activity')}>
+          <button className={workspaceMode === 'activity' ? 'is-active' : ''} type="button" onClick={() => selectWorkspace('activity')}>
             <Activity size={16} /> Activity
             {globalActivityCount > 0 && <span>{globalActivityCount}</span>}
           </button>
-          <button className={workspaceMode === 'files' ? 'is-active' : ''} type="button" onClick={() => setWorkspaceMode('files')}>
+          <button className={workspaceMode === 'files' ? 'is-active' : ''} type="button" onClick={() => selectWorkspace('files')}>
             <FolderOpen size={16} /> Files
             {activeTransferCount > 0 && <span>{activeTransferCount}</span>}
           </button>
-          <button className={workspaceMode === 'tunnels' ? 'is-active' : ''} type="button" onClick={() => setWorkspaceMode('tunnels')}>
+          <button className={workspaceMode === 'tunnels' ? 'is-active' : ''} type="button" onClick={() => selectWorkspace('tunnels')}>
             <Network size={16} /> Tunnels
             {activeTunnelCount > 0 && <span>{activeTunnelCount}</span>}
           </button>
-          <button className={workspaceMode === 'snippets' ? 'is-active' : ''} type="button" onClick={() => setWorkspaceMode('snippets')}>
+          <button className={workspaceMode === 'snippets' ? 'is-active' : ''} type="button" onClick={() => selectWorkspace('snippets')}>
             <Braces size={16} /> Snippets
             {snippets.length > 0 && <span>{snippets.length}</span>}
           </button>
-          <button className={workspaceMode === 'layouts' ? 'is-active' : ''} type="button" onClick={() => setWorkspaceMode('layouts')}>
+          <button className={workspaceMode === 'layouts' ? 'is-active' : ''} type="button" onClick={() => selectWorkspace('layouts')}>
             <LayoutPanelTop size={16} /> Layouts
             {workspaceLayouts.length > 0 && <span>{workspaceLayouts.length}</span>}
           </button>
-          <button className={workspaceMode === 'settings' ? 'is-active' : ''} type="button" onClick={() => setWorkspaceMode('settings')}>
+          <button className={workspaceMode === 'settings' ? 'is-active' : ''} type="button" onClick={() => selectWorkspace('settings')}>
             <Settings2 size={16} /> Settings
           </button>
         </nav>
       </aside>
+
+      <SidebarResizeHandle
+        width={sidebarWidth}
+        onPreview={setSidebarWidth}
+        onCommit={commitSidebarWidth}
+      />
 
       <main className="workspace">
         <div className={`terminal-workspace${workspaceMode === 'terminals' ? '' : ' is-hidden'}`}>
@@ -1912,8 +2014,8 @@ export function App() {
             onRetrySession={retryActivitySession}
             onCloseSession={(tabId) => void closeTab(tabId)}
             onCancelTransfer={cancelTransfer}
-            onOpenFiles={() => setWorkspaceMode('files')}
-            onOpenTunnels={() => setWorkspaceMode('tunnels')}
+            onOpenFiles={() => selectWorkspace('files')}
+            onOpenTunnels={() => selectWorkspace('tunnels')}
             onStartTunnel={startTunnel}
             onStopTunnel={stopTunnel}
             onRestartTunnel={restartTunnel}
@@ -2173,6 +2275,12 @@ function isLive(state: TerminalTabState): boolean {
 
 function errorMessage(cause: unknown): string {
   return cause instanceof Error ? cause.message : String(cause)
+}
+
+function preferredSystemTheme(): ResolvedTheme {
+  return typeof window.matchMedia === 'function' && window.matchMedia('(prefers-color-scheme: light)').matches
+    ? 'light'
+    : 'dark'
 }
 
 function filterAndSortProfiles(profiles: Profile[], filter: string): Profile[] {

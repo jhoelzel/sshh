@@ -347,6 +347,22 @@ export namespace bridge {
 	    }
 	}
 
+	export class UISettingsDTO {
+	    theme: string;
+	    sidebarWidth: number;
+	    workspace: string;
+
+	    static createFrom(source: any = {}) {
+	        return new UISettingsDTO(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.theme = source["theme"];
+	        this.sidebarWidth = source["sidebarWidth"];
+	        this.workspace = source["workspace"];
+	    }
+	}
 	export class TransferSettingsDTO {
 	    concurrency: number;
 	    collisionPolicy: string;
@@ -392,6 +408,7 @@ export namespace bridge {
 	    connection: ConnectionSettingsDTO;
 	    notifications: NotificationSettingsDTO;
 	    transfers: TransferSettingsDTO;
+	    ui: UISettingsDTO;
 
 	    static createFrom(source: any = {}) {
 	        return new SettingsDTO(source);
@@ -403,6 +420,7 @@ export namespace bridge {
 	        this.connection = this.convertValues(source["connection"], ConnectionSettingsDTO);
 	        this.notifications = this.convertValues(source["notifications"], NotificationSettingsDTO);
 	        this.transfers = this.convertValues(source["transfers"], TransferSettingsDTO);
+	        this.ui = this.convertValues(source["ui"], UISettingsDTO);
 	    }
 
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
@@ -531,6 +549,21 @@ export namespace bridge {
 	        this.reconnect = source["reconnect"];
 	    }
 	}
+	export class UIPreferencesInputDTO {
+	    sidebarWidth: number;
+	    workspace: string;
+
+	    static createFrom(source: any = {}) {
+	        return new UIPreferencesInputDTO(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.sidebarWidth = source["sidebarWidth"];
+	        this.workspace = source["workspace"];
+	    }
+	}
+
 	export class WorkspaceSplitDTO {
 	    axis: string;
 	    primaryTab: number;

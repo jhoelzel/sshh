@@ -66,6 +66,7 @@ import {
   StopSessionLogging,
   UpdateProfile,
   UpdateSettings,
+  UpdateUIPreferences,
   UpdateSnippet,
   UpdateTunnel,
   UpdateWorkspaceLayout,
@@ -109,6 +110,7 @@ import type {
   TunnelConfig,
   TunnelInput,
   TunnelSnapshot,
+  UISettings,
   WorkspaceLayout,
   WorkspaceLayoutInput,
 } from './types'
@@ -157,6 +159,8 @@ const rawBackend = {
   sendTestNotification: () => SendTestNotification(),
   updateSettings: (settings: AppSettings) =>
     UpdateSettings(bridge.SettingsDTO.createFrom(settings)) as Promise<AppSettings>,
+  updateUIPreferences: (settings: Pick<UISettings, 'sidebarWidth' | 'workspace'>) =>
+    UpdateUIPreferences(bridge.UIPreferencesInputDTO.createFrom(settings)) as Promise<UISettings>,
   resetSettings: () => ResetSettings() as Promise<AppSettings>,
   listSnippets: async () => normalizeSnippets(await ListSnippets()),
   createSnippet: (input: SnippetInput) => CreateSnippet(input) as Promise<Snippet>,

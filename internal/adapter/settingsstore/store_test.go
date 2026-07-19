@@ -22,11 +22,17 @@ func TestStoreCreatesDefaultsAndRoundTripsPrivately(t *testing.T) {
 	}
 	loaded.Terminal.FontSize = 16
 	loaded.Connection.ConnectTimeoutSeconds = 25
+	loaded.UI.Theme = settingsdomain.ThemeLight
+	loaded.UI.SidebarWidth = 316
+	loaded.UI.Workspace = settingsdomain.WorkspaceActivity
+	loaded.Window = settingsdomain.WindowState{
+		X: 80, Y: 45, Width: 1360, Height: 840, Positioned: true, Maximized: true,
+	}
 	if err := store.SaveSettings(loaded); err != nil {
 		t.Fatalf("save settings: %v", err)
 	}
 	reloaded, err := NewAt(path).LoadSettings()
-	if err != nil || reloaded.Terminal.FontSize != 16 || reloaded.Connection.ConnectTimeoutSeconds != 25 {
+	if err != nil || reloaded != loaded {
 		t.Fatalf("reload settings: value=%#v err=%v", reloaded, err)
 	}
 	info, err := os.Stat(path)
@@ -88,8 +94,8 @@ func TestStoreMigratesVersionOneNotificationDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read migrated settings: %v", err)
 	}
-	if !bytes.Contains(data, []byte(`"version": 4`)) {
-		t.Fatalf("settings were not upgraded to version 4: %s", data)
+	if !bytes.Contains(data, []byte(`"version": 5`)) {
+		t.Fatalf("settings were not upgraded to version 5: %s", data)
 	}
 }
 
@@ -129,5 +135,26 @@ func TestStoreMigratesVersionThreeConnectionDefaults(t *testing.T) {
 	}
 	if loaded.Terminal.FontSize != 15 || loaded.Transfers.Concurrency != 4 || !loaded.Notifications.Enabled {
 		t.Fatalf("existing version three settings changed: %#v", loaded)
+	}
+	if loaded.UI != settingsdomain.Defaults().UI || loaded.Window != settingsdomain.Defaults().Window {
+		t.Fatalf("version three UI defaults were not added: %#v", loaded)
+	}
+}
+
+func TestStoreMigratesVersionFourUIAndWindowDefaults(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "settings.json")
+	fixture := []byte(`{"version":4,"revision":13,"settings":{"terminal":{"fontFamily":"monaco","fontSize":14,"lineHeight":1.3,"cursorStyle":"underline","cursorBlink":false,"scrollback":30000,"bell":true},"connection":{"connectTimeoutSeconds":20,"keepAliveEnabled":false,"keepAliveIntervalSeconds":60,"keepAliveMaxFailures":4},"notifications":{"enabled":true,"transferCompleted":false,"unexpectedDisconnect":true,"longTransferSeconds":90},"transfers":{"concurrency":3,"collisionPolicy":"skip","keepPartialFiles":true}}}`)
+	if err := os.WriteFile(path, fixture, 0o600); err != nil {
+		t.Fatalf("write version four fixture: %v", err)
+	}
+	loaded, err := NewAt(path).LoadSettings()
+	if err != nil {
+		t.Fatalf("load version four settings: %v", err)
+	}
+	if loaded.UI != settingsdomain.Defaults().UI || loaded.Window != settingsdomain.Defaults().Window {
+		t.Fatalf("version four UI defaults were not added: %#v", loaded)
+	}
+	if loaded.Terminal.FontSize != 14 || loaded.Connection.ConnectTimeoutSeconds != 20 || loaded.Transfers.Concurrency != 3 {
+		t.Fatalf("version four preferences changed: %#v", loaded)
 	}
 }

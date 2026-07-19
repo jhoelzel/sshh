@@ -14,6 +14,7 @@ import (
 
 	"shh-h/internal/apperror"
 	"shh-h/internal/bridge"
+	settingsdomain "shh-h/internal/domain/settings"
 	"shh-h/internal/terminalbenchmark"
 )
 
@@ -60,10 +61,10 @@ func (application *application) options(assets fs.FS) *options.App {
 	}
 	return &options.App{
 		Title:                    "shh-h",
-		Width:                    1240,
-		Height:                   780,
-		MinWidth:                 860,
-		MinHeight:                560,
+		Width:                    settingsdomain.DefaultWindowWidth,
+		Height:                   settingsdomain.DefaultWindowHeight,
+		MinWidth:                 settingsdomain.MinWindowWidth,
+		MinHeight:                settingsdomain.MinWindowHeight,
 		BackgroundColour:         options.NewRGB(14, 17, 22),
 		AssetServer:              &assetserver.Options{Assets: assets},
 		OnStartup:                application.startup,

@@ -18,7 +18,7 @@ import (
 
 const (
 	filename      = "settings.json"
-	currentSchema = 4
+	currentSchema = 5
 	directoryMode = 0o700
 	fileMode      = 0o600
 )
@@ -76,19 +76,25 @@ func (s *Store) LoadSettings() (settingsdomain.Settings, error) {
 	if err := decodeSingleJSON(data, &persisted); err != nil {
 		return settingsdomain.Settings{}, fmt.Errorf("decode settings: %w", err)
 	}
+	defaults := settingsdomain.Defaults()
 	switch persisted.Version {
 	case 1:
-		persisted.Settings.Notifications = settingsdomain.Defaults().Notifications
-		persisted.Settings.Transfers = settingsdomain.Defaults().Transfers
-		persisted.Settings.Connection = settingsdomain.Defaults().Connection
+		persisted.Settings.Notifications = defaults.Notifications
+		persisted.Settings.Transfers = defaults.Transfers
+		persisted.Settings.Connection = defaults.Connection
 	case 2:
-		persisted.Settings.Transfers = settingsdomain.Defaults().Transfers
-		persisted.Settings.Connection = settingsdomain.Defaults().Connection
+		persisted.Settings.Transfers = defaults.Transfers
+		persisted.Settings.Connection = defaults.Connection
 	case 3:
-		persisted.Settings.Connection = settingsdomain.Defaults().Connection
+		persisted.Settings.Connection = defaults.Connection
+	case 4:
 	case currentSchema:
 	default:
 		return settingsdomain.Settings{}, fmt.Errorf("unsupported settings schema version %d", persisted.Version)
+	}
+	if persisted.Version < currentSchema {
+		persisted.Settings.UI = defaults.UI
+		persisted.Settings.Window = defaults.Window
 	}
 	if err := persisted.Settings.Validate(); err != nil {
 		return settingsdomain.Settings{}, fmt.Errorf("validate settings: %w", err)

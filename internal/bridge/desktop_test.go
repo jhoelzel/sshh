@@ -24,6 +24,7 @@ import (
 	profileusecase "shh-h/internal/usecase/profile"
 	remotepathusecase "shh-h/internal/usecase/remotepath"
 	sessionusecase "shh-h/internal/usecase/session"
+	settingsusecase "shh-h/internal/usecase/settings"
 )
 
 type bridgeProfileRepository struct {
@@ -41,6 +42,19 @@ func (repository *bridgeProfileRepository) SaveProfiles(profiles []profiledomain
 
 type bridgeRemotePathRepository struct {
 	favorites []remotepathdomain.Favorite
+}
+
+type bridgeSettingsRepository struct {
+	settings settingsdomain.Settings
+}
+
+func (repository *bridgeSettingsRepository) LoadSettings() (settingsdomain.Settings, error) {
+	return repository.settings, nil
+}
+
+func (repository *bridgeSettingsRepository) SaveSettings(value settingsdomain.Settings) error {
+	repository.settings = value
+	return nil
 }
 
 type bridgeTerminalFactory struct {
@@ -535,7 +549,7 @@ func TestTerminalTextFilenameSanitizesUntrustedTitles(t *testing.T) {
 	}
 }
 
-func TestSettingsDTORoundTripIncludesConnectionNotificationAndTransferPreferences(t *testing.T) {
+func TestSettingsDTORoundTripIncludesExposedPreferencesAndPreservesNativeWindowState(t *testing.T) {
 	settings := settingsdomain.Defaults()
 	settings.Connection.ConnectTimeoutSeconds = 25
 	settings.Connection.KeepAliveEnabled = false
@@ -546,8 +560,128 @@ func TestSettingsDTORoundTripIncludesConnectionNotificationAndTransferPreference
 	settings.Transfers.Concurrency = 5
 	settings.Transfers.CollisionPolicy = "rename"
 	settings.Transfers.KeepPartialFiles = true
-	if roundTrip := settingsFromDTO(settingsDTO(settings)); roundTrip != settings {
+	settings.UI.Theme = settingsdomain.ThemeLight
+	settings.UI.SidebarWidth = 336
+	settings.UI.Workspace = settingsdomain.WorkspaceActivity
+	settings.Window = settingsdomain.WindowState{
+		X: 90, Y: 60, Width: 1420, Height: 900, Positioned: true, Maximized: true,
+	}
+	if roundTrip := settingsFromDTO(settingsDTO(settings), settings); roundTrip != settings {
 		t.Fatalf("settings DTO changed preferences: %#v", roundTrip)
+	}
+
+	current := settings
+	current.UI.SidebarWidth = 288
+	current.UI.Workspace = settingsdomain.WorkspaceTunnels
+	current.Window = settingsdomain.Defaults().Window
+	roundTrip := settingsFromDTO(settingsDTO(settings), current)
+	if roundTrip.UI.Theme != settingsdomain.ThemeLight || roundTrip.UI.SidebarWidth != 288 || roundTrip.UI.Workspace != settingsdomain.WorkspaceTunnels {
+		t.Fatalf("settings DTO overwrote runtime-owned UI preferences: %#v", roundTrip.UI)
+	}
+	if roundTrip.Window != current.Window {
+		t.Fatalf("settings DTO exposed native window state: %#v", roundTrip.Window)
+	}
+}
+
+func TestDesktopRestoresCapturesAndValidatesNativeWindowState(t *testing.T) {
+	initial := settingsdomain.Defaults()
+	initial.Window = settingsdomain.WindowState{
+		X: 70, Y: 45, Width: 1380, Height: 860, Positioned: true, Maximized: true,
+	}
+	repository := &bridgeSettingsRepository{settings: initial}
+	service, err := settingsusecase.NewService(repository)
+	if err != nil {
+		t.Fatalf("new settings service: %v", err)
+	}
+	desktop := newDeferredDesktop()
+	desktop.settings = service
+
+	var restoredSize [2]int
+	var restoredPosition [2]int
+	unmaximiseCalls := 0
+	maximiseCalls := 0
+	normal := true
+	maximised := false
+	desktop.window = windowRuntime{
+		setSize: func(_ context.Context, width, height int) {
+			restoredSize = [2]int{width, height}
+		},
+		getSize: func(context.Context) (int, int) { return 1510, 940 },
+		setPosition: func(_ context.Context, x, y int) {
+			restoredPosition = [2]int{x, y}
+		},
+		getPosition: func(context.Context) (int, int) { return -120, 85 },
+		maximise:    func(context.Context) { maximiseCalls++ },
+		unmaximise:  func(context.Context) { unmaximiseCalls++ },
+		isMaximised: func(context.Context) bool { return maximised },
+		isNormal:    func(context.Context) bool { return normal },
+	}
+
+	desktop.domReady(context.Background())
+	if restoredSize != [2]int{1380, 860} || restoredPosition != [2]int{70, 45} {
+		t.Fatalf("restored geometry = size %v position %v", restoredSize, restoredPosition)
+	}
+	if unmaximiseCalls != 1 || maximiseCalls != 1 {
+		t.Fatalf("restore state calls = unmaximise %d maximise %d", unmaximiseCalls, maximiseCalls)
+	}
+
+	if err := desktop.captureWindowState(context.Background()); err != nil {
+		t.Fatalf("capture normal window: %v", err)
+	}
+	wantNormal := settingsdomain.WindowState{
+		X: -120, Y: 85, Width: 1510, Height: 940, Positioned: true,
+	}
+	if current := service.Get().Window; current != wantNormal {
+		t.Fatalf("captured normal window = %#v, want %#v", current, wantNormal)
+	}
+
+	normal = false
+	maximised = true
+	if err := desktop.captureWindowState(context.Background()); err != nil {
+		t.Fatalf("capture maximized window: %v", err)
+	}
+	wantMaximised := wantNormal
+	wantMaximised.Maximized = true
+	if current := service.Get().Window; current != wantMaximised {
+		t.Fatalf("maximized capture changed normal bounds: %#v", current)
+	}
+
+	normal = true
+	desktop.window.getSize = func(context.Context) (int, int) { return 100, 100 }
+	if err := desktop.captureWindowState(context.Background()); !apperror.IsCode(err, apperror.CodeInvalidArgument) {
+		t.Fatalf("invalid native geometry error = %v", err)
+	}
+	if current := service.Get().Window; current != wantMaximised {
+		t.Fatalf("invalid native geometry replaced durable state: %#v", current)
+	}
+}
+
+func TestDesktopUpdatesOnlyNonSensitiveUIPreferences(t *testing.T) {
+	initial := settingsdomain.Defaults()
+	initial.UI.Theme = settingsdomain.ThemeLight
+	initial.Window = settingsdomain.WindowState{
+		X: 25, Y: 30, Width: 1300, Height: 800, Positioned: true,
+	}
+	service, err := settingsusecase.NewService(&bridgeSettingsRepository{settings: initial})
+	if err != nil {
+		t.Fatalf("new settings service: %v", err)
+	}
+	desktop := newDeferredDesktop()
+	desktop.settings = service
+
+	updated, err := desktop.UpdateUIPreferences(UIPreferencesInputDTO{
+		SidebarWidth: 318,
+		Workspace:    settingsdomain.WorkspaceLayouts,
+	})
+	if err != nil {
+		t.Fatalf("update UI preferences: %v", err)
+	}
+	if updated.Theme != settingsdomain.ThemeLight || updated.SidebarWidth != 318 || updated.Workspace != settingsdomain.WorkspaceLayouts {
+		t.Fatalf("unexpected UI preferences: %#v", updated)
+	}
+	current := service.Get()
+	if current.Window != initial.Window || current.Terminal != initial.Terminal || current.Connection != initial.Connection {
+		t.Fatalf("UI update changed unrelated settings: %#v", current)
 	}
 }
 

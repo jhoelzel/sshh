@@ -1,6 +1,6 @@
 import { useMemo, useState, type FormEvent } from 'react'
-import { ArrowLeftRight, Bell, BellRing, Info, MousePointer2, Network, RotateCcw, Save, Send, Settings2, Type } from 'lucide-react'
-import type { AppSettings, BuildInfo, NotificationStatus, TerminalCursorStyle, TerminalFontFamily, TransferCollisionPolicy } from '../../lib/bridge/types'
+import { ArrowLeftRight, Bell, BellRing, Info, MousePointer2, Network, RotateCcw, Save, Send, Settings2, SunMoon, Type } from 'lucide-react'
+import type { AppSettings, BuildInfo, NotificationStatus, TerminalCursorStyle, TerminalFontFamily, ThemePreference, TransferCollisionPolicy } from '../../lib/bridge/types'
 
 interface SettingsWorkspaceProps {
   settings: AppSettings
@@ -27,7 +27,10 @@ export function SettingsWorkspace({
   const [error, setError] = useState<string>()
   const [notificationNotice, setNotificationNotice] = useState<string>()
 
-  const dirty = useMemo(() => JSON.stringify(draft) !== JSON.stringify(settings), [draft, settings])
+  const dirty = useMemo(
+    () => JSON.stringify(editableSettings(draft)) !== JSON.stringify(editableSettings(settings)),
+    [draft, settings],
+  )
   const notificationSettingsSaved = useMemo(
     () => JSON.stringify(draft.notifications) === JSON.stringify(settings.notifications),
     [draft.notifications, settings.notifications],
@@ -48,6 +51,10 @@ export function SettingsWorkspace({
 
   const setTransfers = <Key extends keyof AppSettings['transfers']>(key: Key, value: AppSettings['transfers'][Key]) => {
     setDraft((current) => ({ ...current, transfers: { ...current.transfers, [key]: value } }))
+  }
+
+  const setTheme = (theme: ThemePreference) => {
+    setDraft((current) => ({ ...current, ui: { ...current.ui, theme } }))
   }
 
   const save = async (event: FormEvent) => {
@@ -105,11 +112,25 @@ export function SettingsWorkspace({
   return (
     <form className="settings-workspace" aria-label="Application settings" onSubmit={(event) => void save(event)}>
       <header className="settings-header">
-        <div className="settings-title"><Settings2 size={18} /><div><strong>Settings</strong><span>Terminal, connections, transfers, and notifications</span></div></div>
+        <div className="settings-title"><Settings2 size={18} /><div><strong>Settings</strong><span>Appearance, terminal, connections, transfers, and notifications</span></div></div>
         <button className="secondary-button" type="button" disabled={busy || Boolean(notificationAction)} onClick={() => void reset()}><RotateCcw size={15} /> Reset</button>
       </header>
 
       <div className="settings-content">
+        <section className="settings-section" aria-labelledby="appearance-settings-title">
+          <header><SunMoon size={17} /><h2 id="appearance-settings-title">Appearance</h2></header>
+          <div className="settings-control-list">
+            <div className="settings-control">
+              <span><strong>Application theme</strong><small>Interface colors outside terminal sessions</small></span>
+              <div className="segmented-control settings-segments" aria-label="Application theme">
+                {(['system', 'dark', 'light'] as ThemePreference[]).map((theme) => (
+                  <button className={draft.ui.theme === theme ? 'is-selected' : ''} type="button" key={theme} onClick={() => setTheme(theme)}>{themeLabel(theme)}</button>
+                ))}
+              </div>
+            </div>
+          </div>
+        </section>
+
         <section className="settings-section" aria-labelledby="text-settings-title">
           <header><Type size={17} /><h2 id="text-settings-title">Text and spacing</h2></header>
           <div className="settings-control-list">
@@ -290,6 +311,20 @@ export function SettingsWorkspace({
 
 function cursorLabel(value: TerminalCursorStyle): string {
   return value.charAt(0).toUpperCase() + value.slice(1)
+}
+
+function themeLabel(value: ThemePreference): string {
+  return value.charAt(0).toUpperCase() + value.slice(1)
+}
+
+function editableSettings(value: AppSettings) {
+  return {
+    terminal: value.terminal,
+    connection: value.connection,
+    notifications: value.notifications,
+    transfers: value.transfers,
+    theme: value.ui.theme,
+  }
 }
 
 function shortCommit(value: string): string {

@@ -32,6 +32,7 @@ const settings: AppSettings = {
     unexpectedDisconnect: true, longTransferSeconds: 30,
   },
   transfers: { concurrency: 2, collisionPolicy: 'ask', keepPartialFiles: false },
+  ui: { theme: 'dark', sidebarWidth: 272, workspace: 'terminals' },
 }
 const buildInfo: BuildInfo = {
   version: '0.1.0-dev', commit: 'abcdef123456', buildDate: '2026-07-17T20:00:00Z',

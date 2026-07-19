@@ -30,6 +30,11 @@ const settings = {
     collisionPolicy: 'ask' as const,
     keepPartialFiles: false,
   },
+  ui: {
+    theme: 'dark' as const,
+    sidebarWidth: 272,
+    workspace: 'terminals' as const,
+  },
 }
 
 const notificationStatus = { available: true, authorized: false, message: 'Permission is required' }
@@ -71,6 +76,7 @@ describe('SettingsWorkspace', () => {
       connection: settings.connection,
       notifications: settings.notifications,
       transfers: settings.transfers,
+      ui: settings.ui,
     }))
   })
 
@@ -110,6 +116,7 @@ describe('SettingsWorkspace', () => {
         longTransferSeconds: 45,
       },
       transfers: settings.transfers,
+      ui: settings.ui,
     }))
   })
 
@@ -127,6 +134,7 @@ describe('SettingsWorkspace', () => {
       connection: settings.connection,
       notifications: settings.notifications,
       transfers: { concurrency: 4, collisionPolicy: 'rename', keepPartialFiles: true },
+      ui: settings.ui,
     }))
   })
 
@@ -149,6 +157,20 @@ describe('SettingsWorkspace', () => {
       },
       notifications: settings.notifications,
       transfers: settings.transfers,
+      ui: settings.ui,
+    }))
+  })
+
+  it('saves a selected application theme without changing runtime UI state', async () => {
+    const save = vi.fn(async (value: AppSettings) => value)
+    renderSettings({ onSave: save })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Light' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Save settings' }))
+
+    await waitFor(() => expect(save).toHaveBeenCalledWith({
+      ...settings,
+      ui: { ...settings.ui, theme: 'light' },
     }))
   })
 

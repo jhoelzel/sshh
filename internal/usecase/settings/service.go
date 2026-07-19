@@ -51,6 +51,46 @@ func (s *Service) Update(value settingsdomain.Settings) (settingsdomain.Settings
 	return value, nil
 }
 
+func (s *Service) UpdateUI(value settingsdomain.UI) (settingsdomain.UI, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	next := s.current
+	next.UI = value
+	if err := next.Validate(); err != nil {
+		return settingsdomain.UI{}, apperror.Wrap(
+			apperror.CodeInvalidArgument, "update UI settings", err.Error(), err,
+		)
+	}
+	if next == s.current {
+		return s.current.UI, nil
+	}
+	if err := s.repo.SaveSettings(next); err != nil {
+		return settingsdomain.UI{}, err
+	}
+	s.current = next
+	return next.UI, nil
+}
+
+func (s *Service) UpdateWindow(value settingsdomain.WindowState) (settingsdomain.WindowState, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	next := s.current
+	next.Window = value
+	if err := next.Validate(); err != nil {
+		return settingsdomain.WindowState{}, apperror.Wrap(
+			apperror.CodeInvalidArgument, "update window state", err.Error(), err,
+		)
+	}
+	if next == s.current {
+		return s.current.Window, nil
+	}
+	if err := s.repo.SaveSettings(next); err != nil {
+		return settingsdomain.WindowState{}, err
+	}
+	s.current = next
+	return next.Window, nil
+}
+
 func (s *Service) Reset() (settingsdomain.Settings, error) {
 	return s.Update(settingsdomain.Defaults())
 }
